@@ -1,0 +1,80 @@
+// Prisma schema — CRM New Palace
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Perfis de acesso (RBAC). Espelha os perfis usados no frontend.
+enum Role {
+  admin
+  gerente
+  corretor
+}
+
+/// Situação do usuário no sistema.
+enum UserStatus {
+  ativo
+  inativo
+}
+
+/// Usuário do sistema (login, RBAC e gestão de equipe).
+model User {
+  id        String     @id @default(uuid())
+  name      String
+  email     String     @unique
+  password  String
+  phone     String?
+  cargo     String?
+  role      Role       @default(corretor)
+  status    UserStatus @default(ativo)
+  avatar    String?
+
+  lastLoginAt DateTime?
+
+  // Hash do refresh token atual (para logout/refresh seguro).
+  hashedRefreshToken String?
+
+  // Proteção contra força bruta: bloqueia a conta após falhas consecutivas.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
+  // Fluxo de recuperação de senha.
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+/// Motivo de uma tentativa de login recusada (para auditoria).
+enum LoginFailureReason {
+  senha_incorreta
+  usuario_inexistente
+  conta_bloqueada
+  usuario_inativo
+}
+
+/// Trilha de auditoria de acessos — permite detectar ataques de força bruta.
+model LoginAttempt {
+  id        String              @id @default(uuid())
+  email     String
+  success   Boolean
+  reason    LoginFailureReason?
+  ip        String?
+  userAgent String?
+  createdAt DateTime            @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+  @@map("login_attempts")
+}
