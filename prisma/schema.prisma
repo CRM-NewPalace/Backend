@@ -48,12 +48,47 @@ model User {
   passwordResetToken   String?
   passwordResetExpires DateTime?
 
+  // Carteira de leads/clientes atribuídos a este corretor.
+  leads Lead[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([role])
   @@index([status])
   @@map("users")
+}
+
+/// Lead / cliente da imobiliária. Alimenta as telas de Leads, Clientes e Funil.
+/// stage, interesse e prioridade são strings validadas na API (paridade 1:1
+/// com os identificadores usados no frontend, inclusive acentos e hífens).
+model Lead {
+  id         String   @id @default(uuid())
+  nome       String
+  telefone   String
+  email      String
+  origem     String
+  interesse  String // Comprar | Alugar | Investir
+  faixa      String
+  cidade     String
+  bairro     String
+  stage      String   @default("novo")
+  prioridade String   @default("Média")
+  valor      Int      @default(0)
+  tags       String[] @default([])
+
+  // Corretor dono do lead. Fica nulo se o corretor for removido (SetNull),
+  // preservando o histórico do lead.
+  corretor   User?   @relation(fields: [corretorId], references: [id], onDelete: SetNull)
+  corretorId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([stage])
+  @@index([corretorId])
+  @@index([createdAt])
+  @@map("leads")
 }
 
 /// Motivo de uma tentativa de login recusada (para auditoria).

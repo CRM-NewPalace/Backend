@@ -73,6 +73,102 @@ const teamUsers: SeedUser[] = [
   },
 ];
 
+interface SeedLead {
+  nome: string;
+  telefone: string;
+  email: string;
+  origem: string;
+  interesse: string;
+  faixa: string;
+  cidade: string;
+  bairro: string;
+  stage: string;
+  prioridade: string;
+  valor: number;
+  tags: string[];
+  /** E-mail do corretor dono (para vincular ao User criado acima). */
+  corretorEmail: string;
+}
+
+// Leads de demonstração distribuídos entre os corretores demo.
+const demoLeads: SeedLead[] = [
+  {
+    nome: 'João Pereira',
+    telefone: '(11) 98000-1001',
+    email: 'joao.pereira@email.com',
+    origem: 'Site',
+    interesse: 'Comprar',
+    faixa: 'R$ 500k - 800k',
+    cidade: 'São Paulo',
+    bairro: 'Vila Mariana',
+    stage: 'qualificacao',
+    prioridade: 'Alta',
+    valor: 620000,
+    tags: ['Quente'],
+    corretorEmail: 'corretor@imob.com',
+  },
+  {
+    nome: 'Beatriz Costa',
+    telefone: '(11) 98000-1002',
+    email: 'beatriz.costa@email.com',
+    origem: 'Indicação',
+    interesse: 'Comprar',
+    faixa: 'R$ 800k - 1.2M',
+    cidade: 'São Paulo',
+    bairro: 'Moema',
+    stage: 'proposta',
+    prioridade: 'Alta',
+    valor: 890000,
+    tags: ['VIP'],
+    corretorEmail: 'pedro@imob.com',
+  },
+  {
+    nome: 'Ricardo Santos',
+    telefone: '(11) 98000-1003',
+    email: 'ricardo.santos@email.com',
+    origem: 'Google Ads',
+    interesse: 'Investir',
+    faixa: 'R$ 1.2M+',
+    cidade: 'São Paulo',
+    bairro: 'Itaim Bibi',
+    stage: 'visita-agendada',
+    prioridade: 'Média',
+    valor: 1250000,
+    tags: ['Investidor'],
+    corretorEmail: 'sofia@imob.com',
+  },
+  {
+    nome: 'Camila Rocha',
+    telefone: '(11) 98000-1004',
+    email: 'camila.rocha@email.com',
+    origem: 'Instagram',
+    interesse: 'Alugar',
+    faixa: 'R$ 300k - 500k',
+    cidade: 'São Paulo',
+    bairro: 'Pinheiros',
+    stage: 'contato',
+    prioridade: 'Baixa',
+    valor: 450000,
+    tags: ['Retorno'],
+    corretorEmail: 'corretor@imob.com',
+  },
+  {
+    nome: 'Fernando Lima',
+    telefone: '(11) 98000-1005',
+    email: 'fernando.lima@email.com',
+    origem: 'WhatsApp',
+    interesse: 'Comprar',
+    faixa: 'R$ 500k - 800k',
+    cidade: 'São Paulo',
+    bairro: 'Perdizes',
+    stage: 'novo',
+    prioridade: 'Média',
+    valor: 780000,
+    tags: [],
+    corretorEmail: 'pedro@imob.com',
+  },
+];
+
 async function main() {
   // As contas demo usam senhas triviais ("admin", "gerente"...) para facilitar
   // o desenvolvimento. Deixá-las em produção seria uma porta aberta.
@@ -111,6 +207,37 @@ async function main() {
       },
     });
     console.log(`  ✓ ${user.email} (${user.role})`);
+  }
+
+  // Leads de demonstração — recriados a cada seed para um estado previsível.
+  await prisma.lead.deleteMany({
+    where: { email: { in: demoLeads.map((l) => l.email) } },
+  });
+
+  for (const lead of demoLeads) {
+    const corretor = await prisma.user.findUnique({
+      where: { email: lead.corretorEmail },
+      select: { id: true },
+    });
+
+    await prisma.lead.create({
+      data: {
+        nome: lead.nome,
+        telefone: lead.telefone,
+        email: lead.email,
+        origem: lead.origem,
+        interesse: lead.interesse,
+        faixa: lead.faixa,
+        cidade: lead.cidade,
+        bairro: lead.bairro,
+        stage: lead.stage,
+        prioridade: lead.prioridade,
+        valor: lead.valor,
+        tags: lead.tags,
+        corretorId: corretor?.id ?? null,
+      },
+    });
+    console.log(`  ✓ lead ${lead.nome} → ${lead.corretorEmail}`);
   }
 
   console.log('\nSeed concluído.');
