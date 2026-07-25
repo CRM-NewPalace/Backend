@@ -167,11 +167,8 @@ async function main() {
     console.log(`  ✓ ${user.email} (${user.role})`);
   }
 
-  // Leads e catálogos operacionais (origens/tags) ficam para a UI.
-  // Etapas do funil: pacote padrão instalado no banco.
-  await prisma.lead.deleteMany();
-  console.log('  ✓ leads removidos');
-
+  // Contas demo + etapas do funil. Leads/clientes NÃO são seedados aqui —
+  // em produção vêm de outro fluxo; para banco de teste use script local.
   await seedDefaultFunnelStages();
 
   console.log('\nSeed concluído.');
