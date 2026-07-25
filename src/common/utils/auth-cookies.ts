@@ -26,14 +26,30 @@ export function parseDurationMs(value: string, fallbackMs: number): number {
   return amount * (multipliers[unit] ?? 1);
 }
 
+type SameSite = 'lax' | 'none' | 'strict';
+
+/**
+ * SameSite dos cookies de sessão.
+ *
+ * Cross-site (frontend em outro domínio/porta que a API) só funciona com
+ * 'none' — com 'lax' o browser não envia o cookie no XHR e toda requisição
+ * autenticada volta 401 depois de um login aparentemente bem-sucedido.
+ * Use COOKIE_SAMESITE=lax quando frontend e API compartilham a origem.
+ */
+function resolveSameSite(config: ConfigService, isProd: boolean): SameSite {
+  const raw = config.get<string>('COOKIE_SAMESITE')?.trim().toLowerCase();
+  if (raw === 'lax' || raw === 'none' || raw === 'strict') return raw;
+  return isProd ? 'none' : 'lax';
+}
+
 function baseCookieOptions(config: ConfigService): CookieOptions {
   const isProd = config.get<string>('NODE_ENV') === 'production';
+  const sameSite = resolveSameSite(config, isProd);
   return {
     httpOnly: true,
-    secure: isProd,
-    // Lax: cookies viajam em XHR same-site (localhost:5173 → :3333) e
-    // bloqueiam envio em navegações cross-site de terceiros.
-    sameSite: 'lax',
+    // O browser descarta SameSite=None sem Secure.
+    secure: isProd || sameSite === 'none',
+    sameSite,
     path: '/api',
   };
 }
