@@ -9,6 +9,7 @@
 .env
 .env.local
 .env.*.local
+.env.render
 
 # Logs
 *.log
@@ -26,5 +27,6 @@ prisma/*.db-journal
 
 # Scripts locais de dados de teste (não vão para produção/GitHub)
 prisma/seed-demo-local.ts
+prisma/ensure-demo-users-local.ts
 prisma/check-render-data.ts
 prisma/*.local.ts
