@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -8,15 +8,13 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
-import {
-  LEAD_INTERESSES,
-  LEAD_PRIORIDADES,
-  LEAD_STAGES,
-} from '../lead.constants';
+import { LEAD_INTERESSES, LEAD_PRIORIDADES } from '../lead.constants';
 
 /** Atualização de lead: todos os campos opcionais. */
 export class UpdateLeadDto {
@@ -28,7 +26,10 @@ export class UpdateLeadDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(30)
+  @Matches(/^\(\d{2}\) \d{4,5}-\d{4}$/, {
+    message: 'Telefone inválido. Use o formato (81) 99999-9999.',
+  })
+  @MaxLength(20)
   telefone?: string;
 
   @IsOptional()
@@ -47,11 +48,6 @@ export class UpdateLeadDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(60)
-  faixa?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(80)
   cidade?: string;
 
@@ -60,19 +56,27 @@ export class UpdateLeadDto {
   @MaxLength(80)
   bairro?: string;
 
+  // A etapa é validada dinamicamente contra o catálogo ativo no LeadsService.
   @IsOptional()
-  @IsIn(LEAD_STAGES, { message: 'Etapa do funil inválida.' })
+  @IsString()
+  @MaxLength(60)
   stage?: string;
 
   @IsOptional()
   @IsIn(LEAD_PRIORIDADES, { message: 'Prioridade inválida.' })
   prioridade?: string;
 
+  /** Renda mensal do cliente (opcional). null limpa o valor. */
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  valor?: number;
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    return Number(value);
+  })
+  @IsInt({ message: 'Renda inválida.' })
+  @Min(0, { message: 'Renda não pode ser negativa.' })
+  renda?: number | null;
 
   @IsOptional()
   @IsArray()

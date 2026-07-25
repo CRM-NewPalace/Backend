@@ -38,6 +38,20 @@ function baseCookieOptions(config: ConfigService): CookieOptions {
   };
 }
 
+/**
+ * Cookie CSRF legível por JS em qualquer rota do frontend.
+ * path "/" é obrigatório: document.cookie só expõe cookies cujo path
+ * casa com a página atual — com path "/api" a tela /configuracoes
+ * nunca consegue ler o token e as mutações falham com 403.
+ */
+function csrfCookieOptions(config: ConfigService): CookieOptions {
+  return {
+    ...baseCookieOptions(config),
+    httpOnly: false,
+    path: '/',
+  };
+}
+
 export function setAuthCookies(
   res: Response,
   config: ConfigService,
@@ -63,17 +77,20 @@ export function setAuthCookies(
     maxAge: refreshMs,
   });
 
-  // CSRF legível por JS — double-submit cookie pattern.
+  // Remove cookie CSRF legado (path /api) para não sobrar token fantasma.
+  res.clearCookie(COOKIE.csrf, { ...base, httpOnly: false });
+
   res.cookie(COOKIE.csrf, tokens.csrfToken, {
-    ...base,
-    httpOnly: false,
+    ...csrfCookieOptions(config),
     maxAge: refreshMs,
   });
 }
 
 export function clearAuthCookies(res: Response, config: ConfigService): void {
   const base = baseCookieOptions(config);
-  for (const name of [COOKIE.access, COOKIE.refresh, COOKIE.csrf]) {
-    res.clearCookie(name, { ...base, httpOnly: name !== COOKIE.csrf });
-  }
+  res.clearCookie(COOKIE.access, base);
+  res.clearCookie(COOKIE.refresh, base);
+  // Limpa ambos os paths (legado /api e atual /).
+  res.clearCookie(COOKIE.csrf, { ...base, httpOnly: false });
+  res.clearCookie(COOKIE.csrf, csrfCookieOptions(config));
 }

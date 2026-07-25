@@ -1,8 +1,11 @@
-import { IsIn } from 'class-validator';
-import { LEAD_STAGES } from '../lead.constants';
+import { IsString, MaxLength } from 'class-validator';
 
-/** Movimenta o lead entre as etapas do funil. */
+/**
+ * Movimenta o lead entre as etapas do funil.
+ * A etapa é validada dinamicamente contra o catálogo ativo no LeadsService.
+ */
 export class UpdateLeadStageDto {
-  @IsIn(LEAD_STAGES, { message: 'Etapa do funil inválida.' })
+  @IsString()
+  @MaxLength(60)
   stage!: string;
 }

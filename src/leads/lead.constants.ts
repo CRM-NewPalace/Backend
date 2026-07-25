@@ -26,3 +26,8 @@ export type LeadInteresse = (typeof LEAD_INTERESSES)[number];
 export const LEAD_PRIORIDADES = ['Alta', 'Média', 'Baixa'] as const;
 
 export type LeadPrioridade = (typeof LEAD_PRIORIDADES)[number];
+
+/** lead = captação; cliente = carteira pessoal (não mistura nas listas). */
+export const CONTATO_TIPOS = ['lead', 'cliente'] as const;
+
+export type ContatoTipo = (typeof CONTATO_TIPOS)[number];

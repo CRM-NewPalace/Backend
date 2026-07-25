@@ -1,8 +1,23 @@
-import { PrismaClient, Role, UserStatus } from '@prisma/client';
+import { CatalogType, PrismaClient, Role, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 12;
+
+/** Espelha Backend/src/catalog/catalog.defaults.ts — mantido inline no seed (ts-node). */
+const DEFAULT_FUNNEL_STAGES = [
+  { label: 'Novo lead', slug: 'novo', color: 'bg-slate-200 text-slate-700', sortOrder: 0 },
+  { label: 'Contato', slug: 'contato', color: 'bg-blue-100 text-blue-700', sortOrder: 1 },
+  { label: 'Qualificação', slug: 'qualificacao', color: 'bg-indigo-100 text-indigo-700', sortOrder: 2 },
+  { label: 'Em análise', slug: 'em-analise', color: 'bg-violet-100 text-violet-700', sortOrder: 3 },
+  { label: 'Visita agendada', slug: 'visita-agendada', color: 'bg-cyan-100 text-cyan-700', sortOrder: 4 },
+  { label: 'Visita realizada', slug: 'visita-realizada', color: 'bg-teal-100 text-teal-700', sortOrder: 5 },
+  { label: 'Proposta', slug: 'proposta', color: 'bg-amber-100 text-amber-700', sortOrder: 6 },
+  { label: 'Negociação', slug: 'negociacao', color: 'bg-orange-100 text-orange-700', sortOrder: 7 },
+  { label: 'Contrato / Fechamento', slug: 'contrato-fechamento', color: 'bg-emerald-100 text-emerald-700', sortOrder: 8 },
+  { label: 'Ganho / Venda', slug: 'ganho-venda', color: 'bg-green-200 text-green-800', sortOrder: 9 },
+  { label: 'Perdido', slug: 'perdido', color: 'bg-red-100 text-red-700', sortOrder: 10 },
+] as const;
 
 interface SeedUser {
   name: string;
@@ -16,7 +31,6 @@ interface SeedUser {
 
 const defaultPassword = process.env.SEED_DEFAULT_PASSWORD ?? 'Mudar@123';
 
-// Contas de demonstração — compatíveis com o botão "Contas demo" do frontend.
 const demoAccounts: SeedUser[] = [
   {
     name: 'Ana Souza',
@@ -42,10 +56,6 @@ const demoAccounts: SeedUser[] = [
     cargo: 'Corretora sênior',
     role: Role.corretor,
   },
-];
-
-// Equipe adicional (senha padrão = SEED_DEFAULT_PASSWORD).
-const teamUsers: SeedUser[] = [
   {
     name: 'Pedro Henrique',
     email: 'pedro@imob.com',
@@ -73,121 +83,69 @@ const teamUsers: SeedUser[] = [
   },
 ];
 
-interface SeedLead {
-  nome: string;
-  telefone: string;
-  email: string;
-  origem: string;
-  interesse: string;
-  faixa: string;
-  cidade: string;
-  bairro: string;
-  stage: string;
-  prioridade: string;
-  valor: number;
-  tags: string[];
-  /** E-mail do corretor dono (para vincular ao User criado acima). */
-  corretorEmail: string;
+async function seedDefaultFunnelStages() {
+  for (const stage of DEFAULT_FUNNEL_STAGES) {
+    const bySlug = await prisma.catalogItem.findFirst({
+      where: { type: CatalogType.funil_etapa, slug: stage.slug },
+    });
+    if (bySlug) {
+      await prisma.catalogItem.update({
+        where: { id: bySlug.id },
+        data: {
+          label: stage.label,
+          color: stage.color,
+          sortOrder: stage.sortOrder,
+          active: true,
+        },
+      });
+      continue;
+    }
+
+    const byLabel = await prisma.catalogItem.findUnique({
+      where: {
+        type_label: { type: CatalogType.funil_etapa, label: stage.label },
+      },
+    });
+    if (byLabel) {
+      await prisma.catalogItem.update({
+        where: { id: byLabel.id },
+        data: {
+          slug: stage.slug,
+          color: stage.color,
+          sortOrder: stage.sortOrder,
+          active: true,
+        },
+      });
+      continue;
+    }
+
+    await prisma.catalogItem.create({
+      data: {
+        type: CatalogType.funil_etapa,
+        label: stage.label,
+        slug: stage.slug,
+        color: stage.color,
+        sortOrder: stage.sortOrder,
+        active: true,
+      },
+    });
+  }
+  console.log(`  ✓ ${DEFAULT_FUNNEL_STAGES.length} etapas padrão do funil`);
 }
 
-// Leads de demonstração distribuídos entre os corretores demo.
-const demoLeads: SeedLead[] = [
-  {
-    nome: 'João Pereira',
-    telefone: '(11) 98000-1001',
-    email: 'joao.pereira@email.com',
-    origem: 'Site',
-    interesse: 'Comprar',
-    faixa: 'R$ 500k - 800k',
-    cidade: 'São Paulo',
-    bairro: 'Vila Mariana',
-    stage: 'qualificacao',
-    prioridade: 'Alta',
-    valor: 620000,
-    tags: ['Quente'],
-    corretorEmail: 'corretor@imob.com',
-  },
-  {
-    nome: 'Beatriz Costa',
-    telefone: '(11) 98000-1002',
-    email: 'beatriz.costa@email.com',
-    origem: 'Indicação',
-    interesse: 'Comprar',
-    faixa: 'R$ 800k - 1.2M',
-    cidade: 'São Paulo',
-    bairro: 'Moema',
-    stage: 'proposta',
-    prioridade: 'Alta',
-    valor: 890000,
-    tags: ['VIP'],
-    corretorEmail: 'pedro@imob.com',
-  },
-  {
-    nome: 'Ricardo Santos',
-    telefone: '(11) 98000-1003',
-    email: 'ricardo.santos@email.com',
-    origem: 'Google Ads',
-    interesse: 'Investir',
-    faixa: 'R$ 1.2M+',
-    cidade: 'São Paulo',
-    bairro: 'Itaim Bibi',
-    stage: 'visita-agendada',
-    prioridade: 'Média',
-    valor: 1250000,
-    tags: ['Investidor'],
-    corretorEmail: 'sofia@imob.com',
-  },
-  {
-    nome: 'Camila Rocha',
-    telefone: '(11) 98000-1004',
-    email: 'camila.rocha@email.com',
-    origem: 'Instagram',
-    interesse: 'Alugar',
-    faixa: 'R$ 300k - 500k',
-    cidade: 'São Paulo',
-    bairro: 'Pinheiros',
-    stage: 'contato',
-    prioridade: 'Baixa',
-    valor: 450000,
-    tags: ['Retorno'],
-    corretorEmail: 'corretor@imob.com',
-  },
-  {
-    nome: 'Fernando Lima',
-    telefone: '(11) 98000-1005',
-    email: 'fernando.lima@email.com',
-    origem: 'WhatsApp',
-    interesse: 'Comprar',
-    faixa: 'R$ 500k - 800k',
-    cidade: 'São Paulo',
-    bairro: 'Perdizes',
-    stage: 'novo',
-    prioridade: 'Média',
-    valor: 780000,
-    tags: [],
-    corretorEmail: 'pedro@imob.com',
-  },
-];
-
 async function main() {
-  // As contas demo usam senhas triviais ("admin", "gerente"...) para facilitar
-  // o desenvolvimento. Deixá-las em produção seria uma porta aberta.
   if (process.env.NODE_ENV === 'production') {
     throw new Error(
       'Seed bloqueado: este script cria contas de demonstração com senhas fracas e não deve rodar em produção.',
     );
   }
 
-  const users = [...demoAccounts, ...teamUsers];
-
-  for (const user of users) {
+  for (const user of demoAccounts) {
     const hashed = await bcrypt.hash(user.password, SALT_ROUNDS);
     await prisma.user.upsert({
       where: { email: user.email },
       update: {
         name: user.name,
-        // Regrava a senha para manter o mesmo custo de bcrypt em todas as
-        // contas — custos diferentes criam variação de tempo no login.
         password: hashed,
         phone: user.phone,
         cargo: user.cargo,
@@ -209,40 +167,16 @@ async function main() {
     console.log(`  ✓ ${user.email} (${user.role})`);
   }
 
-  // Leads de demonstração — recriados a cada seed para um estado previsível.
-  await prisma.lead.deleteMany({
-    where: { email: { in: demoLeads.map((l) => l.email) } },
-  });
+  // Leads e catálogos operacionais (origens/tags) ficam para a UI.
+  // Etapas do funil: pacote padrão instalado no banco.
+  await prisma.lead.deleteMany();
+  console.log('  ✓ leads removidos');
 
-  for (const lead of demoLeads) {
-    const corretor = await prisma.user.findUnique({
-      where: { email: lead.corretorEmail },
-      select: { id: true },
-    });
-
-    await prisma.lead.create({
-      data: {
-        nome: lead.nome,
-        telefone: lead.telefone,
-        email: lead.email,
-        origem: lead.origem,
-        interesse: lead.interesse,
-        faixa: lead.faixa,
-        cidade: lead.cidade,
-        bairro: lead.bairro,
-        stage: lead.stage,
-        prioridade: lead.prioridade,
-        valor: lead.valor,
-        tags: lead.tags,
-        corretorId: corretor?.id ?? null,
-      },
-    });
-    console.log(`  ✓ lead ${lead.nome} → ${lead.corretorEmail}`);
-  }
+  await seedDefaultFunnelStages();
 
   console.log('\nSeed concluído.');
   console.log('Contas demo: admin@imob.com / gerente@imob.com / corretor@imob.com');
-  console.log(`Demais usuários usam a senha: ${defaultPassword}`);
+  console.log(`Senha padrão (se criar outros usuários via seed): ${defaultPassword}`);
 }
 
 main()

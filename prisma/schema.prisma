@@ -23,6 +23,13 @@ enum UserStatus {
   inativo
 }
 
+/// Lead de captação vs cliente da carteira pessoal do corretor.
+/// Ambos entram no funil; listas de Leads e Clientes ficam separadas.
+enum ContatoTipo {
+  lead
+  cliente
+}
+
 /// Usuário do sistema (login, RBAC e gestão de equipe).
 model User {
   id        String     @id @default(uuid())
@@ -49,7 +56,10 @@ model User {
   passwordResetExpires DateTime?
 
   // Carteira de leads/clientes atribuídos a este corretor.
-  leads Lead[]
+  leads Lead[] @relation("LeadCorretor")
+
+  // Leads que este usuário marcou como perdidos.
+  leadsPerdidosPor Lead[] @relation("LeadPerdidoPor")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -59,36 +69,74 @@ model User {
   @@map("users")
 }
 
-/// Lead / cliente da imobiliária. Alimenta as telas de Leads, Clientes e Funil.
+/// Contato comercial (lead de captação ou cliente da carteira).
 /// stage, interesse e prioridade são strings validadas na API (paridade 1:1
 /// com os identificadores usados no frontend, inclusive acentos e hífens).
 model Lead {
-  id         String   @id @default(uuid())
+  id         String      @id @default(uuid())
+  /// lead = captação; cliente = carteira pessoal do corretor.
+  tipo       ContatoTipo @default(lead)
   nome       String
   telefone   String
   email      String
   origem     String
   interesse  String // Comprar | Alugar | Investir
-  faixa      String
   cidade     String
   bairro     String
-  stage      String   @default("novo")
-  prioridade String   @default("Média")
-  valor      Int      @default(0)
-  tags       String[] @default([])
+  stage      String      @default("novo")
+  prioridade String      @default("Média")
+  /// Renda mensal informada pelo cliente (opcional).
+  renda      Int?
+  tags       String[]    @default([])
 
   // Corretor dono do lead. Fica nulo se o corretor for removido (SetNull),
   // preservando o histórico do lead.
-  corretor   User?   @relation(fields: [corretorId], references: [id], onDelete: SetNull)
+  corretor   User?   @relation("LeadCorretor", fields: [corretorId], references: [id], onDelete: SetNull)
   corretorId String?
+
+  /// Soft-delete operacional: some do funil/listas de corretor e gerente.
+  /// Só admin consulta via módulo Leads Perdidos.
+  perdidoAt    DateTime?
+  motivoPerda  String?
+  perdidoPor   User?     @relation("LeadPerdidoPor", fields: [perdidoPorId], references: [id], onDelete: SetNull)
+  perdidoPorId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([tipo])
   @@index([stage])
   @@index([corretorId])
   @@index([createdAt])
+  @@index([perdidoAt])
   @@map("leads")
+}
+
+/// Tipos de catálogo configuráveis pelo admin/gerente na tela de Configurações.
+enum CatalogType {
+  funil_etapa
+  origem
+  motivo_perda
+  tag
+}
+
+/// Item de catálogo (etapa do funil, origem, motivo de perda, tag).
+/// Os leads guardam apenas os labels como string — sem FK — para preservar
+/// o histórico caso um item seja renomeado ou desativado.
+model CatalogItem {
+  id        String      @id @default(uuid())
+  type      CatalogType
+  label     String
+  slug      String? // usado nas etapas do funil (ex.: "visita-agendada")
+  color     String? // classes Tailwind das badges do funil
+  sortOrder Int         @default(0)
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([type, label])
+  @@index([type, sortOrder])
+  @@map("catalog_items")
 }
 
 /// Motivo de uma tentativa de login recusada (para auditoria).

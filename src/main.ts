@@ -91,8 +91,8 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const port = config.get<number>('PORT', 3333);
-  // Por padrão escuta só no loopback: a API não fica exposta na rede local.
-  // Em produção (container/PaaS) defina HOST=0.0.0.0.
+  // Loopback IPv4 por padrão. Em produção (container/PaaS) use HOST=0.0.0.0.
+  // Em dev o frontend deve falar via proxy do Vite → 127.0.0.1 (evita atraso IPv6).
   const host = config.get<string>('HOST', '127.0.0.1');
 
   await app.listen(port, host);

@@ -8,19 +8,20 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import {
-  LEAD_INTERESSES,
-  LEAD_PRIORIDADES,
-  LEAD_STAGES,
-} from '../lead.constants';
+import { LEAD_INTERESSES, LEAD_PRIORIDADES, CONTATO_TIPOS } from '../lead.constants';
 
 export class QueryLeadsDto {
   @IsOptional()
   @IsString()
   search?: string;
 
+  /** Filtra por tipo. Omitido = lead e cliente (ex.: funil). */
   @IsOptional()
-  @IsIn(LEAD_STAGES, { message: 'Etapa do funil inválida.' })
+  @IsIn(CONTATO_TIPOS, { message: 'Tipo inválido. Use lead ou cliente.' })
+  tipo?: string;
+
+  @IsOptional()
+  @IsString()
   stage?: string;
 
   @IsOptional()
@@ -30,6 +31,11 @@ export class QueryLeadsDto {
   @IsOptional()
   @IsIn(LEAD_PRIORIDADES, { message: 'Prioridade inválida.' })
   prioridade?: string;
+
+  /** Filtra por origem do lead (valor cadastrado no catálogo). */
+  @IsOptional()
+  @IsString()
+  origem?: string;
 
   /** Filtra por corretor. Ignorado para o perfil corretor (sempre os próprios leads). */
   @IsOptional()
