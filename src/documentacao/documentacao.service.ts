@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TeamScopeService } from '../equipes/team-scope.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
 import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
@@ -48,14 +49,25 @@ const docSelect = {
 
 @Injectable()
 export class DocumentacaoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly teamScope: TeamScopeService,
+  ) {}
 
   async list(query: QueryDocumentacaoDto, requester: AuthenticatedUser) {
-    const leadFilter: Prisma.LeadWhereInput = { perdidoAt: null };
+    const leadFilter: Prisma.LeadWhereInput = {
+      perdidoAt: null,
+      ...(await this.teamScope.leadScope(requester)),
+    };
 
-    if (requester.role === Role.corretor) {
-      leadFilter.corretorId = requester.id;
-    } else if (query.corretorId) {
+    if (query.corretorId && requester.role !== Role.corretor) {
+      const allowed = await this.teamScope.canAccessCorretor(
+        requester,
+        query.corretorId,
+      );
+      if (!allowed) {
+        return [];
+      }
       leadFilter.corretorId = query.corretorId;
     }
 
@@ -239,10 +251,11 @@ export class DocumentacaoService {
       throw new NotFoundException('Lead/cliente não encontrado.');
     }
 
-    if (
-      requester.role === Role.corretor &&
-      lead.corretorId !== requester.id
-    ) {
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      lead.corretorId,
+    );
+    if (!allowed) {
       throw new NotFoundException('Lead/cliente não encontrado.');
     }
 

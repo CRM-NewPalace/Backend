@@ -7,6 +7,7 @@ import {
 import { ContatoTipo, Role, TriagemOrigem } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogService } from '../catalog/catalog.service';
+import { TeamScopeService } from '../equipes/team-scope.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateTriagemDto } from './dto/create-triagem.dto';
 import { QueryTriagemLeadsDto } from './dto/query-triagem-leads.dto';
@@ -43,12 +44,13 @@ export class TriagemService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
+    private readonly teamScope: TeamScopeService,
   ) {}
 
   /**
    * Lista contatos para a tela de triagem.
    * Corretor: próprios leads + clientes.
-   * Admin/gerente: só leads (`tipo=lead`) do `corretorId` obrigatório.
+   * Admin/gerente: só leads (`tipo=lead`) do `corretorId` obrigatório (dentro da equipe).
    */
   async listLeads(query: QueryTriagemLeadsDto, requester: AuthenticatedUser) {
     if (requester.role === Role.corretor) {
@@ -71,6 +73,14 @@ export class TriagemService {
       throw new BadRequestException(
         'Informe o corretor para listar os leads da triagem.',
       );
+    }
+
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      query.corretorId,
+    );
+    if (!allowed) {
+      throw new NotFoundException('Lead não encontrado.');
     }
 
     const leads = await this.prisma.lead.findMany({
@@ -211,10 +221,11 @@ export class TriagemService {
       throw new NotFoundException('Lead não encontrado.');
     }
 
-    if (
-      requester.role === Role.corretor &&
-      lead.corretorId !== requester.id
-    ) {
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      lead.corretorId,
+    );
+    if (!allowed) {
       throw new NotFoundException('Lead não encontrado.');
     }
 
