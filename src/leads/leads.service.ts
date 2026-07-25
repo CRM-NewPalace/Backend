@@ -8,6 +8,7 @@ import { ContatoTipo, Prisma, Role, UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CatalogService } from '../catalog/catalog.service';
+import { TeamScopeService } from '../equipes/team-scope.service';
 import { leadSelect, LeadEntity } from './lead-select';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
@@ -23,18 +24,19 @@ export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
+    private readonly teamScope: TeamScopeService,
   ) {}
 
   async create(
     dto: CreateLeadDto,
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
-    // Corretor só cria leads para si; admin/gerente podem atribuir a qualquer um.
+    // Corretor só cria leads para si; admin/gerente atribuem dentro do escopo.
     const corretorId = this.isCorretor(requester)
       ? requester.id
       : (dto.corretorId ?? requester.id);
 
-    await this.ensureCorretorExists(corretorId);
+    await this.ensureCorretorAssignable(corretorId, requester);
 
     const stage = dto.stage ?? (await this.catalog.getDefaultStageSlug());
     await this.ensureStageIsValid(stage);
@@ -79,19 +81,16 @@ export class LeadsService {
       phoneMatchIds = rows.map((r) => r.id);
     }
 
+    const leadScope = await this.teamScope.leadScope(requester);
+
     const where: Prisma.LeadWhereInput = {
       perdidoAt: null,
       ...(query.tipo ? { tipo: query.tipo as ContatoTipo } : {}),
-      ...this.scopeByRole(requester),
+      ...leadScope,
       ...(query.stage ? { stage: query.stage } : {}),
       ...(query.interesse ? { interesse: query.interesse } : {}),
       ...(query.prioridade ? { prioridade: query.prioridade } : {}),
       ...(query.origem ? { origem: query.origem } : {}),
-      // O filtro por corretor só vale para admin/gerente; o corretor já está
-      // restrito aos próprios leads por scopeByRole.
-      ...(query.corretorId && !this.isCorretor(requester)
-        ? { corretorId: query.corretorId }
-        : {}),
       ...(search
         ? {
             OR: [
@@ -107,6 +106,20 @@ export class LeadsService {
           }
         : {}),
     };
+
+    if (query.corretorId && !this.isCorretor(requester)) {
+      const allowed = await this.teamScope.canAccessCorretor(
+        requester,
+        query.corretorId,
+      );
+      if (!allowed) {
+        return {
+          data: [],
+          meta: { total: 0, page, limit, totalPages: 1 },
+        };
+      }
+      where.corretorId = query.corretorId;
+    }
 
     const [data, total] = await this.prisma.$transaction([
       this.prisma.lead.findMany({
@@ -151,7 +164,7 @@ export class LeadsService {
       return lead;
     }
 
-    this.ensureCanAccess(lead, requester);
+    await this.ensureCanAccess(lead, requester);
     return lead;
   }
 
@@ -226,7 +239,7 @@ export class LeadsService {
           'Você não pode reatribuir o lead para outro corretor.',
         );
       }
-      await this.ensureCorretorExists(dto.corretorId);
+      await this.ensureCorretorAssignable(dto.corretorId, requester);
       corretorId = dto.corretorId;
     }
 
@@ -326,7 +339,7 @@ export class LeadsService {
 
   /**
    * Lista corretores ativos para o select de atribuição.
-   * Admin/gerente: todos os corretores ativos. Corretor: apenas o próprio.
+   * Admin: todos. Gerente: só da própria equipe. Corretor: apenas o próprio.
    */
   async listAssignees(
     requester: AuthenticatedUser,
@@ -341,8 +354,13 @@ export class LeadsService {
       ];
     }
 
+    const ids = await this.teamScope.getVisibleCorretorIds(requester);
     return this.prisma.user.findMany({
-      where: { status: UserStatus.ativo, role: Role.corretor },
+      where: {
+        status: UserStatus.ativo,
+        role: Role.corretor,
+        ...(ids !== null ? { id: { in: ids } } : {}),
+      },
       select: { id: true, name: true, role: true },
       orderBy: { name: 'asc' },
     });
@@ -354,17 +372,15 @@ export class LeadsService {
     return requester.role === Role.corretor;
   }
 
-  /** Restringe a consulta aos leads do próprio corretor. Admin/gerente veem tudo. */
-  private scopeByRole(requester: AuthenticatedUser): Prisma.LeadWhereInput {
-    return this.isCorretor(requester) ? { corretorId: requester.id } : {};
-  }
-
-  private ensureCanAccess(
-    lead: LeadEntity,
+  private async ensureCanAccess(
+    lead: { corretorId: string | null },
     requester: AuthenticatedUser,
-  ): void {
-    if (this.isCorretor(requester) && lead.corretorId !== requester.id) {
-      // Mesma resposta de "não existe" para não revelar leads de terceiros.
+  ): Promise<void> {
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      lead.corretorId,
+    );
+    if (!allowed) {
       throw new NotFoundException('Lead não encontrado.');
     }
   }
@@ -380,12 +396,13 @@ export class LeadsService {
     if (!lead || lead.perdidoAt) {
       throw new NotFoundException('Lead não encontrado.');
     }
-    if (this.isCorretor(requester) && lead.corretorId !== requester.id) {
-      throw new NotFoundException('Lead não encontrado.');
-    }
+    await this.ensureCanAccess(lead, requester);
   }
 
-  private async ensureCorretorExists(corretorId: string): Promise<void> {
+  private async ensureCorretorAssignable(
+    corretorId: string,
+    requester: AuthenticatedUser,
+  ): Promise<void> {
     const count = await this.prisma.user.count({
       where: {
         id: corretorId,
@@ -394,7 +411,19 @@ export class LeadsService {
       },
     });
     if (count === 0) {
-      throw new BadRequestException('Corretor informado não existe ou está inativo.');
+      throw new BadRequestException(
+        'Corretor informado não existe ou está inativo.',
+      );
+    }
+
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      corretorId,
+    );
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Você só pode atribuir leads a corretores da sua equipe.',
+      );
     }
   }
 
