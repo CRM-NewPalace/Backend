@@ -51,17 +51,16 @@ export function validateEnv(config: Record<string, unknown>) {
     errors.push('FRONTEND_URL é obrigatório em produção (define o CORS).');
   }
 
-  if (isProd) {
-    if (!config.BOOTSTRAP_ADMIN_EMAIL) {
-      errors.push(
-        'BOOTSTRAP_ADMIN_EMAIL é obrigatório em produção (admin de sistema).',
-      );
-    }
-    if (!config.BOOTSTRAP_ADMIN_PASSWORD) {
-      errors.push(
-        'BOOTSTRAP_ADMIN_PASSWORD é obrigatório em produção (admin de sistema).',
-      );
-    }
+  // Admin de sistema: recomendado em production, mas não derruba o boot
+  // (permite subir o serviço e configurar as vars no painel depois).
+  if (
+    isProd &&
+    (!config.BOOTSTRAP_ADMIN_EMAIL || !config.BOOTSTRAP_ADMIN_PASSWORD)
+  ) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[env] BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD ausentes — admin de sistema não será criado no boot.',
+    );
   }
 
   if (errors.length > 0) {
