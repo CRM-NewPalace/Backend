@@ -64,6 +64,9 @@ model User {
   // Relatos de triagem criados por este corretor.
   triagemEvents TriagemEvent[] @relation("TriagemAutor")
 
+  // Fichas de documentação criadas por este usuário.
+  documentacoes Documentacao[] @relation("DocumentacaoAutor")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -105,6 +108,7 @@ model Lead {
   perdidoPorId String?
 
   triagemEvents TriagemEvent[]
+  documentacoes Documentacao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -140,6 +144,45 @@ model TriagemEvent {
   @@index([autorId])
   @@index([createdAt])
   @@map("triagem_events")
+}
+
+/// Ficha de documentação financeira/cadastral vinculada a um lead ou cliente.
+/// Guarda um snapshot dos dados do contato no momento do cadastro, mais FGTS/entrada/dependente.
+model Documentacao {
+  id     String @id @default(uuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId String
+  autor   User  @relation("DocumentacaoAutor", fields: [autorId], references: [id], onDelete: Cascade)
+
+  /// Snapshot do tipo e etapa do funil no momento do cadastro.
+  tipoContato   ContatoTipo
+  stageSituacao String
+
+  nome       String
+  telefone   String
+  email      String
+  origem     String
+  interesse  String
+  cidade     String
+  bairro     String
+  prioridade String
+  renda      Int?
+  tags       String[] @default([])
+
+  temFgts       Boolean
+  valorFgts     Int?
+  temEntrada    Boolean
+  valorEntrada  Int?
+  temDependente Boolean
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([autorId])
+  @@index([createdAt])
+  @@map("documentacoes")
 }
 
 /// Tipos de catálogo configuráveis pelo admin/gerente na tela de Configurações.

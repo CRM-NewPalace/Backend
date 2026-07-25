@@ -1,0 +1,69 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
+import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
+import { QueryDocumentacaoDto } from './dto/query-documentacao.dto';
+import { DocumentacaoService } from './documentacao.service';
+
+@Controller('documentacao')
+@UseGuards(RolesGuard)
+@Roles(Role.admin, Role.gerente, Role.corretor)
+export class DocumentacaoController {
+  constructor(private readonly documentacaoService: DocumentacaoService) {}
+
+  @Get()
+  list(
+    @Query() query: QueryDocumentacaoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.documentacaoService.list(query, requester);
+  }
+
+  @Get(':id')
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.documentacaoService.findOne(id, requester);
+  }
+
+  @Post()
+  create(
+    @Body() dto: CreateDocumentacaoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.documentacaoService.create(dto, requester);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateDocumentacaoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.documentacaoService.update(id, dto, requester);
+  }
+
+  @Delete(':id')
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.documentacaoService.remove(id, requester);
+  }
+}
