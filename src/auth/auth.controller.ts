@@ -52,14 +52,16 @@ export class AuthController {
       context,
     );
 
+    const csrfToken = randomBytes(32).toString('hex');
     setAuthCookies(res, this.config, {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
-      csrfToken: randomBytes(32).toString('hex'),
+      csrfToken,
     });
 
-    // Tokens ficam só nos cookies httpOnly — o body não leva JWT (anti-XSS).
-    return { user: result.user };
+    // Tokens JWT ficam só nos cookies httpOnly.
+    // csrfToken no body para frontends cross-origin (Vercel → Render).
+    return { user: result.user, csrfToken };
   }
 
   @Public()
@@ -73,13 +75,14 @@ export class AuthController {
     const refreshToken = req.cookies?.[COOKIE.refresh] as string | undefined;
     const tokens = await this.authService.refresh(refreshToken ?? '');
 
+    const csrfToken = randomBytes(32).toString('hex');
     setAuthCookies(res, this.config, {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      csrfToken: randomBytes(32).toString('hex'),
+      csrfToken,
     });
 
-    return { ok: true };
+    return { ok: true, csrfToken };
   }
 
   @Post('logout')

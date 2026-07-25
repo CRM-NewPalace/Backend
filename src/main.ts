@@ -31,7 +31,7 @@ async function bootstrap() {
         },
       },
       crossOriginEmbedderPolicy: false,
-      crossOriginResourcePolicy: { policy: 'same-site' },
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
       referrerPolicy: { policy: 'no-referrer' },
     }),
   );
@@ -66,21 +66,30 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  // Em dev, qualquer porta de localhost. Em produção, só a lista explícita.
-  // credentials: true é obrigatório para cookies httpOnly cross-origin (portas).
-  const devOrigin = (
+  // Em produção: lista FRONTEND_URL + previews *.vercel.app do mesmo time.
+  // Em dev: qualquer localhost.
+  const corsOrigin = (
     origin: string | undefined,
     callback: (err: Error | null, allow?: boolean) => void,
   ) => {
-    const isAllowed =
-      !origin ||
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    const allowed =
       allowedOrigins.includes(origin) ||
-      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-    callback(null, isAllowed);
+      (!isProd &&
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) ||
+      (isProd &&
+        (/^https:\/\/frontend(-[a-z0-9]+)?-eduardoalvesdesena\.vercel\.app$/i.test(
+          origin,
+        ) ||
+          origin === 'https://frontend-seven-wine-46.vercel.app'));
+    callback(null, allowed);
   };
 
   app.enableCors({
-    origin: isProd ? allowedOrigins : devOrigin,
+    origin: corsOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', CSRF_HEADER],
