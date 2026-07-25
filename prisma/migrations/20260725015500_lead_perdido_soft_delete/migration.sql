@@ -1,4 +1,4 @@
-﻿-- Soft-delete operacional: lead perdido (não apaga o registro).
+-- Soft-delete operacional: lead perdido (não apaga o registro).
 ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "perdidoAt" TIMESTAMP(3);
 ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "motivoPerda" TEXT;
 ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "perdidoPorId" TEXT;

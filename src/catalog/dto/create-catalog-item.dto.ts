@@ -16,7 +16,7 @@ export class CreateCatalogItemDto {
   @MaxLength(80)
   label!: string;
 
-  /** Só faz sentido para etapas do funil; cor das badges (classes Tailwind). */
+  /** Classes Tailwind das badges (etapas, origens, tags, motivos). */
   @IsOptional()
   @IsString()
   @MaxLength(120)

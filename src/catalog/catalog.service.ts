@@ -69,7 +69,8 @@ export class CatalogService {
         type: dto.type,
         label,
         slug: slugify(label),
-        color: dto.type === CatalogType.funil_etapa ? (dto.color ?? null) : null,
+        // Cor das badges (classes Tailwind) — válido para etapas, origens, tags e motivos.
+        color: dto.color?.trim() || null,
         sortOrder,
       },
     });
@@ -88,8 +89,8 @@ export class CatalogService {
       where: { id },
       data: {
         ...(label ? { label } : {}),
-        ...(dto.color !== undefined && existing.type === CatalogType.funil_etapa
-          ? { color: dto.color }
+        ...(dto.color !== undefined
+          ? { color: dto.color?.trim() || null }
           : {}),
         ...(dto.active !== undefined ? { active: dto.active } : {}),
       },
