@@ -325,8 +325,8 @@ export class LeadsService {
   }
 
   /**
-   * Lista usuários ativos para o select de corretor.
-   * Admin/gerente: toda a equipe ativa. Corretor: apenas o próprio.
+   * Lista corretores ativos para o select de atribuição.
+   * Admin/gerente: todos os corretores ativos. Corretor: apenas o próprio.
    */
   async listAssignees(
     requester: AuthenticatedUser,
@@ -342,7 +342,7 @@ export class LeadsService {
     }
 
     return this.prisma.user.findMany({
-      where: { status: UserStatus.ativo },
+      where: { status: UserStatus.ativo, role: Role.corretor },
       select: { id: true, name: true, role: true },
       orderBy: { name: 'asc' },
     });
@@ -387,7 +387,11 @@ export class LeadsService {
 
   private async ensureCorretorExists(corretorId: string): Promise<void> {
     const count = await this.prisma.user.count({
-      where: { id: corretorId, status: UserStatus.ativo },
+      where: {
+        id: corretorId,
+        status: UserStatus.ativo,
+        role: Role.corretor,
+      },
     });
     if (count === 0) {
       throw new BadRequestException('Corretor informado não existe ou está inativo.');

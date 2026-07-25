@@ -49,7 +49,7 @@ export class LeadsController {
   }
 
   /**
-   * Usuários ativos para atribuição de lead (admin/gerente veem a equipe;
+   * Corretores ativos para atribuição de lead (admin/gerente veem a equipe;
    * corretor vê só a si). Precisa ficar antes de GET :id.
    */
   @Get('assignees')
