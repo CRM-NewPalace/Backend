@@ -61,6 +61,9 @@ model User {
   // Leads que este usuário marcou como perdidos.
   leadsPerdidosPor Lead[] @relation("LeadPerdidoPor")
 
+  // Relatos de triagem criados por este corretor.
+  triagemEvents TriagemEvent[] @relation("TriagemAutor")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -101,6 +104,8 @@ model Lead {
   perdidoPor   User?     @relation("LeadPerdidoPor", fields: [perdidoPorId], references: [id], onDelete: SetNull)
   perdidoPorId String?
 
+  triagemEvents TriagemEvent[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -110,6 +115,31 @@ model Lead {
   @@index([createdAt])
   @@index([perdidoAt])
   @@map("leads")
+}
+
+/// Origem do relato de triagem (após avanço no funil ou criação manual).
+enum TriagemOrigem {
+  funil
+  manual
+}
+
+/// Relato do corretor sobre um lead/cliente (histórico na Triagem).
+model TriagemEvent {
+  id            String        @id @default(uuid())
+  leadId        String
+  lead          Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId       String
+  autor         User          @relation("TriagemAutor", fields: [autorId], references: [id], onDelete: Cascade)
+  texto         String
+  stageAnterior String?
+  stageNovo     String?
+  origem        TriagemOrigem
+  createdAt     DateTime      @default(now())
+
+  @@index([leadId])
+  @@index([autorId])
+  @@index([createdAt])
+  @@map("triagem_events")
 }
 
 /// Tipos de catálogo configuráveis pelo admin/gerente na tela de Configurações.
