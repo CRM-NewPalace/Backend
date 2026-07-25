@@ -23,3 +23,8 @@ npm-debug.log*
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+
+# Scripts locais de dados de teste (não vão para produção/GitHub)
+prisma/seed-demo-local.ts
+prisma/check-render-data.ts
+prisma/*.local.ts

@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { LeadsModule } from './leads/leads.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { TriagemModule } from './triagem/triagem.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { validateEnv } from './config/env.validation';
@@ -24,6 +25,7 @@ import { THROTTLE } from './config/security.constants';
     UsersModule,
     LeadsModule,
     CatalogModule,
+    TriagemModule,
   ],
   controllers: [AppController],
   providers: [

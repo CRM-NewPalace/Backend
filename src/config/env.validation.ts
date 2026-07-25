@@ -51,6 +51,19 @@ export function validateEnv(config: Record<string, unknown>) {
     errors.push('FRONTEND_URL é obrigatório em produção (define o CORS).');
   }
 
+  if (isProd) {
+    if (!config.BOOTSTRAP_ADMIN_EMAIL) {
+      errors.push(
+        'BOOTSTRAP_ADMIN_EMAIL é obrigatório em produção (admin de sistema).',
+      );
+    }
+    if (!config.BOOTSTRAP_ADMIN_PASSWORD) {
+      errors.push(
+        'BOOTSTRAP_ADMIN_PASSWORD é obrigatório em produção (admin de sistema).',
+      );
+    }
+  }
+
   if (errors.length > 0) {
     throw new Error(
       `Configuração de ambiente inválida:\n  - ${errors.join('\n  - ')}`,
