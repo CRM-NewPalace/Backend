@@ -67,6 +67,9 @@ model User {
   // Fichas de documentação criadas por este usuário.
   documentacoes Documentacao[] @relation("DocumentacaoAutor")
 
+  // Análises registradas por este usuário (auto ou edição).
+  analises Analise[] @relation("AnaliseAutor")
+
   /// Equipe que este gerente lidera (no máximo uma).
   equipeGerenciada Equipe? @relation("EquipeGerente")
 
@@ -136,6 +139,7 @@ model Lead {
 
   triagemEvents TriagemEvent[]
   documentacoes Documentacao[]
+  analises      Analise[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -210,6 +214,54 @@ model Documentacao {
   @@index([autorId])
   @@index([createdAt])
   @@map("documentacoes")
+}
+
+/// Status do parecer da análise de crédito/cadastro.
+enum AnaliseStatus {
+  pendente
+  aprovado
+  reprovado
+}
+
+/// Ficha de análise gerada ao entrar na etapa "Em análise" do funil.
+/// Guarda snapshot do cadastro (+ dados financeiros da documentação, se houver).
+model Analise {
+  id      String @id @default(uuid())
+  leadId  String @unique
+  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId String
+  autor   User   @relation("AnaliseAutor", fields: [autorId], references: [id], onDelete: Cascade)
+
+  tipoContato   ContatoTipo
+  stageSituacao String
+
+  nome       String
+  telefone   String
+  email      String
+  origem     String
+  interesse  String
+  cidade     String
+  bairro     String
+  prioridade String
+  renda      Int?
+  tags       String[] @default([])
+
+  temFgts       Boolean @default(false)
+  valorFgts     Int?
+  temEntrada    Boolean @default(false)
+  valorEntrada  Int?
+  temDependente Boolean @default(false)
+
+  status  AnaliseStatus @default(pendente)
+  parecer String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([autorId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("analises")
 }
 
 /// Tipos de catálogo configuráveis pelo admin/gerente na tela de Configurações.

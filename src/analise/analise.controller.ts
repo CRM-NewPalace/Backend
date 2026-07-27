@@ -1,0 +1,49 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { QueryAnaliseDto, UpdateAnaliseDto } from './dto/analise.dto';
+import { AnaliseService } from './analise.service';
+
+@Controller('analise')
+@UseGuards(RolesGuard)
+@Roles(Role.admin, Role.gerente)
+export class AnaliseController {
+  constructor(private readonly analiseService: AnaliseService) {}
+
+  @Get()
+  list(
+    @Query() query: QueryAnaliseDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.analiseService.list(query, requester);
+  }
+
+  @Get(':id')
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.analiseService.findOne(id, requester);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAnaliseDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.analiseService.update(id, dto, requester);
+  }
+}

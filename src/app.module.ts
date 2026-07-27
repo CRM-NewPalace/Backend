@@ -11,6 +11,7 @@ import { CatalogModule } from './catalog/catalog.module';
 import { TriagemModule } from './triagem/triagem.module';
 import { DocumentacaoModule } from './documentacao/documentacao.module';
 import { EquipesModule } from './equipes/equipes.module';
+import { AnaliseModule } from './analise/analise.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { validateEnv } from './config/env.validation';
@@ -30,6 +31,7 @@ import { THROTTLE } from './config/security.constants';
     TriagemModule,
     DocumentacaoModule,
     EquipesModule,
+    AnaliseModule,
   ],
   controllers: [AppController],
   providers: [
