@@ -8,6 +8,7 @@ import { ContatoTipo, Role, TriagemOrigem } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
+import { AnaliseService } from '../analise/analise.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateTriagemDto } from './dto/create-triagem.dto';
 import { QueryTriagemLeadsDto } from './dto/query-triagem-leads.dto';
@@ -45,6 +46,7 @@ export class TriagemService {
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
     private readonly teamScope: TeamScopeService,
+    private readonly analiseService: AnaliseService,
   ) {}
 
   /**
@@ -188,6 +190,10 @@ export class TriagemService {
         select: eventSelect,
       });
     });
+
+    if (targetStage === 'em-analise') {
+      await this.analiseService.ensureForLead(lead.id, requester.id);
+    }
 
     return event;
   }

@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
+import { AnaliseService } from '../analise/analise.service';
 import { leadSelect, LeadEntity } from './lead-select';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
@@ -25,6 +26,7 @@ export class LeadsService {
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
     private readonly teamScope: TeamScopeService,
+    private readonly analiseService: AnaliseService,
   ) {}
 
   async create(
@@ -276,11 +278,17 @@ export class LeadsService {
   ): Promise<LeadEntity> {
     await this.ensureExistsAndAccessible(id, requester);
     await this.ensureStageIsValid(stage);
-    return this.prisma.lead.update({
+    const lead = await this.prisma.lead.update({
       where: { id },
       data: { stage },
       select: leadSelect,
     });
+
+    if (stage === 'em-analise') {
+      await this.analiseService.ensureForLead(id, requester.id);
+    }
+
+    return lead;
   }
 
   /**

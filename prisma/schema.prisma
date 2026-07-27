@@ -37,6 +37,8 @@ model User {
   email     String     @unique
   password  String
   phone     String?
+  /// WhatsApp do corretor (admin cadastra; usado para enviar resultado da análise).
+  whatsapp  String?
   cargo     String?
   role      Role       @default(corretor)
   status    UserStatus @default(ativo)
@@ -66,6 +68,12 @@ model User {
 
   // Fichas de documentação criadas por este usuário.
   documentacoes Documentacao[] @relation("DocumentacaoAutor")
+
+  // Análises registradas por este usuário (auto ou edição).
+  analises Analise[] @relation("AnaliseAutor")
+
+  // Notificações in-app destinadas a este usuário.
+  notificacoes Notificacao[] @relation("NotificacaoDestinatario")
 
   /// Equipe que este gerente lidera (no máximo uma).
   equipeGerenciada Equipe? @relation("EquipeGerente")
@@ -136,6 +144,8 @@ model Lead {
 
   triagemEvents TriagemEvent[]
   documentacoes Documentacao[]
+  analise       Analise?
+  notificacoes  Notificacao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -210,6 +220,80 @@ model Documentacao {
   @@index([autorId])
   @@index([createdAt])
   @@map("documentacoes")
+}
+
+/// Status do parecer da análise de crédito/cadastro.
+enum AnaliseStatus {
+  pendente
+  aprovado
+  reprovado
+}
+
+/// Ficha de análise gerada ao entrar na etapa "Em análise" do funil.
+/// Guarda snapshot do cadastro (+ dados financeiros da documentação, se houver).
+model Analise {
+  id      String @id @default(uuid())
+  leadId  String @unique
+  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId String
+  autor   User   @relation("AnaliseAutor", fields: [autorId], references: [id], onDelete: Cascade)
+
+  tipoContato   ContatoTipo
+  stageSituacao String
+
+  nome       String
+  telefone   String
+  email      String
+  origem     String
+  interesse  String
+  cidade     String
+  bairro     String
+  prioridade String
+  renda      Int?
+  tags       String[] @default([])
+
+  temFgts       Boolean @default(false)
+  valorFgts     Int?
+  temEntrada    Boolean @default(false)
+  valorEntrada  Int?
+  temDependente Boolean @default(false)
+
+  status  AnaliseStatus @default(pendente)
+  parecer String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([autorId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("analises")
+}
+
+/// Tipo de notificação in-app.
+enum NotificacaoTipo {
+  analise_resultado
+}
+
+/// Aviso in-app para o usuário (ex.: resultado da análise para o corretor).
+model Notificacao {
+  id     String          @id @default(uuid())
+  userId String
+  user   User            @relation("NotificacaoDestinatario", fields: [userId], references: [id], onDelete: Cascade)
+  tipo   NotificacaoTipo
+  titulo String
+  corpo  String
+  lida   Boolean         @default(false)
+
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  analiseId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, lida])
+  @@index([createdAt])
+  @@map("notificacoes")
 }
 
 /// Tipos de catálogo configuráveis pelo admin/gerente na tela de Configurações.
