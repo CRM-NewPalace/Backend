@@ -4,10 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserStatus } from '@prisma/client';
+import { Prisma, Role, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { TeamScopeService } from '../equipes/team-scope.service';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { publicUserSelect, PublicUser } from '../common/utils/user-select';
 import { SALT_ROUNDS } from '../config/security.constants';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -21,7 +23,10 @@ export interface PaginatedUsers {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly teamScope: TeamScopeService,
+  ) {}
 
   async create(dto: CreateUserDto): Promise<PublicUser> {
     const email = dto.email.toLowerCase().trim();
@@ -42,11 +47,16 @@ export class UsersService {
     });
   }
 
-  async findAll(query: QueryUsersDto): Promise<PaginatedUsers> {
+  async findAll(
+    query: QueryUsersDto,
+    requester: AuthenticatedUser,
+  ): Promise<PaginatedUsers> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+    const teamFilter = await this.teamUserFilter(requester);
 
     const where: Prisma.UserWhereInput = {
+      ...teamFilter,
       ...(query.role ? { role: query.role } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.search
@@ -82,7 +92,10 @@ export class UsersService {
     };
   }
 
-  async findOne(id: string): Promise<PublicUser> {
+  async findOne(
+    id: string,
+    requester: AuthenticatedUser,
+  ): Promise<PublicUser> {
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: publicUserSelect,
@@ -92,6 +105,7 @@ export class UsersService {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
+    await this.ensureCanViewUser(requester, user);
     return user;
   }
 
@@ -140,8 +154,6 @@ export class UsersService {
       where: { id },
       data: {
         status,
-        // Ao inativar, encerra a sessão ativa. Ao reativar, limpa o bloqueio
-        // por tentativas falhas para o usuário conseguir entrar de novo.
         ...(status === UserStatus.inativo
           ? { hashedRefreshToken: null }
           : { failedLoginAttempts: 0, lockedUntil: null }),
@@ -160,8 +172,6 @@ export class UsersService {
       select: publicUserSelect,
     });
 
-    // O bloqueio também é contado pela trilha de auditoria; sem limpar essas
-    // tentativas o usuário continuaria barrado até a janela expirar.
     await this.prisma.loginAttempt.deleteMany({
       where: { email: user.email, success: false },
     });
@@ -169,12 +179,24 @@ export class UsersService {
     return user;
   }
 
-  /** Admin redefine a senha. Retorna a senha temporária quando gerada. */
+  /**
+   * Admin ou gerente redefine a senha.
+   * Retorna a senha temporária gerada (única vez em que ela fica legível).
+   */
   async resetPassword(
     id: string,
-    password?: string,
+    password: string | undefined,
+    requester: AuthenticatedUser,
   ): Promise<{ user: PublicUser; temporaryPassword?: string }> {
-    await this.ensureExists(id);
+    const target = await this.prisma.user.findUnique({
+      where: { id },
+      select: { ...publicUserSelect },
+    });
+    if (!target) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
+    await this.ensureCanResetPassword(requester, target);
 
     const temporaryPassword = password ? undefined : this.generatePassword();
     const finalPassword = password ?? temporaryPassword!;
@@ -183,7 +205,6 @@ export class UsersService {
       where: { id },
       data: {
         password: await bcrypt.hash(finalPassword, SALT_ROUNDS),
-        // Redefinir a senha encerra as sessões abertas e libera o bloqueio.
         hashedRefreshToken: null,
         passwordResetToken: null,
         passwordResetExpires: null,
@@ -194,6 +215,76 @@ export class UsersService {
     });
 
     return { user, temporaryPassword };
+  }
+
+  /** Gerente: só membros da própria equipe (+ ele mesmo). Admin: todos. */
+  private async teamUserFilter(
+    requester: AuthenticatedUser,
+  ): Promise<Prisma.UserWhereInput> {
+    if (requester.role === Role.admin) {
+      return {};
+    }
+
+    if (requester.role !== Role.gerente) {
+      throw new ForbiddenException('Acesso negado.');
+    }
+
+    const corretorIds = await this.teamScope.getVisibleCorretorIds(requester);
+    const ids = [...(corretorIds ?? []), requester.id];
+
+    return { id: { in: ids } };
+  }
+
+  private async ensureCanViewUser(
+    requester: AuthenticatedUser,
+    user: PublicUser,
+  ): Promise<void> {
+    if (requester.role === Role.admin) return;
+    if (requester.role !== Role.gerente) {
+      throw new ForbiddenException('Acesso negado.');
+    }
+    if (user.id === requester.id) return;
+
+    if (user.role !== Role.corretor) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      user.id,
+    );
+    if (!allowed) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+  }
+
+  private async ensureCanResetPassword(
+    requester: AuthenticatedUser,
+    user: PublicUser,
+  ): Promise<void> {
+    if (requester.role === Role.admin) return;
+
+    if (requester.role !== Role.gerente) {
+      throw new ForbiddenException('Acesso negado.');
+    }
+
+    // Gerente só reseta senha de corretores da própria equipe (não a própria
+    // via este endpoint administrativo — usa perfil / change-password).
+    if (user.role !== Role.corretor) {
+      throw new ForbiddenException(
+        'Você só pode redefinir senha de corretores da sua equipe.',
+      );
+    }
+
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      user.id,
+    );
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Você só pode redefinir senha de corretores da sua equipe.',
+      );
+    }
   }
 
   private async ensureExists(id: string): Promise<void> {
@@ -226,7 +317,6 @@ export class UsersService {
       chars.push(pick(all));
     }
 
-    // Embaralha (Fisher-Yates) para não deixar os caracteres obrigatórios fixos no início.
     for (let i = chars.length - 1; i > 0; i--) {
       const j = randomInt(i + 1);
       [chars[i], chars[j]] = [chars[j], chars[i]];
