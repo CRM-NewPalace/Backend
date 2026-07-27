@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, Role, UserStatus } from '@prisma/client';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateEquipeDto } from './dto/create-equipe.dto';
 import { UpdateEquipeDto } from './dto/update-equipe.dto';
@@ -35,20 +37,37 @@ const equipeSelect = {
 export class EquipesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list() {
+  async list(requester: AuthenticatedUser) {
+    if (requester.role === Role.admin) {
+      return this.prisma.equipe.findMany({
+        select: equipeSelect,
+        orderBy: { name: 'asc' },
+      });
+    }
+
+    // Gerente: só a equipe que lidera.
     return this.prisma.equipe.findMany({
+      where: { gerenteId: requester.id },
       select: equipeSelect,
       orderBy: { name: 'asc' },
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, requester: AuthenticatedUser) {
     const equipe = await this.prisma.equipe.findUnique({
       where: { id },
       select: equipeSelect,
     });
     if (!equipe) {
       throw new NotFoundException('Equipe não encontrada.');
+    }
+    if (
+      requester.role === Role.gerente &&
+      equipe.gerenteId !== requester.id
+    ) {
+      throw new ForbiddenException(
+        'Você só pode visualizar a equipe que lidera.',
+      );
     }
     return equipe;
   }
