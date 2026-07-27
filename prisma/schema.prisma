@@ -72,6 +72,9 @@ model User {
   // Análises registradas por este usuário (auto ou edição).
   analises Analise[] @relation("AnaliseAutor")
 
+  // Compromissos da agenda criados por este usuário.
+  agendamentos Agendamento[] @relation("AgendamentoAutor")
+
   // Notificações in-app destinadas a este usuário.
   notificacoes Notificacao[] @relation("NotificacaoDestinatario")
 
@@ -145,6 +148,7 @@ model Lead {
   triagemEvents TriagemEvent[]
   documentacoes Documentacao[]
   analise       Analise?
+  agendamentos  Agendamento[]
   notificacoes  Notificacao[]
 
   createdAt DateTime @default(now())
@@ -268,6 +272,48 @@ model Analise {
   @@index([status])
   @@index([createdAt])
   @@map("analises")
+}
+
+/// Tipo de compromisso na Agenda.
+enum AgendamentoTipo {
+  visita
+  ligacao
+  reuniao
+  outro
+}
+
+/// Situação do compromisso na Agenda.
+enum AgendamentoStatus {
+  agendado
+  concluido
+  cancelado
+}
+
+/// Compromisso vinculado a um lead/cliente (visita, ligação, reunião…).
+model Agendamento {
+  id      String @id @default(uuid())
+  leadId  String
+  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId String
+  autor   User   @relation("AgendamentoAutor", fields: [autorId], references: [id], onDelete: Cascade)
+
+  titulo       String
+  tipo         AgendamentoTipo   @default(visita)
+  status       AgendamentoStatus @default(agendado)
+  startsAt     DateTime
+  endsAt       DateTime?
+  local        String?
+  observacoes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([autorId])
+  @@index([startsAt])
+  @@index([status])
+  @@index([tipo])
+  @@map("agendamentos")
 }
 
 /// Tipo de notificação in-app.
