@@ -8,6 +8,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import {
+  AGENDAMENTO_ESCOPOS,
   AGENDAMENTO_STATUS,
   AGENDAMENTO_TIPOS,
 } from './create-agendamento.dto';
@@ -23,6 +24,10 @@ export class UpdateAgendamentoDto {
   @IsOptional()
   @IsIn(AGENDAMENTO_TIPOS, { message: 'Tipo de compromisso inválido.' })
   tipo?: (typeof AGENDAMENTO_TIPOS)[number];
+
+  @IsOptional()
+  @IsIn(AGENDAMENTO_ESCOPOS, { message: 'Escopo inválido.' })
+  escopo?: (typeof AGENDAMENTO_ESCOPOS)[number];
 
   @IsOptional()
   @IsIn(AGENDAMENTO_STATUS, { message: 'Status inválido.' })

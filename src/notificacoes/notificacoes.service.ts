@@ -11,6 +11,7 @@ const notifSelect = {
   lida: true,
   leadId: true,
   analiseId: true,
+  agendamentoId: true,
   createdAt: true,
 } satisfies Prisma.NotificacaoSelect;
 
@@ -61,10 +62,9 @@ export class NotificacoesService {
   }) {
     const statusLabel =
       params.status === 'aprovado' ? 'aprovada' : 'reprovada';
-    const parecer =
-      params.parecer?.trim()
-        ? ` Parecer: ${params.parecer.trim().slice(0, 280)}`
-        : '';
+    const parecer = params.parecer?.trim()
+      ? ` Parecer: ${params.parecer.trim().slice(0, 280)}`
+      : '';
 
     return this.prisma.notificacao.create({
       data: {
@@ -74,6 +74,58 @@ export class NotificacoesService {
         corpo: `O resultado da análise de ${params.nomeProcesso} foi ${statusLabel}.${parecer}`,
         leadId: params.leadId,
         analiseId: params.analiseId,
+      },
+      select: notifSelect,
+    });
+  }
+
+  /** Avisa o gerente sobre nova solicitação de agenda do corretor. */
+  async createAgendaSolicitacao(params: {
+    userId: string;
+    agendamentoId: string;
+    leadId: string;
+    titulo: string;
+    autorNome: string;
+    quando: string;
+  }) {
+    return this.prisma.notificacao.create({
+      data: {
+        userId: params.userId,
+        tipo: NotificacaoTipo.agenda_solicitacao,
+        titulo: `Solicitação de agenda — ${params.titulo}`,
+        corpo: `${params.autorNome} pediu aprovação para "${params.titulo}" em ${params.quando}.`,
+        leadId: params.leadId,
+        agendamentoId: params.agendamentoId,
+      },
+      select: notifSelect,
+    });
+  }
+
+  /** Avisa o corretor sobre aprovação/recusa da solicitação. */
+  async createAgendaResposta(params: {
+    userId: string;
+    agendamentoId: string;
+    leadId: string;
+    titulo: string;
+    aprovado: boolean;
+    motivo?: string;
+  }) {
+    const motivo =
+      !params.aprovado && params.motivo
+        ? ` Motivo: ${params.motivo.slice(0, 280)}`
+        : '';
+    return this.prisma.notificacao.create({
+      data: {
+        userId: params.userId,
+        tipo: NotificacaoTipo.agenda_resposta,
+        titulo: params.aprovado
+          ? `Agenda aprovada — ${params.titulo}`
+          : `Agenda recusada — ${params.titulo}`,
+        corpo: params.aprovado
+          ? `Sua solicitação "${params.titulo}" foi aprovada pelo gerente.`
+          : `Sua solicitação "${params.titulo}" foi recusada.${motivo}`,
+        leadId: params.leadId,
+        agendamentoId: params.agendamentoId,
       },
       select: notifSelect,
     });

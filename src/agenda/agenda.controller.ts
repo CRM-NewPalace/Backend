@@ -18,6 +18,7 @@ import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateAgendamentoDto } from './dto/create-agendamento.dto';
 import { UpdateAgendamentoDto } from './dto/update-agendamento.dto';
 import { QueryAgendamentoDto } from './dto/query-agendamento.dto';
+import { RecusarAgendamentoDto } from './dto/recusar-agendamento.dto';
 import { AgendaService } from './agenda.service';
 
 @Controller('agenda')
@@ -34,6 +35,16 @@ export class AgendaController {
     return this.agendaService.list(query, requester);
   }
 
+  @Get('solicitacoes/count')
+  countSolicitacoes(@CurrentUser() requester: AuthenticatedUser) {
+    return this.agendaService.countSolicitacoes(requester);
+  }
+
+  @Get('solicitacoes')
+  listSolicitacoes(@CurrentUser() requester: AuthenticatedUser) {
+    return this.agendaService.listSolicitacoes(requester);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -48,6 +59,23 @@ export class AgendaController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.agendaService.create(dto, requester);
+  }
+
+  @Post(':id/aprovar')
+  aprovar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.agendaService.aprovar(id, requester);
+  }
+
+  @Post(':id/recusar')
+  recusar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecusarAgendamentoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.agendaService.recusar(id, dto.motivo, requester);
   }
 
   @Patch(':id')

@@ -13,6 +13,7 @@ export const AGENDAMENTO_TIPOS = [
   'visita',
   'ligacao',
   'reuniao',
+  'tarefa',
   'outro',
 ] as const;
 
@@ -21,6 +22,8 @@ export const AGENDAMENTO_STATUS = [
   'concluido',
   'cancelado',
 ] as const;
+
+export const AGENDAMENTO_ESCOPOS = ['pessoal', 'com_gerente'] as const;
 
 export class CreateAgendamentoDto {
   @IsUUID('4', { message: 'Lead/cliente inválido.' })
@@ -33,6 +36,10 @@ export class CreateAgendamentoDto {
 
   @IsIn(AGENDAMENTO_TIPOS, { message: 'Tipo de compromisso inválido.' })
   tipo!: (typeof AGENDAMENTO_TIPOS)[number];
+
+  /** pessoal = tarefa do corretor; com_gerente = precisa aprovação. */
+  @IsIn(AGENDAMENTO_ESCOPOS, { message: 'Escopo inválido.' })
+  escopo!: (typeof AGENDAMENTO_ESCOPOS)[number];
 
   @IsISO8601({}, { message: 'Data/hora de início inválida.' })
   startsAt!: string;
