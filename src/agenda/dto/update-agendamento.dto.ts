@@ -1,0 +1,51 @@
+import {
+  IsIn,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
+import {
+  AGENDAMENTO_STATUS,
+  AGENDAMENTO_TIPOS,
+} from './create-agendamento.dto';
+
+/** Atualização parcial — o vínculo com o lead não muda. */
+export class UpdateAgendamentoDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2, { message: 'O título deve ter ao menos 2 caracteres.' })
+  @MaxLength(160)
+  titulo?: string;
+
+  @IsOptional()
+  @IsIn(AGENDAMENTO_TIPOS, { message: 'Tipo de compromisso inválido.' })
+  tipo?: (typeof AGENDAMENTO_TIPOS)[number];
+
+  @IsOptional()
+  @IsIn(AGENDAMENTO_STATUS, { message: 'Status inválido.' })
+  status?: (typeof AGENDAMENTO_STATUS)[number];
+
+  @IsOptional()
+  @IsISO8601({}, { message: 'Data/hora de início inválida.' })
+  startsAt?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsISO8601({}, { message: 'Data/hora de término inválida.' })
+  endsAt?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(160)
+  local?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(2000)
+  observacoes?: string | null;
+}
