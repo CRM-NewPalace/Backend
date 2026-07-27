@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ContatoTipo, Prisma, Role, UserStatus } from '@prisma/client';
+import { ContatoTipo, CatalogType, Prisma, Role, TriagemOrigem, UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CatalogService } from '../catalog/catalog.service';
@@ -278,17 +278,51 @@ export class LeadsService {
   ): Promise<LeadEntity> {
     await this.ensureExistsAndAccessible(id, requester);
     await this.ensureStageIsValid(stage);
+
+    const previous = await this.prisma.lead.findUnique({
+      where: { id },
+      select: { stage: true },
+    });
+    const stageAnterior = previous?.stage ?? null;
+
     const lead = await this.prisma.lead.update({
       where: { id },
       data: { stage },
       select: leadSelect,
     });
 
+    // Sempre registra na Triagem a mudança de etapa (mesmo sem relato manual).
+    if (stageAnterior && stageAnterior !== stage) {
+      const [fromLabel, toLabel] = await Promise.all([
+        this.resolveStageLabel(stageAnterior),
+        this.resolveStageLabel(stage),
+      ]);
+      await this.prisma.triagemEvent.create({
+        data: {
+          leadId: id,
+          autorId: requester.id,
+          texto: `Etapa avançada de "${fromLabel}" para "${toLabel}".`,
+          stageAnterior,
+          stageNovo: stage,
+          origem: TriagemOrigem.funil,
+        },
+      });
+    }
+
     if (stage === 'em-analise') {
       await this.analiseService.ensureForLead(id, requester.id);
     }
 
     return lead;
+  }
+
+  /** Label amigável da etapa do funil (fallback para o slug). */
+  private async resolveStageLabel(slug: string): Promise<string> {
+    const item = await this.prisma.catalogItem.findFirst({
+      where: { type: CatalogType.funil_etapa, slug },
+      select: { label: true },
+    });
+    return item?.label ?? slug;
   }
 
   /**
