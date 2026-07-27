@@ -17,6 +17,7 @@ export const leadSelect = {
   tags: true,
   corretorId: true,
   corretor: { select: { id: true, name: true } },
+  analise: { select: { status: true, parecer: true } },
   perdidoAt: true,
   motivoPerda: true,
   perdidoPorId: true,

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AnaliseStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { QueryAnaliseDto, UpdateAnaliseDto } from './dto/analise.dto';
 
@@ -37,7 +38,7 @@ const analiseSelect = {
       nome: true,
       stage: true,
       corretorId: true,
-      corretor: { select: { id: true, name: true } },
+      corretor: { select: { id: true, name: true, whatsapp: true } },
     },
   },
 } as const;
@@ -47,6 +48,7 @@ export class AnaliseService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teamScope: TeamScopeService,
+    private readonly notificacoes: NotificacoesService,
   ) {}
 
   async list(query: QueryAnaliseDto, requester: AuthenticatedUser) {
@@ -94,14 +96,20 @@ export class AnaliseService {
   ) {
     const existing = await this.prisma.analise.findUnique({
       where: { id },
-      select: { id: true, leadId: true },
+      select: {
+        id: true,
+        leadId: true,
+        status: true,
+        nome: true,
+        lead: { select: { corretorId: true } },
+      },
     });
     if (!existing) {
       throw new NotFoundException('Análise não encontrada.');
     }
     await this.ensureLeadAccessible(existing.leadId, requester);
 
-    return this.prisma.analise.update({
+    const updated = await this.prisma.analise.update({
       where: { id },
       data: {
         ...(dto.status !== undefined
@@ -113,6 +121,28 @@ export class AnaliseService {
       },
       select: analiseSelect,
     });
+
+    const newStatus = updated.status;
+    const statusChanged =
+      dto.status !== undefined && dto.status !== existing.status;
+    if (
+      statusChanged &&
+      (newStatus === AnaliseStatus.aprovado ||
+        newStatus === AnaliseStatus.reprovado) &&
+      existing.lead.corretorId &&
+      existing.lead.corretorId !== requester.id
+    ) {
+      await this.notificacoes.createAnaliseResultado({
+        userId: existing.lead.corretorId,
+        leadId: existing.leadId,
+        analiseId: updated.id,
+        nomeProcesso: updated.nome,
+        status: newStatus,
+        parecer: updated.parecer,
+      });
+    }
+
+    return updated;
   }
 
   /**
@@ -221,7 +251,7 @@ export class AnaliseService {
       where: {
         perdidoAt: null,
         stage: 'em-analise',
-        analises: { none: {} },
+        analise: null,
         ...leadScope,
       },
       select: { id: true, corretorId: true },

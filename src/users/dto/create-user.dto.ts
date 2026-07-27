@@ -35,6 +35,11 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(30)
+  whatsapp?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(80)
   cargo?: string;
 

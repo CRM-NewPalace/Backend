@@ -6,6 +6,7 @@ export const publicUserSelect = {
   name: true,
   email: true,
   phone: true,
+  whatsapp: true,
   cargo: true,
   role: true,
   status: true,

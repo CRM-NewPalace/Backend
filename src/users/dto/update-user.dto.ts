@@ -25,6 +25,10 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
+  whatsapp?: string | null;
+
+  @IsOptional()
+  @IsString()
   cargo?: string;
 
   @IsOptional()
