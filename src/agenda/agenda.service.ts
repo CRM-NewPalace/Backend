@@ -71,20 +71,34 @@ export class AgendaService {
     private readonly notificacoes: NotificacoesService,
   ) {}
 
-  /** Compromissos confirmados no calendário/tabela (pessoal + aprovados). */
+  /** Compromissos no calendário/tabela.
+   * - pessoal: só o autor
+   * - com_gerente aprovado: autor + gerente/admin da equipe
+   * - com_gerente pendente: corretor autor ainda vê no calendário
+   */
   async list(query: QueryAgendamentoDto, requester: AuthenticatedUser) {
-    const access = await this.buildAccessFilter(requester, query.corretorId);
-    if (!access) return [];
+    const sharedAccess = await this.buildSharedAccessFilter(
+      requester,
+      query.corretorId,
+    );
+    if (!sharedAccess) return [];
 
     const where: Prisma.AgendamentoWhereInput = {
       AND: [
-        access,
         {
           OR: [
-            { escopo: AgendamentoEscopo.pessoal },
             {
-              escopo: AgendamentoEscopo.com_gerente,
-              solicitacaoStatus: AgendamentoSolicitacaoStatus.aprovada,
+              escopo: AgendamentoEscopo.pessoal,
+              autorId: requester.id,
+            },
+            {
+              AND: [
+                {
+                  escopo: AgendamentoEscopo.com_gerente,
+                  solicitacaoStatus: AgendamentoSolicitacaoStatus.aprovada,
+                },
+                sharedAccess,
+              ],
             },
             ...(requester.role === Role.corretor
               ? [
@@ -118,12 +132,12 @@ export class AgendaService {
 
   /** Solicitações pendentes relevantes para o usuário (gerente aprova / corretor acompanha). */
   async listSolicitacoes(requester: AuthenticatedUser) {
-    const access = await this.buildAccessFilter(requester);
-    if (!access) return [];
+    const sharedAccess = await this.buildSharedAccessFilter(requester);
+    if (!sharedAccess) return [];
 
     const where: Prisma.AgendamentoWhereInput = {
       AND: [
-        access,
+        sharedAccess,
         {
           escopo: AgendamentoEscopo.com_gerente,
           solicitacaoStatus: AgendamentoSolicitacaoStatus.pendente,
@@ -435,7 +449,7 @@ export class AgendaService {
   async remove(id: string, requester: AuthenticatedUser) {
     const existing = await this.prisma.agendamento.findUnique({
       where: { id },
-      select: { id: true, leadId: true, autorId: true },
+      select: { id: true, leadId: true, autorId: true, escopo: true },
     });
     if (!existing) {
       throw new NotFoundException('Agendamento não encontrado.');
@@ -465,10 +479,10 @@ export class AgendaService {
   }
 
   /**
-   * Acesso a compromissos: leads no escopo da equipe OU tarefas sem lead
-   * do próprio usuário / corretores visíveis.
+   * Acesso a compromissos compartilhados (com gerente): leads no escopo da equipe.
+   * Tarefas pessoais não entram aqui — só o autor as vê.
    */
-  private async buildAccessFilter(
+  private async buildSharedAccessFilter(
     requester: AuthenticatedUser,
     filterCorretorId?: string,
   ): Promise<Prisma.AgendamentoWhereInput | null> {
@@ -486,35 +500,28 @@ export class AgendaService {
       leadFilter.corretorId = filterCorretorId;
     }
 
-    const visibleIds = await this.teamScope.getVisibleCorretorIds(requester);
-    const autorIdsSemLead =
-      visibleIds === null
-        ? null
-        : Array.from(new Set([...visibleIds, requester.id]));
-
-    if (filterCorretorId && requester.role !== Role.corretor) {
-      return {
-        OR: [
-          { lead: leadFilter },
-          { leadId: null, autorId: filterCorretorId },
-        ],
-      };
-    }
-
-    return {
-      OR: [
-        { lead: leadFilter },
-        autorIdsSemLead === null
-          ? { leadId: null }
-          : { leadId: null, autorId: { in: autorIdsSemLead } },
-      ],
-    };
+    return { lead: leadFilter };
   }
 
   private async ensureAgendamentoAccessible(
-    item: { leadId: string | null; autorId: string },
+    item: {
+      leadId: string | null;
+      autorId: string;
+      escopo?: AgendamentoEscopo;
+    },
     requester: AuthenticatedUser,
   ) {
+    // Tarefa pessoal: somente o autor (admin também, para suporte).
+    if (item.escopo === AgendamentoEscopo.pessoal) {
+      if (
+        item.autorId === requester.id ||
+        requester.role === Role.admin
+      ) {
+        return;
+      }
+      throw new NotFoundException('Agendamento não encontrado.');
+    }
+
     if (item.leadId) {
       await this.ensureLeadAccessible(item.leadId, requester);
       return;
@@ -524,13 +531,7 @@ export class AgendaService {
       return;
     }
 
-    const allowed = await this.teamScope.canAccessCorretor(
-      requester,
-      item.autorId,
-    );
-    if (!allowed) {
-      throw new NotFoundException('Agendamento não encontrado.');
-    }
+    throw new NotFoundException('Agendamento não encontrado.');
   }
 
   private async resolveGerenteIds(corretorId: string): Promise<string[]> {
