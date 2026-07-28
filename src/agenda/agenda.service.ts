@@ -127,6 +127,7 @@ export class AgendaService {
         {
           escopo: AgendamentoEscopo.com_gerente,
           solicitacaoStatus: AgendamentoSolicitacaoStatus.pendente,
+          status: { not: AgendamentoStatus.cancelado },
         },
       ],
     };
@@ -288,7 +289,17 @@ export class AgendaService {
     const data: Prisma.AgendamentoUpdateInput = {};
     if (dto.titulo !== undefined) data.titulo = dto.titulo.trim();
     if (dto.tipo !== undefined) data.tipo = dto.tipo as AgendamentoTipo;
-    if (dto.status !== undefined) data.status = dto.status as AgendamentoStatus;
+    if (dto.status !== undefined) {
+      data.status = dto.status as AgendamentoStatus;
+      // Cancelar um compromisso pendente encerra a solicitação.
+      if (
+        dto.status === AgendamentoStatus.cancelado &&
+        existing.solicitacaoStatus === AgendamentoSolicitacaoStatus.pendente
+      ) {
+        data.solicitacaoStatus = AgendamentoSolicitacaoStatus.recusada;
+        data.motivoRecusa = 'Cancelado pelo autor.';
+      }
+    }
     if (dto.startsAt !== undefined) data.startsAt = startsAt;
     if (dto.endsAt !== undefined) data.endsAt = endsAt;
     if (dto.local !== undefined) data.local = dto.local?.trim() || null;
