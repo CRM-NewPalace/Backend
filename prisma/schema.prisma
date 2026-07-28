@@ -310,10 +310,11 @@ enum AgendamentoSolicitacaoStatus {
 }
 
 /// Compromisso vinculado a um lead/cliente (visita, ligação, reunião, tarefa…).
+/// leadId é opcional para tarefas pessoais sem contato (ex.: "fazer lista").
 model Agendamento {
   id      String @id @default(uuid())
-  leadId  String
-  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId  String?
+  lead    Lead?  @relation(fields: [leadId], references: [id], onDelete: Cascade)
   autorId String
   autor   User   @relation("AgendamentoAutor", fields: [autorId], references: [id], onDelete: Cascade)
 

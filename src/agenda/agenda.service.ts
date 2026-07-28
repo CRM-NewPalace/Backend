@@ -34,6 +34,7 @@ const STAGES_BEFORE_VISITA = new Set([
 const agendamentoSelect = {
   id: true,
   leadId: true,
+  autorId: true,
   titulo: true,
   tipo: true,
   status: true,
@@ -72,40 +73,30 @@ export class AgendaService {
 
   /** Compromissos confirmados no calendário/tabela (pessoal + aprovados). */
   async list(query: QueryAgendamentoDto, requester: AuthenticatedUser) {
-    const leadFilter: Prisma.LeadWhereInput = {
-      perdidoAt: null,
-      ...(await this.teamScope.leadScope(requester)),
-    };
-
-    if (query.corretorId && requester.role !== Role.corretor) {
-      const allowed = await this.teamScope.canAccessCorretor(
-        requester,
-        query.corretorId,
-      );
-      if (!allowed) {
-        return [];
-      }
-      leadFilter.corretorId = query.corretorId;
-    }
+    const access = await this.buildAccessFilter(requester, query.corretorId);
+    if (!access) return [];
 
     const where: Prisma.AgendamentoWhereInput = {
-      lead: leadFilter,
-      OR: [
-        { escopo: AgendamentoEscopo.pessoal },
+      AND: [
+        access,
         {
-          escopo: AgendamentoEscopo.com_gerente,
-          solicitacaoStatus: AgendamentoSolicitacaoStatus.aprovada,
+          OR: [
+            { escopo: AgendamentoEscopo.pessoal },
+            {
+              escopo: AgendamentoEscopo.com_gerente,
+              solicitacaoStatus: AgendamentoSolicitacaoStatus.aprovada,
+            },
+            ...(requester.role === Role.corretor
+              ? [
+                  {
+                    autorId: requester.id,
+                    escopo: AgendamentoEscopo.com_gerente,
+                    solicitacaoStatus: AgendamentoSolicitacaoStatus.pendente,
+                  },
+                ]
+              : []),
+          ],
         },
-        // Corretor vê as próprias solicitações pendentes (aguardando gerente).
-        ...(requester.role === Role.corretor
-          ? [
-              {
-                autorId: requester.id,
-                escopo: AgendamentoEscopo.com_gerente,
-                solicitacaoStatus: AgendamentoSolicitacaoStatus.pendente,
-              },
-            ]
-          : []),
       ],
     };
 
@@ -127,15 +118,17 @@ export class AgendaService {
 
   /** Solicitações pendentes relevantes para o usuário (gerente aprova / corretor acompanha). */
   async listSolicitacoes(requester: AuthenticatedUser) {
-    const leadFilter: Prisma.LeadWhereInput = {
-      perdidoAt: null,
-      ...(await this.teamScope.leadScope(requester)),
-    };
+    const access = await this.buildAccessFilter(requester);
+    if (!access) return [];
 
     const where: Prisma.AgendamentoWhereInput = {
-      escopo: AgendamentoEscopo.com_gerente,
-      solicitacaoStatus: AgendamentoSolicitacaoStatus.pendente,
-      lead: leadFilter,
+      AND: [
+        access,
+        {
+          escopo: AgendamentoEscopo.com_gerente,
+          solicitacaoStatus: AgendamentoSolicitacaoStatus.pendente,
+        },
+      ],
     };
 
     if (requester.role === Role.corretor) {
@@ -163,17 +156,28 @@ export class AgendaService {
       throw new NotFoundException('Agendamento não encontrado.');
     }
 
-    await this.ensureLeadAccessible(item.leadId, requester);
+    await this.ensureAgendamentoAccessible(item, requester);
     return item;
   }
 
   async create(dto: CreateAgendamentoDto, requester: AuthenticatedUser) {
-    const lead = await this.ensureLeadAccessible(dto.leadId, requester);
+    const escopo = dto.escopo as AgendamentoEscopo;
+    const leadId = dto.leadId?.trim() || null;
+
+    if (escopo === AgendamentoEscopo.com_gerente && !leadId) {
+      throw new BadRequestException(
+        'Selecione um lead ou cliente para compromissos com o gerente.',
+      );
+    }
+
+    const lead = leadId
+      ? await this.ensureLeadAccessible(leadId, requester)
+      : null;
+
     const startsAt = new Date(dto.startsAt);
     const endsAt = this.parseOptionalDate(dto.endsAt);
     this.assertTimeRange(startsAt, endsAt);
 
-    const escopo = dto.escopo as AgendamentoEscopo;
     const needsApproval =
       escopo === AgendamentoEscopo.com_gerente &&
       requester.role === Role.corretor;
@@ -186,7 +190,7 @@ export class AgendaService {
 
     const created = await this.prisma.agendamento.create({
       data: {
-        leadId: lead.id,
+        leadId: lead?.id ?? null,
         autorId: requester.id,
         titulo: dto.titulo.trim(),
         tipo: dto.tipo as AgendamentoTipo,
@@ -207,7 +211,7 @@ export class AgendaService {
       select: agendamentoSelect,
     });
 
-    if (needsApproval) {
+    if (needsApproval && lead) {
       const destinatarios = await this.resolveGerenteIds(requester.id);
       const when = startsAt.toLocaleString('pt-BR', {
         dateStyle: 'short',
@@ -226,6 +230,7 @@ export class AgendaService {
         ),
       );
     } else if (
+      lead &&
       created.tipo === AgendamentoTipo.visita &&
       STAGES_BEFORE_VISITA.has(lead.stage)
     ) {
@@ -260,7 +265,7 @@ export class AgendaService {
       throw new NotFoundException('Agendamento não encontrado.');
     }
 
-    await this.ensureLeadAccessible(existing.leadId, requester);
+    await this.ensureAgendamentoAccessible(existing, requester);
 
     if (
       existing.solicitacaoStatus === AgendamentoSolicitacaoStatus.pendente &&
@@ -318,7 +323,7 @@ export class AgendaService {
     if (!existing) {
       throw new NotFoundException('Agendamento não encontrado.');
     }
-    await this.ensureLeadAccessible(existing.leadId, requester);
+    await this.ensureAgendamentoAccessible(existing, requester);
 
     if (existing.escopo !== AgendamentoEscopo.com_gerente) {
       throw new BadRequestException('Este compromisso não exige aprovação.');
@@ -347,6 +352,8 @@ export class AgendaService {
     });
 
     if (
+      existing.leadId &&
+      existing.lead &&
       existing.tipo === AgendamentoTipo.visita &&
       STAGES_BEFORE_VISITA.has(existing.lead.stage)
     ) {
@@ -381,7 +388,7 @@ export class AgendaService {
     if (!existing) {
       throw new NotFoundException('Agendamento não encontrado.');
     }
-    await this.ensureLeadAccessible(existing.leadId, requester);
+    await this.ensureAgendamentoAccessible(existing, requester);
 
     if (existing.escopo !== AgendamentoEscopo.com_gerente) {
       throw new BadRequestException('Este compromisso não exige aprovação.');
@@ -423,7 +430,7 @@ export class AgendaService {
       throw new NotFoundException('Agendamento não encontrado.');
     }
 
-    await this.ensureLeadAccessible(existing.leadId, requester);
+    await this.ensureAgendamentoAccessible(existing, requester);
 
     if (
       requester.role === Role.corretor &&
@@ -443,6 +450,75 @@ export class AgendaService {
       throw new ForbiddenException(
         'Apenas gerente ou admin podem aprovar solicitações.',
       );
+    }
+  }
+
+  /**
+   * Acesso a compromissos: leads no escopo da equipe OU tarefas sem lead
+   * do próprio usuário / corretores visíveis.
+   */
+  private async buildAccessFilter(
+    requester: AuthenticatedUser,
+    filterCorretorId?: string,
+  ): Promise<Prisma.AgendamentoWhereInput | null> {
+    const leadFilter: Prisma.LeadWhereInput = {
+      perdidoAt: null,
+      ...(await this.teamScope.leadScope(requester)),
+    };
+
+    if (filterCorretorId && requester.role !== Role.corretor) {
+      const allowed = await this.teamScope.canAccessCorretor(
+        requester,
+        filterCorretorId,
+      );
+      if (!allowed) return null;
+      leadFilter.corretorId = filterCorretorId;
+    }
+
+    const visibleIds = await this.teamScope.getVisibleCorretorIds(requester);
+    const autorIdsSemLead =
+      visibleIds === null
+        ? null
+        : Array.from(new Set([...visibleIds, requester.id]));
+
+    if (filterCorretorId && requester.role !== Role.corretor) {
+      return {
+        OR: [
+          { lead: leadFilter },
+          { leadId: null, autorId: filterCorretorId },
+        ],
+      };
+    }
+
+    return {
+      OR: [
+        { lead: leadFilter },
+        autorIdsSemLead === null
+          ? { leadId: null }
+          : { leadId: null, autorId: { in: autorIdsSemLead } },
+      ],
+    };
+  }
+
+  private async ensureAgendamentoAccessible(
+    item: { leadId: string | null; autorId: string },
+    requester: AuthenticatedUser,
+  ) {
+    if (item.leadId) {
+      await this.ensureLeadAccessible(item.leadId, requester);
+      return;
+    }
+
+    if (requester.role === Role.admin || item.autorId === requester.id) {
+      return;
+    }
+
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      item.autorId,
+    );
+    if (!allowed) {
+      throw new NotFoundException('Agendamento não encontrado.');
     }
   }
 

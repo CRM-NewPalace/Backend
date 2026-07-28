@@ -105,7 +105,7 @@ export class NotificacoesService {
   async createAgendaResposta(params: {
     userId: string;
     agendamentoId: string;
-    leadId: string;
+    leadId?: string | null;
     titulo: string;
     aprovado: boolean;
     motivo?: string;
@@ -124,7 +124,7 @@ export class NotificacoesService {
         corpo: params.aprovado
           ? `Sua solicitação "${params.titulo}" foi aprovada pelo gerente.`
           : `Sua solicitação "${params.titulo}" foi recusada.${motivo}`,
-        leadId: params.leadId,
+        leadId: params.leadId ?? null,
         agendamentoId: params.agendamentoId,
       },
       select: notifSelect,

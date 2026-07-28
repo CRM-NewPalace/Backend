@@ -26,8 +26,11 @@ export const AGENDAMENTO_STATUS = [
 export const AGENDAMENTO_ESCOPOS = ['pessoal', 'com_gerente'] as const;
 
 export class CreateAgendamentoDto {
+  /** Opcional em tarefa pessoal; obrigatório quando envolve o gerente. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsUUID('4', { message: 'Lead/cliente inválido.' })
-  leadId!: string;
+  leadId?: string | null;
 
   @IsString()
   @MinLength(2, { message: 'O título deve ter ao menos 2 caracteres.' })
