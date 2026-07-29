@@ -25,6 +25,8 @@ export const AGENDAMENTO_STATUS = [
 
 export const AGENDAMENTO_ESCOPOS = ['pessoal', 'com_gerente'] as const;
 
+export const AGENDAMENTO_ALVOS = ['nenhum', 'todos', 'equipe', 'gerente'] as const;
+
 export class CreateAgendamentoDto {
   /** Opcional em tarefa pessoal; obrigatório quando envolve o gerente. */
   @IsOptional()
@@ -43,6 +45,21 @@ export class CreateAgendamentoDto {
   /** pessoal = tarefa do corretor; com_gerente = precisa aprovação. */
   @IsIn(AGENDAMENTO_ESCOPOS, { message: 'Escopo inválido.' })
   escopo!: (typeof AGENDAMENTO_ESCOPOS)[number];
+
+  /** Público de eventos do admin (todos / equipe / gerente). */
+  @IsOptional()
+  @IsIn(AGENDAMENTO_ALVOS, { message: 'Público do evento inválido.' })
+  alvoTipo?: (typeof AGENDAMENTO_ALVOS)[number];
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID('4', { message: 'Equipe inválida.' })
+  alvoEquipeId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID('4', { message: 'Gerente inválido.' })
+  alvoGerenteId?: string | null;
 
   @IsISO8601({}, { message: 'Data/hora de início inválida.' })
   startsAt!: string;

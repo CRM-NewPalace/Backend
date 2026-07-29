@@ -78,6 +78,9 @@ model User {
   // Solicitações de agenda que este gerente/admin aprovou ou recusou.
   agendamentosAprovados Agendamento[] @relation("AgendamentoAprovador")
 
+  // Eventos de admin direcionados especificamente a este gerente.
+  agendamentosAlvoGerente Agendamento[] @relation("AgendamentoAlvoGerente")
+
   // Notificações in-app destinadas a este usuário.
   notificacoes Notificacao[] @relation("NotificacaoDestinatario")
 
@@ -108,6 +111,9 @@ model Equipe {
   gerente   User   @relation("EquipeGerente", fields: [gerenteId], references: [id], onDelete: Restrict)
 
   membros User[] @relation("EquipeMembros")
+
+  /// Eventos de admin direcionados a esta equipe.
+  agendamentosAlvo Agendamento[] @relation("AgendamentoAlvoEquipe")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -301,6 +307,18 @@ enum AgendamentoEscopo {
   com_gerente
 }
 
+/// Público de eventos criados pelo admin.
+enum AgendamentoAlvo {
+  /// Compromisso normal (não é evento broadcast do admin).
+  nenhum
+  /// Visível para todos os usuários.
+  todos
+  /// Visível para gerente + corretores da equipe.
+  equipe
+  /// Visível somente para o gerente indicado (+ admin).
+  gerente
+}
+
 /// Fluxo de solicitação quando escopo = com_gerente.
 enum AgendamentoSolicitacaoStatus {
   nenhuma
@@ -324,6 +342,13 @@ model Agendamento {
   escopo       AgendamentoEscopo            @default(pessoal)
   solicitacaoStatus AgendamentoSolicitacaoStatus @default(nenhuma)
 
+  /// Público de eventos do admin (nenhum nos compromissos normais).
+  alvoTipo      AgendamentoAlvo @default(nenhum)
+  alvoEquipeId  String?
+  alvoEquipe    Equipe? @relation("AgendamentoAlvoEquipe", fields: [alvoEquipeId], references: [id], onDelete: SetNull)
+  alvoGerenteId String?
+  alvoGerente   User?   @relation("AgendamentoAlvoGerente", fields: [alvoGerenteId], references: [id], onDelete: SetNull)
+
   startsAt     DateTime
   endsAt       DateTime?
   local        String?
@@ -344,6 +369,9 @@ model Agendamento {
   @@index([tipo])
   @@index([escopo])
   @@index([solicitacaoStatus])
+  @@index([alvoTipo])
+  @@index([alvoEquipeId])
+  @@index([alvoGerenteId])
   @@map("agendamentos")
 }
 
