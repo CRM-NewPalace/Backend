@@ -235,6 +235,7 @@ export class AgendaService {
         startsAt: item.startsAt,
         local: item.local,
         leadNome: item.lead?.nome ?? null,
+        leadTipo: item.lead?.tipo ?? null,
         corretorNome,
         gerenteNome,
         autorNome: item.autor.name,
@@ -251,6 +252,8 @@ export class AgendaService {
       corpo: string;
     }> = [];
 
+    const tomInformativo = requester.role === Role.admin;
+
     for (const item of upcoming) {
       const startsAt = new Date(item.startsAt);
       const msRestante = startsAt.getTime() - now.getTime();
@@ -263,6 +266,11 @@ export class AgendaService {
 
       const proximo = proximos.find((p) => p.id === item.id);
       const envolvidos: string[] = [];
+      if (proximo?.leadNome) {
+        envolvidos.push(
+          `${proximo.leadTipo === 'cliente' ? 'Cliente' : 'Lead'}: ${proximo.leadNome}`,
+        );
+      }
       if (proximo?.corretorNome) {
         envolvidos.push(`Corretor: ${proximo.corretorNome}`);
       }
@@ -270,7 +278,7 @@ export class AgendaService {
         envolvidos.push(`Gerente: ${proximo.gerenteNome}`);
       }
       const envolvidosTxt =
-        envolvidos.length > 0 ? ` (${envolvidos.join(' · ')})` : '';
+        envolvidos.length > 0 ? ` — ${envolvidos.join(' · ')}` : '';
 
       const janelas: Array<{
         maxMs: number;
@@ -293,6 +301,7 @@ export class AgendaService {
           titulo: item.titulo,
           quando,
           envolvidos: envolvidosTxt || undefined,
+          tomInformativo,
           tipo: janela.tipo,
         });
         if (created) {

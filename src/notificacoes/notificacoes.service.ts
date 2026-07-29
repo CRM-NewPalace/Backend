@@ -138,8 +138,10 @@ export class NotificacoesService {
     leadId?: string | null;
     titulo: string;
     quando: string;
-    /** Ex.: " (Corretor: X · Gerente: Y)" — útil para admin. */
+    /** Ex.: " — Cliente: X · Corretor: Y · Gerente: Z" */
     envolvidos?: string;
+    /** Tom neutro para admin (sem sugerir que o compromisso é dele). */
+    tomInformativo?: boolean;
     tipo:
       | typeof NotificacaoTipo.agenda_lembrete_1d
       | typeof NotificacaoTipo.agenda_lembrete_2h
@@ -163,13 +165,19 @@ export class NotificacoesService {
           : '1 dia';
 
     const envolvidos = params.envolvidos?.trim() ?? '';
+    const titulo = params.tomInformativo
+      ? `Agenda da equipe — ${params.titulo}`
+      : `Lembrete (${janela}) — ${params.titulo}`;
+    const corpo = params.tomInformativo
+      ? `Aviso informativo: compromisso da equipe "${params.titulo}"${envolvidos} em ${params.quando}.`
+      : `Seu compromisso "${params.titulo}"${envolvidos} começa em ${params.quando}.`;
 
     return this.prisma.notificacao.create({
       data: {
         userId: params.userId,
         tipo: params.tipo,
-        titulo: `Lembrete (${janela}) — ${params.titulo}`,
-        corpo: `Compromisso "${params.titulo}"${envolvidos} começa em ${params.quando}.`,
+        titulo,
+        corpo,
         leadId: params.leadId ?? null,
         agendamentoId: params.agendamentoId,
       },
