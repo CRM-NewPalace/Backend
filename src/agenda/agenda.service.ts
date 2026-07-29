@@ -48,7 +48,7 @@ const agendamentoSelect = {
   aprovadoAt: true,
   createdAt: true,
   updatedAt: true,
-  autor: { select: { id: true, name: true } },
+  autor: { select: { id: true, name: true, role: true } },
   aprovadoPor: { select: { id: true, name: true } },
   lead: {
     select: {
@@ -72,6 +72,7 @@ export class AgendaService {
   ) {}
 
   /** Compromissos no calendário/tabela.
+   * - criados por admin: visíveis para todos os papéis
    * - pessoal: só o autor
    * - com_gerente aprovado: autor + gerente/admin da equipe
    * - com_gerente pendente: corretor autor ainda vê no calendário
@@ -87,6 +88,8 @@ export class AgendaService {
       AND: [
         {
           OR: [
+            // Compromissos do admin aparecem para toda a equipe.
+            { autor: { role: Role.admin } },
             {
               escopo: AgendamentoEscopo.pessoal,
               autorId: requester.id,
@@ -274,6 +277,7 @@ export class AgendaService {
         endsAt: true,
         solicitacaoStatus: true,
         escopo: true,
+        autor: { select: { role: true } },
       },
     });
     if (!existing) {
@@ -281,6 +285,7 @@ export class AgendaService {
     }
 
     await this.ensureAgendamentoAccessible(existing, requester);
+    this.assertCanModifyAgendamento(existing, requester);
 
     if (
       existing.solicitacaoStatus === AgendamentoSolicitacaoStatus.pendente &&
@@ -449,13 +454,20 @@ export class AgendaService {
   async remove(id: string, requester: AuthenticatedUser) {
     const existing = await this.prisma.agendamento.findUnique({
       where: { id },
-      select: { id: true, leadId: true, autorId: true, escopo: true },
+      select: {
+        id: true,
+        leadId: true,
+        autorId: true,
+        escopo: true,
+        autor: { select: { role: true } },
+      },
     });
     if (!existing) {
       throw new NotFoundException('Agendamento não encontrado.');
     }
 
     await this.ensureAgendamentoAccessible(existing, requester);
+    this.assertCanModifyAgendamento(existing, requester);
 
     if (
       requester.role === Role.corretor &&
@@ -508,9 +520,24 @@ export class AgendaService {
       leadId: string | null;
       autorId: string;
       escopo?: AgendamentoEscopo;
+      autor?: { role: Role } | null;
     },
     requester: AuthenticatedUser,
   ) {
+    const autorRole =
+      item.autor?.role ??
+      (
+        await this.prisma.user.findUnique({
+          where: { id: item.autorId },
+          select: { role: true },
+        })
+      )?.role;
+
+    // Compromissos criados por admin são visíveis para todos.
+    if (autorRole === Role.admin) {
+      return;
+    }
+
     // Tarefa pessoal: somente o autor (admin também, para suporte).
     if (item.escopo === AgendamentoEscopo.pessoal) {
       if (
@@ -532,6 +559,21 @@ export class AgendaService {
     }
 
     throw new NotFoundException('Agendamento não encontrado.');
+  }
+
+  /** Compromissos do admin só podem ser alterados por admin. */
+  private assertCanModifyAgendamento(
+    item: {
+      autorId: string;
+      autor?: { role: Role } | null;
+    },
+    requester: AuthenticatedUser,
+  ) {
+    if (item.autor?.role === Role.admin && requester.role !== Role.admin) {
+      throw new ForbiddenException(
+        'Apenas administradores podem alterar compromissos da equipe.',
+      );
+    }
   }
 
   private async resolveGerenteIds(corretorId: string): Promise<string[]> {
