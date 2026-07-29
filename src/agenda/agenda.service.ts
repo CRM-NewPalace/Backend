@@ -186,6 +186,20 @@ export class AgendaService {
       requester,
     );
 
+    const corretorIds = Array.from(
+      new Set(
+        upcoming
+          .map((item) => {
+            if (item.lead?.corretorId) return item.lead.corretorId;
+            if (item.autor.role === Role.corretor) return item.autorId;
+            return null;
+          })
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const gerenteByCorretorId =
+      await this.resolveGerenteNomeByCorretorIds(corretorIds);
+
     type Urgencia = 'nenhuma' | 'dia' | 'duas_horas' | 'uma_hora';
     let urgencia: Urgencia = 'nenhuma';
 
@@ -203,12 +217,28 @@ export class AgendaService {
         urgencia = 'dia';
       }
 
+      const corretorId =
+        item.lead?.corretorId ??
+        (item.autor.role === Role.corretor ? item.autorId : null);
+      const corretorNome =
+        item.lead?.corretor?.name ??
+        (item.autor.role === Role.corretor ? item.autor.name : null);
+      const gerenteNome = corretorId
+        ? (gerenteByCorretorId.get(corretorId) ?? null)
+        : item.autor.role === Role.gerente
+          ? item.autor.name
+          : null;
+
       return {
         id: item.id,
         titulo: item.titulo,
         startsAt: item.startsAt,
         local: item.local,
         leadNome: item.lead?.nome ?? null,
+        corretorNome,
+        gerenteNome,
+        autorNome: item.autor.name,
+        autorRole: item.autor.role,
         nivel,
         msRestante,
       };
@@ -231,6 +261,17 @@ export class AgendaService {
         timeStyle: 'short',
       });
 
+      const proximo = proximos.find((p) => p.id === item.id);
+      const envolvidos: string[] = [];
+      if (proximo?.corretorNome) {
+        envolvidos.push(`Corretor: ${proximo.corretorNome}`);
+      }
+      if (proximo?.gerenteNome) {
+        envolvidos.push(`Gerente: ${proximo.gerenteNome}`);
+      }
+      const envolvidosTxt =
+        envolvidos.length > 0 ? ` (${envolvidos.join(' · ')})` : '';
+
       const janelas: Array<{
         maxMs: number;
         tipo:
@@ -251,6 +292,7 @@ export class AgendaService {
           leadId: item.leadId,
           titulo: item.titulo,
           quando,
+          envolvidos: envolvidosTxt || undefined,
           tipo: janela.tipo,
         });
         if (created) {
@@ -699,6 +741,33 @@ export class AgendaService {
       select: { id: true },
     });
     return admins.map((a) => a.id);
+  }
+
+  /** Mapa corretorId → nome do gerente da equipe. */
+  private async resolveGerenteNomeByCorretorIds(
+    corretorIds: string[],
+  ): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (corretorIds.length === 0) return map;
+
+    const corretores = await this.prisma.user.findMany({
+      where: { id: { in: corretorIds } },
+      select: {
+        id: true,
+        equipe: {
+          select: {
+            gerente: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    for (const c of corretores) {
+      if (c.equipe?.gerente?.name) {
+        map.set(c.id, c.equipe.gerente.name);
+      }
+    }
+    return map;
   }
 
   private parseOptionalDate(value?: string | null): Date | null {
