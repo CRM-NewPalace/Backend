@@ -45,6 +45,11 @@ export class AgendaController {
     return this.agendaService.listSolicitacoes(requester);
   }
 
+  @Get('lembretes')
+  syncLembretes(@CurrentUser() requester: AuthenticatedUser) {
+    return this.agendaService.syncLembretes(requester);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,

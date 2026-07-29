@@ -130,4 +130,46 @@ export class NotificacoesService {
       select: notifSelect,
     });
   }
+
+  /** Lembrete de compromisso próximo (1 dia / 2h / 1h). Idempotente por tipo+agendamento. */
+  async createAgendaLembrete(params: {
+    userId: string;
+    agendamentoId: string;
+    leadId?: string | null;
+    titulo: string;
+    quando: string;
+    tipo:
+      | typeof NotificacaoTipo.agenda_lembrete_1d
+      | typeof NotificacaoTipo.agenda_lembrete_2h
+      | typeof NotificacaoTipo.agenda_lembrete_1h;
+  }) {
+    const existing = await this.prisma.notificacao.findFirst({
+      where: {
+        userId: params.userId,
+        agendamentoId: params.agendamentoId,
+        tipo: params.tipo,
+      },
+      select: { id: true },
+    });
+    if (existing) return null;
+
+    const janela =
+      params.tipo === NotificacaoTipo.agenda_lembrete_1h
+        ? '1 hora'
+        : params.tipo === NotificacaoTipo.agenda_lembrete_2h
+          ? '2 horas'
+          : '1 dia';
+
+    return this.prisma.notificacao.create({
+      data: {
+        userId: params.userId,
+        tipo: params.tipo,
+        titulo: `Lembrete (${janela}) — ${params.titulo}`,
+        corpo: `Seu compromisso "${params.titulo}" começa em ${params.quando}.`,
+        leadId: params.leadId ?? null,
+        agendamentoId: params.agendamentoId,
+      },
+      select: notifSelect,
+    });
+  }
 }

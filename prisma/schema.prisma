@@ -352,6 +352,9 @@ enum NotificacaoTipo {
   analise_resultado
   agenda_solicitacao
   agenda_resposta
+  agenda_lembrete_1d
+  agenda_lembrete_2h
+  agenda_lembrete_1h
 }
 
 /// Aviso in-app para o usuário (ex.: resultado da análise para o corretor).

@@ -10,6 +10,7 @@ import {
   AgendamentoStatus,
   AgendamentoTipo,
   CatalogType,
+  NotificacaoTipo,
   Prisma,
   Role,
   TriagemOrigem,
@@ -163,6 +164,115 @@ export class AgendaService {
   async countSolicitacoes(requester: AuthenticatedUser) {
     const items = await this.listSolicitacoes(requester);
     return { count: items.length };
+  }
+
+  /**
+   * Sincroniza lembretes (1d / 2h / 1h) e retorna alerta para badge + card.
+   * Chamado no login/polling do front — sem cron no servidor.
+   */
+  async syncLembretes(requester: AuthenticatedUser) {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const MS_1H = 60 * 60 * 1000;
+    const MS_2H = 2 * MS_1H;
+    const MS_1D = 24 * MS_1H;
+
+    const upcoming = await this.list(
+      {
+        status: AgendamentoStatus.agendado,
+        from: now.toISOString(),
+        to: horizon.toISOString(),
+      },
+      requester,
+    );
+
+    type Urgencia = 'nenhuma' | 'dia' | 'duas_horas' | 'uma_hora';
+    let urgencia: Urgencia = 'nenhuma';
+
+    const proximos = upcoming.map((item) => {
+      const startsAt = new Date(item.startsAt);
+      const msRestante = startsAt.getTime() - now.getTime();
+      let nivel: 'dia' | 'duas_horas' | 'uma_hora' = 'dia';
+      if (msRestante <= MS_1H) nivel = 'uma_hora';
+      else if (msRestante <= MS_2H) nivel = 'duas_horas';
+
+      if (nivel === 'uma_hora') urgencia = 'uma_hora';
+      else if (nivel === 'duas_horas' && urgencia !== 'uma_hora') {
+        urgencia = 'duas_horas';
+      } else if (urgencia === 'nenhuma') {
+        urgencia = 'dia';
+      }
+
+      return {
+        id: item.id,
+        titulo: item.titulo,
+        startsAt: item.startsAt,
+        local: item.local,
+        leadNome: item.lead?.nome ?? null,
+        nivel,
+        msRestante,
+      };
+    });
+
+    const criadas: Array<{
+      id: string;
+      tipo: NotificacaoTipo;
+      titulo: string;
+      corpo: string;
+    }> = [];
+
+    for (const item of upcoming) {
+      const startsAt = new Date(item.startsAt);
+      const msRestante = startsAt.getTime() - now.getTime();
+      if (msRestante <= 0) continue;
+
+      const quando = startsAt.toLocaleString('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+
+      const janelas: Array<{
+        maxMs: number;
+        tipo:
+          | typeof NotificacaoTipo.agenda_lembrete_1d
+          | typeof NotificacaoTipo.agenda_lembrete_2h
+          | typeof NotificacaoTipo.agenda_lembrete_1h;
+      }> = [
+        { maxMs: MS_1D, tipo: NotificacaoTipo.agenda_lembrete_1d },
+        { maxMs: MS_2H, tipo: NotificacaoTipo.agenda_lembrete_2h },
+        { maxMs: MS_1H, tipo: NotificacaoTipo.agenda_lembrete_1h },
+      ];
+
+      for (const janela of janelas) {
+        if (msRestante > janela.maxMs) continue;
+        const created = await this.notificacoes.createAgendaLembrete({
+          userId: requester.id,
+          agendamentoId: item.id,
+          leadId: item.leadId,
+          titulo: item.titulo,
+          quando,
+          tipo: janela.tipo,
+        });
+        if (created) {
+          criadas.push({
+            id: created.id,
+            tipo: created.tipo,
+            titulo: created.titulo,
+            corpo: created.corpo,
+          });
+        }
+      }
+    }
+
+    const solicitacoes = await this.countSolicitacoes(requester);
+
+    return {
+      urgencia,
+      proximosCount: proximos.length,
+      solicitacoesCount: solicitacoes.count,
+      proximos,
+      novasNotificacoes: criadas.filter(Boolean),
+    };
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
