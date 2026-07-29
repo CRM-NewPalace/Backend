@@ -197,8 +197,19 @@ export class AgendaService {
           .filter((id): id is string => Boolean(id)),
       ),
     );
-    const gerenteByCorretorId =
-      await this.resolveGerenteNomeByCorretorIds(corretorIds);
+    const equipeInfoByCorretorId =
+      await this.resolveEquipeInfoByCorretorIds(corretorIds);
+
+    // Gerentes autores: resolve a equipe que lideram.
+    const gerenteAutorIds = Array.from(
+      new Set(
+        upcoming
+          .filter((i) => i.autor.role === Role.gerente)
+          .map((i) => i.autorId),
+      ),
+    );
+    const equipeByGerenteId =
+      await this.resolveEquipeByGerenteIds(gerenteAutorIds);
 
     type Urgencia = 'nenhuma' | 'dia' | 'duas_horas' | 'uma_hora';
     let urgencia: Urgencia = 'nenhuma';
@@ -223,11 +234,17 @@ export class AgendaService {
       const corretorNome =
         item.lead?.corretor?.name ??
         (item.autor.role === Role.corretor ? item.autor.name : null);
-      const gerenteNome = corretorId
-        ? (gerenteByCorretorId.get(corretorId) ?? null)
-        : item.autor.role === Role.gerente
-          ? item.autor.name
-          : null;
+      const info = corretorId
+        ? equipeInfoByCorretorId.get(corretorId)
+        : undefined;
+      const equipeDoGerente =
+        item.autor.role === Role.gerente
+          ? equipeByGerenteId.get(item.autorId)
+          : undefined;
+      const gerenteNome =
+        (info?.gerenteNome ? info.gerenteNome : null) ??
+        (item.autor.role === Role.gerente ? item.autor.name : null);
+      const equipeNome = info?.equipeNome ?? equipeDoGerente?.name ?? null;
 
       return {
         id: item.id,
@@ -238,6 +255,7 @@ export class AgendaService {
         leadTipo: item.lead?.tipo ?? null,
         corretorNome,
         gerenteNome,
+        equipeNome,
         autorNome: item.autor.name,
         autorRole: item.autor.role,
         nivel,
@@ -266,6 +284,9 @@ export class AgendaService {
 
       const proximo = proximos.find((p) => p.id === item.id);
       const envolvidos: string[] = [];
+      if (proximo?.equipeNome) {
+        envolvidos.push(`Equipe: ${proximo.equipeNome}`);
+      }
       if (proximo?.leadNome) {
         envolvidos.push(
           `${proximo.leadTipo === 'cliente' ? 'Cliente' : 'Lead'}: ${proximo.leadNome}`,
@@ -752,11 +773,14 @@ export class AgendaService {
     return admins.map((a) => a.id);
   }
 
-  /** Mapa corretorId → nome do gerente da equipe. */
-  private async resolveGerenteNomeByCorretorIds(
+  /** Mapa corretorId → gerente e nome da equipe. */
+  private async resolveEquipeInfoByCorretorIds(
     corretorIds: string[],
-  ): Promise<Map<string, string>> {
-    const map = new Map<string, string>();
+  ): Promise<Map<string, { gerenteNome: string; equipeNome: string }>> {
+    const map = new Map<
+      string,
+      { gerenteNome: string; equipeNome: string }
+    >();
     if (corretorIds.length === 0) return map;
 
     const corretores = await this.prisma.user.findMany({
@@ -765,6 +789,7 @@ export class AgendaService {
         id: true,
         equipe: {
           select: {
+            name: true,
             gerente: { select: { id: true, name: true } },
           },
         },
@@ -772,9 +797,33 @@ export class AgendaService {
     });
 
     for (const c of corretores) {
-      if (c.equipe?.gerente?.name) {
-        map.set(c.id, c.equipe.gerente.name);
+      if (c.equipe?.name && c.equipe.gerente?.name) {
+        map.set(c.id, {
+          equipeNome: c.equipe.name,
+          gerenteNome: c.equipe.gerente.name,
+        });
+      } else if (c.equipe?.name) {
+        map.set(c.id, {
+          equipeNome: c.equipe.name,
+          gerenteNome: '',
+        });
       }
+    }
+    return map;
+  }
+
+  private async resolveEquipeByGerenteIds(
+    gerenteIds: string[],
+  ): Promise<Map<string, { name: string }>> {
+    const map = new Map<string, { name: string }>();
+    if (gerenteIds.length === 0) return map;
+
+    const equipes = await this.prisma.equipe.findMany({
+      where: { gerenteId: { in: gerenteIds } },
+      select: { name: true, gerenteId: true },
+    });
+    for (const e of equipes) {
+      map.set(e.gerenteId, { name: e.name });
     }
     return map;
   }
