@@ -148,8 +148,13 @@ export class AgendaService {
     });
   }
 
-  /** Solicitações pendentes relevantes para o usuário (gerente aprova / corretor acompanha). */
+  /** Solicitações pendentes: gerente aprova da equipe; corretor acompanha as próprias. Admin não recebe. */
   async listSolicitacoes(requester: AuthenticatedUser) {
+    // Pedidos corretor → gerente são só do gerente da equipe; admin não entra na fila.
+    if (requester.role === Role.admin) {
+      return [];
+    }
+
     const sharedAccess = await this.buildSharedAccessFilter(requester);
     if (!sharedAccess) return [];
 
@@ -579,7 +584,7 @@ export class AgendaService {
   }
 
   async aprovar(id: string, requester: AuthenticatedUser) {
-    this.assertGerenteOuAdmin(requester);
+    this.assertSomenteGerente(requester);
 
     const existing = await this.prisma.agendamento.findUnique({
       where: { id },
@@ -647,7 +652,7 @@ export class AgendaService {
     motivo: string | undefined,
     requester: AuthenticatedUser,
   ) {
-    this.assertGerenteOuAdmin(requester);
+    this.assertSomenteGerente(requester);
 
     const existing = await this.prisma.agendamento.findUnique({
       where: { id },
@@ -731,10 +736,10 @@ export class AgendaService {
     return { ok: true };
   }
 
-  private assertGerenteOuAdmin(requester: AuthenticatedUser) {
-    if (requester.role === Role.corretor) {
+  private assertSomenteGerente(requester: AuthenticatedUser) {
+    if (requester.role !== Role.gerente) {
       throw new ForbiddenException(
-        'Apenas gerente ou admin podem aprovar solicitações.',
+        'Apenas o gerente da equipe pode aprovar ou recusar solicitações.',
       );
     }
   }
@@ -1107,14 +1112,11 @@ export class AgendaService {
       where: { id: corretorId },
       select: { equipe: { select: { gerenteId: true } } },
     });
+    // Sem gerente na equipe: não notifica admin — a fila é só do gerente.
     if (corretor?.equipe?.gerenteId) {
       return [corretor.equipe.gerenteId];
     }
-    const admins = await this.prisma.user.findMany({
-      where: { role: Role.admin, status: UserStatus.ativo },
-      select: { id: true },
-    });
-    return admins.map((a) => a.id);
+    return [];
   }
 
   /** Mapa corretorId → gerente e nome da equipe. */
