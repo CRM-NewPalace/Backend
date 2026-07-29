@@ -10,6 +10,11 @@ export class QueryAgendamentoDto {
   @IsUUID('4', { message: 'Corretor inválido.' })
   corretorId?: string;
 
+  /** Admin/gerente: filtra pela equipe (membros + gerente). */
+  @IsOptional()
+  @IsUUID('4', { message: 'Equipe inválida.' })
+  equipeId?: string;
+
   @IsOptional()
   @IsIn(AGENDAMENTO_TIPOS, { message: 'Tipo inválido.' })
   tipo?: (typeof AGENDAMENTO_TIPOS)[number];

@@ -82,6 +82,7 @@ export class AgendaService {
     const sharedAccess = await this.buildSharedAccessFilter(
       requester,
       query.corretorId,
+      query.equipeId,
     );
     if (!sharedAccess) return [];
 
@@ -89,8 +90,10 @@ export class AgendaService {
       AND: [
         {
           OR: [
-            // Compromissos do admin aparecem para toda a equipe.
-            { autor: { role: Role.admin } },
+            // Compromissos do admin: só quando não há filtro de equipe.
+            ...(query.equipeId
+              ? []
+              : [{ autor: { role: Role.admin } }]),
             {
               escopo: AgendamentoEscopo.pessoal,
               autorId: requester.id,
@@ -679,11 +682,49 @@ export class AgendaService {
   private async buildSharedAccessFilter(
     requester: AuthenticatedUser,
     filterCorretorId?: string,
+    filterEquipeId?: string,
   ): Promise<Prisma.AgendamentoWhereInput | null> {
     const leadFilter: Prisma.LeadWhereInput = {
       perdidoAt: null,
       ...(await this.teamScope.leadScope(requester)),
     };
+
+    if (filterEquipeId && requester.role !== Role.corretor) {
+      const equipe = await this.prisma.equipe.findUnique({
+        where: { id: filterEquipeId },
+        select: {
+          id: true,
+          gerenteId: true,
+          membros: { select: { id: true } },
+        },
+      });
+      if (!equipe) return null;
+      if (
+        requester.role === Role.gerente &&
+        equipe.gerenteId !== requester.id
+      ) {
+        return null;
+      }
+
+      const memberIds = [
+        equipe.gerenteId,
+        ...equipe.membros.map((m) => m.id),
+      ];
+
+      if (filterCorretorId) {
+        if (!memberIds.includes(filterCorretorId)) return null;
+        const allowed = await this.teamScope.canAccessCorretor(
+          requester,
+          filterCorretorId,
+        );
+        if (!allowed) return null;
+        leadFilter.corretorId = filterCorretorId;
+      } else {
+        leadFilter.corretorId = { in: memberIds };
+      }
+
+      return { lead: leadFilter };
+    }
 
     if (filterCorretorId && requester.role !== Role.corretor) {
       const allowed = await this.teamScope.canAccessCorretor(
