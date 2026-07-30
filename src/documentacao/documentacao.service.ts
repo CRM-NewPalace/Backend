@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -12,29 +11,32 @@ import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
 import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
 import { QueryDocumentacaoDto } from './dto/query-documentacao.dto';
 
+const userMini = { select: { id: true, name: true } } as const;
+
 const docSelect = {
   id: true,
   leadId: true,
   tipoContato: true,
   stageSituacao: true,
   nome: true,
-  telefone: true,
-  email: true,
-  origem: true,
-  interesse: true,
-  cidade: true,
-  bairro: true,
-  prioridade: true,
-  renda: true,
-  tags: true,
-  temFgts: true,
-  valorFgts: true,
-  temEntrada: true,
-  valorEntrada: true,
-  temDependente: true,
+  construtoraId: true,
+  empreendimentoId: true,
+  fonte: true,
+  status1: true,
+  status2: true,
+  corretorId: true,
+  gerenteId: true,
+  dataAnalise: true,
+  dataVenda: true,
+  vgv: true,
+  obs: true,
   createdAt: true,
   updatedAt: true,
-  autor: { select: { id: true, name: true } },
+  autor: userMini,
+  construtora: { select: { id: true, nome: true } },
+  empreendimento: { select: { id: true, nome: true, cidade: true } },
+  corretor: userMini,
+  gerente: userMini,
   lead: {
     select: {
       id: true,
@@ -42,10 +44,16 @@ const docSelect = {
       nome: true,
       stage: true,
       corretorId: true,
-      corretor: { select: { id: true, name: true } },
+      corretor: userMini,
     },
   },
 } as const;
+
+function parseOptionalDate(value?: string | null): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return new Date(value);
+}
 
 @Injectable()
 export class DocumentacaoService {
@@ -92,9 +100,12 @@ export class DocumentacaoService {
   }
 
   async create(dto: CreateDocumentacaoDto, requester: AuthenticatedUser) {
-    this.assertMoneyRules(dto);
-
     const lead = await this.ensureLeadAccessible(dto.leadId, requester);
+
+    let gerenteId = dto.gerenteId ?? null;
+    if (!gerenteId && lead.corretorId) {
+      gerenteId = await this.resolveGerenteOfCorretor(lead.corretorId);
+    }
 
     return this.prisma.documentacao.create({
       data: {
@@ -103,20 +114,17 @@ export class DocumentacaoService {
         tipoContato: lead.tipo,
         stageSituacao: lead.stage,
         nome: dto.nome.trim(),
-        telefone: dto.telefone.trim(),
-        email: dto.email.trim().toLowerCase(),
-        origem: dto.origem.trim(),
-        interesse: dto.interesse,
-        cidade: dto.cidade.trim(),
-        bairro: dto.bairro.trim(),
-        prioridade: dto.prioridade,
-        renda: dto.renda ?? null,
-        tags: dto.tags ?? [],
-        temFgts: dto.temFgts,
-        valorFgts: dto.temFgts ? (dto.valorFgts ?? null) : null,
-        temEntrada: dto.temEntrada,
-        valorEntrada: dto.temEntrada ? (dto.valorEntrada ?? null) : null,
-        temDependente: dto.temDependente,
+        construtoraId: dto.construtoraId || null,
+        empreendimentoId: dto.empreendimentoId || null,
+        fonte: dto.fonte,
+        status1: dto.status1,
+        status2: dto.status2,
+        corretorId: dto.corretorId || lead.corretorId || null,
+        gerenteId,
+        dataAnalise: parseOptionalDate(dto.dataAnalise) ?? null,
+        dataVenda: parseOptionalDate(dto.dataVenda) ?? null,
+        vgv: dto.vgv ?? null,
+        obs: dto.obs?.trim() || null,
       },
       select: docSelect,
     });
@@ -129,15 +137,7 @@ export class DocumentacaoService {
   ) {
     const existing = await this.prisma.documentacao.findUnique({
       where: { id },
-      select: {
-        id: true,
-        leadId: true,
-        temFgts: true,
-        valorFgts: true,
-        temEntrada: true,
-        valorEntrada: true,
-        temDependente: true,
-      },
+      select: { id: true, leadId: true },
     });
     if (!existing) {
       throw new NotFoundException('Documentação não encontrada.');
@@ -145,38 +145,39 @@ export class DocumentacaoService {
 
     await this.ensureLeadAccessible(existing.leadId, requester);
 
-    const merged = {
-      temFgts: dto.temFgts ?? existing.temFgts,
-      valorFgts:
-        dto.valorFgts !== undefined ? dto.valorFgts : existing.valorFgts,
-      temEntrada: dto.temEntrada ?? existing.temEntrada,
-      valorEntrada:
-        dto.valorEntrada !== undefined
-          ? dto.valorEntrada
-          : existing.valorEntrada,
-      temDependente: dto.temDependente ?? existing.temDependente,
-    };
-    this.assertMoneyRules(merged);
-
     const data: Prisma.DocumentacaoUpdateInput = {};
     if (dto.nome !== undefined) data.nome = dto.nome.trim();
-    if (dto.telefone !== undefined) data.telefone = dto.telefone.trim();
-    if (dto.email !== undefined) data.email = dto.email.trim().toLowerCase();
-    if (dto.origem !== undefined) data.origem = dto.origem.trim();
-    if (dto.interesse !== undefined) data.interesse = dto.interesse;
-    if (dto.cidade !== undefined) data.cidade = dto.cidade.trim();
-    if (dto.bairro !== undefined) data.bairro = dto.bairro.trim();
-    if (dto.prioridade !== undefined) data.prioridade = dto.prioridade;
-    if (dto.renda !== undefined) data.renda = dto.renda;
-    if (dto.tags !== undefined) data.tags = dto.tags;
-    if (dto.temFgts !== undefined) data.temFgts = dto.temFgts;
-    if (dto.temEntrada !== undefined) data.temEntrada = dto.temEntrada;
-    if (dto.temDependente !== undefined) data.temDependente = dto.temDependente;
-
-    const temFgts = merged.temFgts;
-    const temEntrada = merged.temEntrada;
-    data.valorFgts = temFgts ? (merged.valorFgts ?? null) : null;
-    data.valorEntrada = temEntrada ? (merged.valorEntrada ?? null) : null;
+    if (dto.construtoraId !== undefined) {
+      data.construtora = dto.construtoraId
+        ? { connect: { id: dto.construtoraId } }
+        : { disconnect: true };
+    }
+    if (dto.empreendimentoId !== undefined) {
+      data.empreendimento = dto.empreendimentoId
+        ? { connect: { id: dto.empreendimentoId } }
+        : { disconnect: true };
+    }
+    if (dto.fonte !== undefined) data.fonte = dto.fonte;
+    if (dto.status1 !== undefined) data.status1 = dto.status1;
+    if (dto.status2 !== undefined) data.status2 = dto.status2;
+    if (dto.corretorId !== undefined) {
+      data.corretor = dto.corretorId
+        ? { connect: { id: dto.corretorId } }
+        : { disconnect: true };
+    }
+    if (dto.gerenteId !== undefined) {
+      data.gerente = dto.gerenteId
+        ? { connect: { id: dto.gerenteId } }
+        : { disconnect: true };
+    }
+    if (dto.dataAnalise !== undefined) {
+      data.dataAnalise = parseOptionalDate(dto.dataAnalise) ?? null;
+    }
+    if (dto.dataVenda !== undefined) {
+      data.dataVenda = parseOptionalDate(dto.dataVenda) ?? null;
+    }
+    if (dto.vgv !== undefined) data.vgv = dto.vgv;
+    if (dto.obs !== undefined) data.obs = dto.obs?.trim() || null;
 
     return this.prisma.documentacao.update({
       where: { id },
@@ -196,7 +197,6 @@ export class DocumentacaoService {
 
     await this.ensureLeadAccessible(existing.leadId, requester);
 
-    // Corretor só exclui o que criou; gestor exclui qualquer da equipe.
     if (
       requester.role === Role.corretor &&
       existing.autorId !== requester.id
@@ -210,25 +210,16 @@ export class DocumentacaoService {
     return { ok: true };
   }
 
-  private assertMoneyRules(dto: {
-    temFgts: boolean;
-    valorFgts?: number | null;
-    temEntrada: boolean;
-    valorEntrada?: number | null;
-  }) {
-    if (dto.temFgts && (dto.valorFgts == null || Number.isNaN(dto.valorFgts))) {
-      throw new BadRequestException(
-        'Informe o valor do FGTS quando a resposta for sim.',
-      );
-    }
-    if (
-      dto.temEntrada &&
-      (dto.valorEntrada == null || Number.isNaN(dto.valorEntrada))
-    ) {
-      throw new BadRequestException(
-        'Informe o valor da entrada quando a resposta for sim.',
-      );
-    }
+  private async resolveGerenteOfCorretor(
+    corretorId: string,
+  ): Promise<string | null> {
+    const corretor = await this.prisma.user.findUnique({
+      where: { id: corretorId },
+      select: {
+        equipe: { select: { gerenteId: true } },
+      },
+    });
+    return corretor?.equipe?.gerenteId ?? null;
   }
 
   private async ensureLeadAccessible(

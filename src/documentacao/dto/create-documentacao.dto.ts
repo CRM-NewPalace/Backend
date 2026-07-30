@@ -1,24 +1,21 @@
 import { Transform } from 'class-transformer';
 import {
-  ArrayMaxSize,
-  IsArray,
-  IsBoolean,
-  IsEmail,
-  IsIn,
+  IsDateString,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
   IsUUID,
-  Matches,
   MaxLength,
   Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
 import {
-  LEAD_INTERESSES,
-  LEAD_PRIORIDADES,
-} from '../../leads/lead.constants';
+  DocumentacaoFonte,
+  DocumentacaoStatus1,
+  DocumentacaoStatus2,
+} from '@prisma/client';
 
 function toOptionalInt({ value }: { value: unknown }) {
   if (value === undefined) return undefined;
@@ -35,67 +32,54 @@ export class CreateDocumentacaoDto {
   @MaxLength(120)
   nome!: string;
 
-  @IsString()
-  @Matches(/^\(\d{2}\) \d{4,5}-\d{4}$/, {
-    message: 'Telefone inválido. Use o formato (81) 99999-9999.',
-  })
-  @MaxLength(20)
-  telefone!: string;
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID('4', { message: 'Construtora inválida.' })
+  construtoraId?: string | null;
 
-  @IsEmail({}, { message: 'Informe um e-mail válido.' })
-  @MaxLength(255)
-  email!: string;
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID('4', { message: 'Empreendimento inválido.' })
+  empreendimentoId?: string | null;
 
-  @IsString()
-  @MaxLength(60)
-  origem!: string;
+  @IsEnum(DocumentacaoFonte, { message: 'Fonte inválida.' })
+  fonte!: DocumentacaoFonte;
 
-  @IsIn(LEAD_INTERESSES, { message: 'Interesse inválido.' })
-  interesse!: string;
+  @IsEnum(DocumentacaoStatus1, { message: 'Status 1 inválido.' })
+  status1!: DocumentacaoStatus1;
 
-  @IsString()
-  @MaxLength(80)
-  cidade!: string;
+  @IsEnum(DocumentacaoStatus2, { message: 'Status 2 inválido.' })
+  status2!: DocumentacaoStatus2;
 
-  @IsString()
-  @MaxLength(80)
-  bairro!: string;
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID('4', { message: 'Corretor inválido.' })
+  corretorId?: string | null;
 
-  @IsIn(LEAD_PRIORIDADES, { message: 'Prioridade inválida.' })
-  prioridade!: string;
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID('4', { message: 'Gerente inválido.' })
+  gerenteId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsDateString({}, { message: 'Data de análise inválida.' })
+  dataAnalise?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsDateString({}, { message: 'Data de venda inválida.' })
+  dataVenda?: string | null;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @Transform(toOptionalInt)
-  @IsInt({ message: 'Renda inválida.' })
-  @Min(0, { message: 'Renda não pode ser negativa.' })
-  renda?: number | null;
+  @IsInt({ message: 'VGV inválido.' })
+  @Min(0, { message: 'VGV não pode ser negativo.' })
+  vgv?: number | null;
 
   @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(20)
-  @IsString({ each: true })
-  @MaxLength(40, { each: true })
-  tags?: string[];
-
-  @IsBoolean({ message: 'Informe se possui FGTS.' })
-  temFgts!: boolean;
-
-  @ValidateIf((o: CreateDocumentacaoDto) => o.temFgts === true)
-  @Transform(toOptionalInt)
-  @IsInt({ message: 'Valor do FGTS inválido.' })
-  @Min(0, { message: 'Valor do FGTS não pode ser negativo.' })
-  valorFgts?: number | null;
-
-  @IsBoolean({ message: 'Informe se possui entrada.' })
-  temEntrada!: boolean;
-
-  @ValidateIf((o: CreateDocumentacaoDto) => o.temEntrada === true)
-  @Transform(toOptionalInt)
-  @IsInt({ message: 'Valor da entrada inválido.' })
-  @Min(0, { message: 'Valor da entrada não pode ser negativo.' })
-  valorEntrada?: number | null;
-
-  @IsBoolean({ message: 'Informe se possui dependente.' })
-  temDependente!: boolean;
+  @IsString()
+  @MaxLength(2000)
+  obs?: string | null;
 }

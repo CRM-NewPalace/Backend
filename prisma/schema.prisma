@@ -69,6 +69,12 @@ model User {
   // Fichas de documentação criadas por este usuário.
   documentacoes Documentacao[] @relation("DocumentacaoAutor")
 
+  // Documentações em que este usuário é o corretor responsável.
+  documentacoesComoCorretor Documentacao[] @relation("DocumentacaoCorretor")
+
+  // Documentações em que este usuário é o gerente responsável.
+  documentacoesComoGerente Documentacao[] @relation("DocumentacaoGerente")
+
   // Análises registradas por este usuário (auto ou edição).
   analises Analise[] @relation("AnaliseAutor")
 
@@ -196,8 +202,77 @@ model TriagemEvent {
   @@map("triagem_events")
 }
 
-/// Ficha de documentação financeira/cadastral vinculada a um lead ou cliente.
-/// Guarda um snapshot dos dados do contato no momento do cadastro, mais FGTS/entrada/dependente.
+/// Fonte do lead/documentação (planilha operacional).
+enum DocumentacaoFonte {
+  indicacao
+  lead_proprio
+  lista
+  campanha
+  outro
+}
+
+/// Status 1 da documentação (crédito/análise).
+enum DocumentacaoStatus1 {
+  aprovado
+  analise
+  aprovado_restricao
+}
+
+/// Status 2 da documentação (andamento comercial).
+enum DocumentacaoStatus2 {
+  vendido
+  bacen
+  andamento
+}
+
+/// Construtora parceira (cadastro admin; gerente só visualiza).
+model Construtora {
+  id                  String  @id @default(uuid())
+  nome                String
+  contato             String?
+  endereco            String?
+  viabilizadorNome    String?
+  viabilizadorContato String?
+
+  empreendimentos Empreendimento[]
+  documentacoes   Documentacao[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([nome])
+  @@map("construtoras")
+}
+
+/// Empreendimento / imóvel (sync do site New Palace + vínculo opcional à construtora).
+model Empreendimento {
+  id            String  @id @default(uuid())
+  nome          String
+  construtoraId String?
+  construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
+
+  cidade      String?
+  endereco    String?
+  quartos     Int?
+  banheiros   Int?
+  areaM2      Float?
+  externalUrl String?
+  /// Chave estável para upsert no sync (slug/URL/nome normalizado).
+  externalKey String  @unique
+  ativo       Boolean @default(true)
+
+  documentacoes Documentacao[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([construtoraId])
+  @@index([ativo])
+  @@index([nome])
+  @@map("empreendimentos")
+}
+
+/// Ficha de documentação operacional (campos da planilha), vinculada a lead/cliente.
 model Documentacao {
   id     String @id @default(uuid())
   leadId String
@@ -209,28 +284,39 @@ model Documentacao {
   tipoContato   ContatoTipo
   stageSituacao String
 
-  nome       String
-  telefone   String
-  email      String
-  origem     String
-  interesse  String
-  cidade     String
-  bairro     String
-  prioridade String
-  renda      Int?
-  tags       String[] @default([])
+  nome String
 
-  temFgts       Boolean
-  valorFgts     Int?
-  temEntrada    Boolean
-  valorEntrada  Int?
-  temDependente Boolean
+  construtoraId String?
+  construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
+
+  empreendimentoId String?
+  empreendimento   Empreendimento? @relation(fields: [empreendimentoId], references: [id], onDelete: SetNull)
+
+  fonte   DocumentacaoFonte    @default(outro)
+  status1 DocumentacaoStatus1  @default(analise)
+  status2 DocumentacaoStatus2  @default(andamento)
+
+  corretorId String?
+  corretor   User? @relation("DocumentacaoCorretor", fields: [corretorId], references: [id], onDelete: SetNull)
+
+  gerenteId String?
+  gerente   User? @relation("DocumentacaoGerente", fields: [gerenteId], references: [id], onDelete: SetNull)
+
+  dataAnalise DateTime?
+  dataVenda   DateTime?
+  /// VGV em reais (inteiro).
+  vgv Int?
+  obs String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([leadId])
   @@index([autorId])
+  @@index([construtoraId])
+  @@index([empreendimentoId])
+  @@index([corretorId])
+  @@index([gerenteId])
   @@index([createdAt])
   @@map("documentacoes")
 }
