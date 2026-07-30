@@ -106,7 +106,7 @@ async function bootstrap() {
 
   await app.listen(port, host);
   new Logger('Bootstrap').log(
-    `API do CRM New Palace rodando em http://${host}:${port}/api`,
+    `API do NP Connect rodando em http://${host}:${port}/api`,
   );
 }
 
