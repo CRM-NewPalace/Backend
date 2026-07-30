@@ -46,7 +46,7 @@ export class EmpreendimentosController {
   }
 
   @Post()
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.gerente)
   create(
     @Body() dto: CreateEmpreendimentoDto,
     @CurrentUser() requester: AuthenticatedUser,

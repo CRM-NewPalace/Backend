@@ -70,8 +70,17 @@ export class EmpreendimentosService {
     return item;
   }
 
-  create(dto: CreateEmpreendimentoDto, requester: AuthenticatedUser) {
-    this.assertAdmin(requester);
+  async create(dto: CreateEmpreendimentoDto, requester: AuthenticatedUser) {
+    this.assertAdminOrManager(requester);
+    if (dto.construtoraId) {
+      const construtora = await this.prisma.construtora.findUnique({
+        where: { id: dto.construtoraId },
+        select: { id: true },
+      });
+      if (!construtora) {
+        throw new NotFoundException('Construtora não encontrada.');
+      }
+    }
     const key = this.slugify(dto.nome);
     return this.prisma.empreendimento.create({
       data: {
@@ -223,6 +232,14 @@ export class EmpreendimentosService {
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
         'Apenas administradores podem alterar empreendimentos.',
+      );
+    }
+  }
+
+  private assertAdminOrManager(requester: AuthenticatedUser) {
+    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+      throw new ForbiddenException(
+        'Apenas administradores e gerentes podem cadastrar empreendimentos.',
       );
     }
   }
