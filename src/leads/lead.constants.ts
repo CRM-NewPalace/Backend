@@ -19,7 +19,7 @@ export const LEAD_STAGES = [
 
 export type LeadStage = (typeof LEAD_STAGES)[number];
 
-export const LEAD_INTERESSES = ['Comprar', 'Alugar', 'Investir'] as const;
+export const LEAD_INTERESSES = ['Comprar'] as const;
 
 export type LeadInteresse = (typeof LEAD_INTERESSES)[number];
 
