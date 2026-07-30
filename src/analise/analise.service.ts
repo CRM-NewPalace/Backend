@@ -44,7 +44,18 @@ const analiseSelect = {
       nome: true,
       stage: true,
       corretorId: true,
-      corretor: { select: { id: true, name: true, whatsapp: true } },
+      corretor: {
+        select: {
+          id: true,
+          name: true,
+          whatsapp: true,
+          equipe: {
+            select: {
+              gerente: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
       construtoraId: true,
       construtora: { select: { id: true, nome: true } },
       empreendimentoId: true,
