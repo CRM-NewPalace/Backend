@@ -32,20 +32,33 @@ const empreendimentoSelect = {
 @Injectable()
 export class EmpreendimentosService {
   private readonly logger = new Logger(EmpreendimentosService.name);
+  private lazySyncPromise: Promise<void> | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
-  list(query: QueryEmpreendimentosDto) {
-    return this.prisma.empreendimento.findMany({
-      where: {
-        ...(query.construtoraId
-          ? { construtoraId: query.construtoraId }
-          : {}),
-        ...(query.ativo !== undefined ? { ativo: query.ativo } : {}),
-      },
+  async list(query: QueryEmpreendimentosDto) {
+    const where = {
+      ...(query.construtoraId ? { construtoraId: query.construtoraId } : {}),
+      ...(query.ativo !== undefined ? { ativo: query.ativo } : {}),
+    };
+
+    let items = await this.prisma.empreendimento.findMany({
+      where,
       select: empreendimentoSelect,
       orderBy: { nome: 'asc' },
     });
+
+    // Primeira carga: se o catálogo estiver vazio, importa do site automaticamente.
+    if (items.length === 0 && !query.construtoraId) {
+      await this.ensureCatalogSeeded();
+      items = await this.prisma.empreendimento.findMany({
+        where,
+        select: empreendimentoSelect,
+        orderBy: { nome: 'asc' },
+      });
+    }
+
+    return items;
   }
 
   async findOne(id: string) {
@@ -118,7 +131,37 @@ export class EmpreendimentosService {
 
   async syncFromSite(requester: AuthenticatedUser) {
     this.assertAdmin(requester);
+    return this.runSync();
+  }
 
+  /** Garante catálogo inicial (uma vez) quando a tabela está vazia. */
+  private async ensureCatalogSeeded() {
+    const total = await this.prisma.empreendimento.count();
+    if (total > 0) return;
+
+    if (!this.lazySyncPromise) {
+      this.lazySyncPromise = this.runSync()
+        .then((result) => {
+          this.logger.log(
+            `Catálogo inicial: ${result.created} empreendimentos (${result.source}).`,
+          );
+        })
+        .catch((err) => {
+          this.logger.error(
+            `Falha ao popular empreendimentos: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        })
+        .finally(() => {
+          this.lazySyncPromise = null;
+        });
+    }
+
+    await this.lazySyncPromise;
+  }
+
+  private async runSync() {
     const { items, source, detail } = await fetchSiteEmpreendimentos();
     if (detail) {
       this.logger.warn(detail);
