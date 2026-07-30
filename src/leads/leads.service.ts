@@ -33,6 +33,12 @@ export class LeadsService {
     dto: CreateLeadDto,
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
+    if (requester.role === Role.analista) {
+      throw new ForbiddenException(
+        'Analistas não podem criar leads ou clientes.',
+      );
+    }
+
     // Corretor só cria leads para si; admin/gerente atribuem dentro do escopo.
     const corretorId = this.isCorretor(requester)
       ? requester.id
@@ -273,21 +279,51 @@ export class LeadsService {
 
   async updateStage(
     id: string,
-    stage: string,
+    dto: { stage: string; construtoraId?: string; empreendimentoId?: string },
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
     await this.ensureExistsAndAccessible(id, requester);
+    const stage = dto.stage;
     await this.ensureStageIsValid(stage);
 
     const previous = await this.prisma.lead.findUnique({
       where: { id },
-      select: { stage: true },
+      select: {
+        stage: true,
+        construtoraId: true,
+        empreendimentoId: true,
+      },
     });
     const stageAnterior = previous?.stage ?? null;
 
+    if (requester.role === Role.analista) {
+      // Analista não move o funil comercial; opera pela fila de Análise.
+      throw new ForbiddenException(
+        'Analistas operam pela fila de Análise (Assumir / parecer).',
+      );
+    }
+
+    let construtoraId = previous?.construtoraId ?? null;
+    let empreendimentoId = previous?.empreendimentoId ?? null;
+
+    if (stage === 'em-analise') {
+      construtoraId = dto.construtoraId ?? construtoraId;
+      empreendimentoId = dto.empreendimentoId ?? empreendimentoId;
+      if (!construtoraId || !empreendimentoId) {
+        throw new BadRequestException(
+          'Informe a construtora e o empreendimento ao enviar para análise.',
+        );
+      }
+    }
+
     const lead = await this.prisma.lead.update({
       where: { id },
-      data: { stage },
+      data: {
+        stage,
+        ...(stage === 'em-analise'
+          ? { construtoraId, empreendimentoId }
+          : {}),
+      },
       select: leadSelect,
     });
 

@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -18,7 +19,7 @@ import { AnaliseService } from './analise.service';
 
 @Controller('analise')
 @UseGuards(RolesGuard)
-@Roles(Role.admin, Role.gerente)
+@Roles(Role.admin, Role.gerente, Role.analista)
 export class AnaliseController {
   constructor(private readonly analiseService: AnaliseService) {}
 
@@ -36,6 +37,14 @@ export class AnaliseController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.analiseService.findOne(id, requester);
+  }
+
+  @Post(':id/assumir')
+  assumir(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.analiseService.assumir(id, requester);
   }
 
   @Patch(':id')

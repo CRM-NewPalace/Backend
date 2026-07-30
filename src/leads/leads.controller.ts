@@ -91,7 +91,7 @@ export class LeadsController {
     @Body() dto: UpdateLeadStageDto,
     @CurrentUser() requester: AuthenticatedUser,
   ) {
-    return this.leadsService.updateStage(id, dto.stage, requester);
+    return this.leadsService.updateStage(id, dto, requester);
   }
 
   /** Soft-delete operacional: lead vai para Leads Perdidos. */

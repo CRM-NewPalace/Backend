@@ -5,7 +5,7 @@ import { AuthenticatedUser } from '../common/types/authenticated-user';
 
 /**
  * Escopo de dados por equipe:
- * - admin → global
+ * - admin / analista → global
  * - gerente → só corretores da equipe que lidera
  * - corretor → só o próprio
  */
@@ -13,11 +13,11 @@ import { AuthenticatedUser } from '../common/types/authenticated-user';
 export class TeamScopeService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** IDs dos corretores visíveis para o requester (null = sem filtro / admin). */
+  /** IDs dos corretores visíveis para o requester (null = sem filtro / admin|analista). */
   async getVisibleCorretorIds(
     requester: AuthenticatedUser,
   ): Promise<string[] | null> {
-    if (requester.role === Role.admin) {
+    if (requester.role === Role.admin || requester.role === Role.analista) {
       return null;
     }
 
@@ -54,8 +54,10 @@ export class TeamScopeService {
     corretorId: string | null | undefined,
   ): Promise<boolean> {
     if (!corretorId) {
-      // Lead sem dono: só admin vê.
-      return requester.role === Role.admin;
+      // Lead sem dono: admin e analista veem.
+      return (
+        requester.role === Role.admin || requester.role === Role.analista
+      );
     }
     const ids = await this.getVisibleCorretorIds(requester);
     if (ids === null) return true;

@@ -15,6 +15,7 @@ enum Role {
   admin
   gerente
   corretor
+  analista
 }
 
 /// Situação do usuário no sistema.
@@ -77,6 +78,9 @@ model User {
 
   // Análises registradas por este usuário (auto ou edição).
   analises Analise[] @relation("AnaliseAutor")
+
+  // Análises que este analista assumiu.
+  analisesAssumidas Analise[] @relation("AnaliseAnalista")
 
   // Compromissos da agenda criados por este usuário.
   agendamentos Agendamento[] @relation("AgendamentoAutor")
@@ -153,6 +157,13 @@ model Lead {
   corretor   User?   @relation("LeadCorretor", fields: [corretorId], references: [id], onDelete: SetNull)
   corretorId String?
 
+  /// Imóvel de interesse (preenchido ao enviar para análise).
+  construtoraId String?
+  construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
+
+  empreendimentoId String?
+  empreendimento   Empreendimento? @relation(fields: [empreendimentoId], references: [id], onDelete: SetNull)
+
   /// Soft-delete operacional: some do funil/listas de corretor e gerente.
   /// Só admin consulta via módulo Leads Perdidos.
   perdidoAt    DateTime?
@@ -172,6 +183,8 @@ model Lead {
   @@index([tipo])
   @@index([stage])
   @@index([corretorId])
+  @@index([construtoraId])
+  @@index([empreendimentoId])
   @@index([createdAt])
   @@index([perdidoAt])
   @@map("leads")
@@ -236,6 +249,7 @@ model Construtora {
 
   empreendimentos Empreendimento[]
   documentacoes   Documentacao[]
+  leads           Lead[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -262,6 +276,7 @@ model Empreendimento {
   ativo       Boolean @default(true)
 
   documentacoes Documentacao[]
+  leads         Lead[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -324,6 +339,7 @@ model Documentacao {
 /// Status do parecer da análise de crédito/cadastro.
 enum AnaliseStatus {
   pendente
+  em_analise
   aprovado
   reprovado
 }
@@ -336,6 +352,10 @@ model Analise {
   lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
   autorId String
   autor   User   @relation("AnaliseAutor", fields: [autorId], references: [id], onDelete: Cascade)
+
+  /// Analista que assumiu o processo (pendente → em_analise).
+  analistaId String?
+  analista   User?  @relation("AnaliseAnalista", fields: [analistaId], references: [id], onDelete: SetNull)
 
   tipoContato   ContatoTipo
   stageSituacao String
@@ -364,6 +384,7 @@ model Analise {
   updatedAt DateTime @updatedAt
 
   @@index([autorId])
+  @@index([analistaId])
   @@index([status])
   @@index([createdAt])
   @@map("analises")

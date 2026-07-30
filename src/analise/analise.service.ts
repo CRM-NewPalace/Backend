@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AnaliseStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
@@ -28,9 +32,11 @@ const analiseSelect = {
   temDependente: true,
   status: true,
   parecer: true,
+  analistaId: true,
   createdAt: true,
   updatedAt: true,
   autor: { select: { id: true, name: true } },
+  analista: { select: { id: true, name: true } },
   lead: {
     select: {
       id: true,
@@ -39,6 +45,10 @@ const analiseSelect = {
       stage: true,
       corretorId: true,
       corretor: { select: { id: true, name: true, whatsapp: true } },
+      construtoraId: true,
+      construtora: { select: { id: true, nome: true } },
+      empreendimentoId: true,
+      empreendimento: { select: { id: true, nome: true, cidade: true } },
     },
   },
 } as const;
@@ -71,7 +81,10 @@ export class AnaliseService {
     }
 
     return this.prisma.analise.findMany({
-      where: { lead: leadFilter },
+      where: {
+        lead: leadFilter,
+        ...(query.status ? { status: query.status as AnaliseStatus } : {}),
+      },
       select: analiseSelect,
       orderBy: { createdAt: 'desc' },
     });
@@ -89,6 +102,33 @@ export class AnaliseService {
     return item;
   }
 
+  /** Analista assume processo da fila: pendente → em_analise. */
+  async assumir(id: string, requester: AuthenticatedUser) {
+    const existing = await this.prisma.analise.findUnique({
+      where: { id },
+      select: { id: true, leadId: true, status: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Análise não encontrada.');
+    }
+    await this.ensureLeadAccessible(existing.leadId, requester);
+
+    if (existing.status !== AnaliseStatus.pendente) {
+      throw new BadRequestException(
+        'Só é possível assumir processos com status pendente.',
+      );
+    }
+
+    return this.prisma.analise.update({
+      where: { id },
+      data: {
+        status: AnaliseStatus.em_analise,
+        analistaId: requester.id,
+      },
+      select: analiseSelect,
+    });
+  }
+
   async update(
     id: string,
     dto: UpdateAnaliseDto,
@@ -101,6 +141,7 @@ export class AnaliseService {
         leadId: true,
         status: true,
         nome: true,
+        analistaId: true,
         lead: { select: { corretorId: true } },
       },
     });
@@ -108,6 +149,19 @@ export class AnaliseService {
       throw new NotFoundException('Análise não encontrada.');
     }
     await this.ensureLeadAccessible(existing.leadId, requester);
+
+    if (dto.status !== undefined) {
+      const next = dto.status as AnaliseStatus;
+      if (
+        (next === AnaliseStatus.aprovado || next === AnaliseStatus.reprovado) &&
+        existing.status === AnaliseStatus.pendente &&
+        requester.role === Role.analista
+      ) {
+        throw new BadRequestException(
+          'Assuma o processo (Em análise) antes de registrar o parecer.',
+        );
+      }
+    }
 
     const updated = await this.prisma.analise.update({
       where: { id },
@@ -117,6 +171,9 @@ export class AnaliseService {
           : {}),
         ...(dto.parecer !== undefined
           ? { parecer: dto.parecer?.trim() || null }
+          : {}),
+        ...(requester.role === Role.analista && !existing.analistaId
+          ? { analistaId: requester.id }
           : {}),
       },
       select: analiseSelect,
@@ -214,7 +271,6 @@ export class AnaliseService {
         select: { id: true },
       });
     } catch (err) {
-      // Corrida: outra request criou no mesmo instante.
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
@@ -228,7 +284,6 @@ export class AnaliseService {
     }
   }
 
-  /** Leads já em em-analise sem ficha → cria sob demanda (dados legados). */
   private async backfillMissing(requester: AuthenticatedUser) {
     const leadScope = await this.teamScope.leadScope(requester);
     const leads = await this.prisma.lead.findMany({
@@ -265,7 +320,6 @@ export class AnaliseService {
       throw new NotFoundException('Análise não encontrada.');
     }
 
-    // Só admin/gerente chegam aqui (RolesGuard); reforça escopo de equipe.
     if (requester.role === Role.corretor) {
       throw new NotFoundException('Análise não encontrada.');
     }

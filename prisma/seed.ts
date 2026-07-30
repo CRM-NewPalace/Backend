@@ -103,6 +103,14 @@ const demoAccounts: SeedUser[] = [
     role: Role.gerente,
   },
   {
+    name: 'Lucia Ferreira',
+    email: 'analista@imob.com',
+    password: 'analista',
+    phone: '(11) 99999-0008',
+    cargo: 'Analista de crédito',
+    role: Role.analista,
+  },
+  {
     name: 'Marina Alves',
     email: 'corretor@imob.com',
     password: 'corretor',
@@ -778,7 +786,7 @@ async function main() {
   await seedLeads(userIds);
 
   console.log('\nSeed concluído.');
-  console.log('Contas demo: admin@imob.com / gerente@imob.com / corretor@imob.com');
+  console.log('Contas demo: admin@imob.com / gerente@imob.com / analista@imob.com / corretor@imob.com');
   console.log(`Senha padrão (se criar outros usuários via seed): ${defaultPassword}`);
 }
 

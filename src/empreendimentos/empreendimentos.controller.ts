@@ -28,7 +28,7 @@ export class EmpreendimentosController {
   ) {}
 
   @Get()
-  @Roles(Role.admin, Role.gerente, Role.corretor)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
   list(@Query() query: QueryEmpreendimentosDto) {
     return this.empreendimentosService.list(query);
   }
@@ -40,7 +40,7 @@ export class EmpreendimentosController {
   }
 
   @Get(':id')
-  @Roles(Role.admin, Role.gerente, Role.corretor)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.empreendimentosService.findOne(id);
   }

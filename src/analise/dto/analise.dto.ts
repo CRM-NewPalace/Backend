@@ -1,13 +1,24 @@
 import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class QueryAnaliseDto {
-  /** Admin/gerente: filtra análises cujo lead pertence a este corretor. */
+  /** Admin/gerente/analista: filtra análises cujo lead pertence a este corretor. */
   @IsOptional()
   @IsUUID('4', { message: 'Corretor inválido.' })
   corretorId?: string;
+
+  @IsOptional()
+  @IsIn(['pendente', 'em_analise', 'aprovado', 'reprovado'], {
+    message: 'Status inválido.',
+  })
+  status?: 'pendente' | 'em_analise' | 'aprovado' | 'reprovado';
 }
 
-const ANALISE_STATUSES = ['pendente', 'aprovado', 'reprovado'] as const;
+const ANALISE_STATUSES = [
+  'pendente',
+  'em_analise',
+  'aprovado',
+  'reprovado',
+] as const;
 
 export class UpdateAnaliseDto {
   @IsOptional()

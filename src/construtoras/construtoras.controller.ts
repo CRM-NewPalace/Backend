@@ -24,13 +24,13 @@ export class ConstrutorasController {
   constructor(private readonly construtorasService: ConstrutorasService) {}
 
   @Get()
-  @Roles(Role.admin, Role.gerente, Role.corretor)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
   list() {
     return this.construtorasService.list();
   }
 
   @Get(':id')
-  @Roles(Role.admin, Role.gerente, Role.corretor)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.construtorasService.findOne(id);
   }

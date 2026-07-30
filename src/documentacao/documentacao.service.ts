@@ -114,8 +114,9 @@ export class DocumentacaoService {
         tipoContato: lead.tipo,
         stageSituacao: lead.stage,
         nome: dto.nome.trim(),
-        construtoraId: dto.construtoraId || null,
-        empreendimentoId: dto.empreendimentoId || null,
+        construtoraId: dto.construtoraId || lead.construtoraId || null,
+        empreendimentoId:
+          dto.empreendimentoId || lead.empreendimentoId || null,
         fonte: dto.fonte,
         status1: dto.status1,
         status2: dto.status2,
@@ -234,6 +235,8 @@ export class DocumentacaoService {
         nome: true,
         stage: true,
         corretorId: true,
+        construtoraId: true,
+        empreendimentoId: true,
         perdidoAt: true,
       },
     });
