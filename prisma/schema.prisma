@@ -24,6 +24,26 @@ enum UserStatus {
   inativo
 }
 
+/// Origem da meta: criada pelo corretor ou atribuída pelo gerente.
+enum MetaOrigem {
+  pessoal
+  gerente
+}
+
+/// Indicador acompanhado pela meta comercial.
+enum MetaTipo {
+  vendas
+  documentacoes
+  vgv
+}
+
+/// Recorrência do período ativo da meta.
+enum MetaPeriodo {
+  diaria
+  semanal
+  mensal
+}
+
 /// Lead de captação vs cliente da carteira pessoal do corretor.
 /// Ambos entram no funil; listas de Leads e Clientes ficam separadas.
 enum ContatoTipo {
@@ -93,6 +113,12 @@ model User {
 
   // Notificações in-app destinadas a este usuário.
   notificacoes Notificacao[] @relation("NotificacaoDestinatario")
+
+  // Metas em que este usuário é o corretor acompanhado.
+  metasComoCorretor Meta[] @relation("MetaCorretor")
+
+  // Metas criadas pelo próprio corretor ou atribuídas pelo gerente.
+  metasCriadas Meta[] @relation("MetaCriador")
 
   /// Equipe que este gerente lidera (no máximo uma).
   equipeGerenciada Equipe? @relation("EquipeGerente")
@@ -539,6 +565,33 @@ model CatalogItem {
   @@unique([type, label])
   @@index([type, sortOrder])
   @@map("catalog_items")
+}
+
+/// Meta comercial individual, aplicável ao período diário, semanal ou mensal.
+model Meta {
+  id String @id @default(uuid())
+
+  corretorId String
+  corretor   User   @relation("MetaCorretor", fields: [corretorId], references: [id], onDelete: Cascade)
+
+  criadorId String
+  criador   User   @relation("MetaCriador", fields: [criadorId], references: [id], onDelete: Cascade)
+
+  origem  MetaOrigem
+  tipo    MetaTipo
+  periodo MetaPeriodo
+  valor   Int
+
+  inicio DateTime
+  fim    DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([corretorId, origem, tipo, periodo, inicio])
+  @@index([corretorId, inicio, fim])
+  @@index([criadorId])
+  @@map("metas")
 }
 
 /// Motivo de uma tentativa de login recusada (para auditoria).
