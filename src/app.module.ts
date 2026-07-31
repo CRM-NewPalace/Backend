@@ -16,6 +16,7 @@ import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { AgendaModule } from './agenda/agenda.module';
 import { ConstrutorasModule } from './construtoras/construtoras.module';
 import { EmpreendimentosModule } from './empreendimentos/empreendimentos.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { validateEnv } from './config/env.validation';
@@ -36,6 +37,7 @@ import { THROTTLE } from './config/security.constants';
     DocumentacaoModule,
     ConstrutorasModule,
     EmpreendimentosModule,
+    DashboardModule,
     EquipesModule,
     AnaliseModule,
     NotificacoesModule,
