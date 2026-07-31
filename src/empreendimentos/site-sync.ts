@@ -119,6 +119,8 @@ export type ParsedEmpreendimento = {
 };
 
 const SITE_ORIGIN = 'https://www.imobiliarianewpalace.com.br';
+const CLOUDINARY_IMAGE_BASE =
+  'https://res.cloudinary.com/dkgjwrjpv/image/upload';
 
 function titleCaseCity(city: string): string {
   const raw = city.trim();
@@ -142,22 +144,32 @@ function normalizeKey(linkOrName: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Extrai objetos name/location/city/bedrooms/... do bundle minificado. */
+function resolveImagemSite(path: string) {
+  const limpa = path.trim().replace(/^\//, '');
+  if (!limpa) return null;
+  if (limpa.startsWith('http://') || limpa.startsWith('https://')) {
+    return limpa;
+  }
+  return `${CLOUDINARY_IMAGE_BASE}/f_auto,q_auto/${limpa}`;
+}
+
+/** Extrai objetos image/name/location/city/bedrooms/... do bundle minificado. */
 export function parseEmpreendimentosFromBundle(
   js: string,
 ): ParsedEmpreendimento[] {
   const re =
-    /name:"((?:\\.|[^"\\])*)",location:"((?:\\.|[^"\\])*)",city:"((?:\\.|[^"\\])*)",bedrooms:(\d+),bathrooms:(\d+),area:(\d+(?:\.\d+)?),link:"((?:\\.|[^"\\])*)"/g;
+    /image:ee\("((?:\\.|[^"\\])*)"\),name:"((?:\\.|[^"\\])*)",location:"((?:\\.|[^"\\])*)",city:"((?:\\.|[^"\\])*)",bedrooms:(\d+),bathrooms:(\d+),area:(\d+(?:\.\d+)?),link:"((?:\\.|[^"\\])*)"/g;
 
   const seen = new Set<string>();
   const items: ParsedEmpreendimento[] = [];
 
   let match: RegExpExecArray | null;
   while ((match = re.exec(js)) !== null) {
-    const nome = unescapeJsString(match[1]);
-    const endereco = unescapeJsString(match[2]);
-    const cidadeRaw = unescapeJsString(match[3]);
-    const link = unescapeJsString(match[7]);
+    const imagem = unescapeJsString(match[1]);
+    const nome = unescapeJsString(match[2]);
+    const endereco = unescapeJsString(match[3]);
+    const cidadeRaw = unescapeJsString(match[4]);
+    const link = unescapeJsString(match[8]);
     const key = normalizeKey(link || nome);
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -166,15 +178,15 @@ export function parseEmpreendimentosFromBundle(
       nome,
       endereco: endereco || null,
       cidade: cidadeRaw ? titleCaseCity(cidadeRaw) : null,
-      quartos: Number(match[4]) || null,
-      banheiros: Number(match[5]) || null,
-      areaM2: Number(match[6]) || null,
+      quartos: Number(match[5]) || null,
+      banheiros: Number(match[6]) || null,
+      areaM2: Number(match[7]) || null,
       link,
       externalKey: key,
       externalUrl: link.startsWith('http')
         ? link
         : `${SITE_ORIGIN}${link.startsWith('/') ? '' : '/'}${link}`,
-      imagemUrl: null,
+      imagemUrl: resolveImagemSite(imagem),
     });
   }
 
@@ -205,60 +217,6 @@ export function fallbackParsed(): ParsedEmpreendimento[] {
   }));
 }
 
-function extractMetaImage(html: string, pageUrl: string) {
-  const metaTags = html.match(/<meta\b[^>]*>/gi) ?? [];
-  for (const tag of metaTags) {
-    if (
-      !/(?:property|name)=["'](?:og:image|twitter:image)["']/i.test(tag)
-    ) {
-      continue;
-    }
-    const content = tag.match(/content=["']([^"']+)["']/i)?.[1];
-    if (!content) continue;
-    try {
-      return new URL(content, pageUrl).href;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-async function fetchImagemPrincipal(
-  externalUrl: string,
-): Promise<string | null> {
-  try {
-    const response = await fetch(externalUrl, {
-      headers: { 'User-Agent': 'NP-Connect-CRM/1.0' },
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!response.ok) return null;
-    return extractMetaImage(await response.text(), externalUrl);
-  } catch {
-    return null;
-  }
-}
-
-async function preencherImagens(items: ParsedEmpreendimento[]) {
-  const comImagens = [...items];
-  const concorrencia = 4;
-
-  for (let inicio = 0; inicio < comImagens.length; inicio += concorrencia) {
-    const lote = comImagens.slice(inicio, inicio + concorrencia);
-    const imagens = await Promise.all(
-      lote.map((item) => fetchImagemPrincipal(item.externalUrl)),
-    );
-    imagens.forEach((imagemUrl, index) => {
-      comImagens[inicio + index] = {
-        ...comImagens[inicio + index],
-        imagemUrl,
-      };
-    });
-  }
-
-  return comImagens;
-}
-
 export async function fetchSiteEmpreendimentos(): Promise<{
   items: ParsedEmpreendimento[];
   source: 'bundle' | 'fallback';
@@ -278,7 +236,7 @@ export async function fetchSiteEmpreendimentos(): Promise<{
     );
     if (!scriptMatch) {
       return {
-        items: await preencherImagens(fallbackParsed()),
+        items: fallbackParsed(),
         source: 'fallback',
         detail: 'Script do site não encontrado no HTML (SPA).',
       };
@@ -296,16 +254,16 @@ export async function fetchSiteEmpreendimentos(): Promise<{
     const parsed = parseEmpreendimentosFromBundle(js);
     if (parsed.length === 0) {
       return {
-        items: await preencherImagens(fallbackParsed()),
+        items: fallbackParsed(),
         source: 'fallback',
         detail: 'Nenhum empreendimento encontrado no bundle; usando fallback.',
       };
     }
-    return { items: await preencherImagens(parsed), source: 'bundle' };
+    return { items: parsed, source: 'bundle' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
-      items: await preencherImagens(fallbackParsed()),
+      items: fallbackParsed(),
       source: 'fallback',
       detail: `Falha ao sincronizar do site: ${message}`,
     };
