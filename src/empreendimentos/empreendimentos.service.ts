@@ -22,6 +22,7 @@ const empreendimentoSelect = {
   banheiros: true,
   areaM2: true,
   externalUrl: true,
+  imagemUrl: true,
   externalKey: true,
   ativo: true,
   createdAt: true,
@@ -33,6 +34,7 @@ const empreendimentoSelect = {
 export class EmpreendimentosService {
   private readonly logger = new Logger(EmpreendimentosService.name);
   private lazySyncPromise: Promise<void> | null = null;
+  private imageSyncPromise: Promise<void> | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -51,6 +53,18 @@ export class EmpreendimentosService {
     // Primeira carga: se o catálogo estiver vazio, importa do site automaticamente.
     if (items.length === 0 && !query.construtoraId) {
       await this.ensureCatalogSeeded();
+      items = await this.prisma.empreendimento.findMany({
+        where,
+        select: empreendimentoSelect,
+        orderBy: { nome: 'asc' },
+      });
+    }
+    if (
+      items.length > 0 &&
+      items.some((item) => !item.imagemUrl) &&
+      !query.construtoraId
+    ) {
+      await this.ensureCatalogImages();
       items = await this.prisma.empreendimento.findMany({
         where,
         select: empreendimentoSelect,
@@ -92,6 +106,7 @@ export class EmpreendimentosService {
         banheiros: dto.banheiros ?? null,
         areaM2: dto.areaM2 ?? null,
         externalUrl: dto.externalUrl?.trim() || null,
+        imagemUrl: null,
         externalKey: `manual-${key}-${Date.now()}`,
         ativo: dto.ativo ?? true,
       },
@@ -170,6 +185,29 @@ export class EmpreendimentosService {
     await this.lazySyncPromise;
   }
 
+  /** Completa uma única vez as capas do catálogo importado antes da migration. */
+  private async ensureCatalogImages() {
+    if (!this.imageSyncPromise) {
+      this.imageSyncPromise = this.runSync()
+        .then((result) => {
+          this.logger.log(
+            `Capas do catálogo atualizadas: ${result.updated + result.created} empreendimentos.`,
+          );
+        })
+        .catch((err) => {
+          this.logger.error(
+            `Falha ao buscar capas dos empreendimentos: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        })
+        .finally(() => {
+          this.imageSyncPromise = null;
+        });
+    }
+    await this.imageSyncPromise;
+  }
+
   private async runSync() {
     const { items, source, detail } = await fetchSiteEmpreendimentos();
     if (detail) {
@@ -196,6 +234,7 @@ export class EmpreendimentosService {
             banheiros: item.banheiros,
             areaM2: item.areaM2,
             externalUrl: item.externalUrl,
+            imagemUrl: item.imagemUrl,
             ativo: true,
           },
         });
@@ -210,6 +249,7 @@ export class EmpreendimentosService {
             banheiros: item.banheiros,
             areaM2: item.areaM2,
             externalUrl: item.externalUrl,
+            imagemUrl: item.imagemUrl,
             externalKey: item.externalKey,
             ativo: true,
           },

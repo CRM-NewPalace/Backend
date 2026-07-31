@@ -297,6 +297,8 @@ model Empreendimento {
   banheiros   Int?
   areaM2      Float?
   externalUrl String?
+  /// Imagem principal extraída da página pública do empreendimento.
+  imagemUrl   String?
   /// Chave estável para upsert no sync (slug/URL/nome normalizado).
   externalKey String  @unique
   ativo       Boolean @default(true)

@@ -115,6 +115,7 @@ export type ParsedEmpreendimento = {
   link: string;
   externalKey: string;
   externalUrl: string;
+  imagemUrl: string | null;
 };
 
 const SITE_ORIGIN = 'https://www.imobiliarianewpalace.com.br';
@@ -173,6 +174,7 @@ export function parseEmpreendimentosFromBundle(
       externalUrl: link.startsWith('http')
         ? link
         : `${SITE_ORIGIN}${link.startsWith('/') ? '' : '/'}${link}`,
+      imagemUrl: null,
     });
   }
 
@@ -199,7 +201,62 @@ export function fallbackParsed(): ParsedEmpreendimento[] {
     link: item.link,
     externalKey: normalizeKey(item.link || item.nome),
     externalUrl: `${SITE_ORIGIN}${item.link}`,
+    imagemUrl: null,
   }));
+}
+
+function extractMetaImage(html: string, pageUrl: string) {
+  const metaTags = html.match(/<meta\b[^>]*>/gi) ?? [];
+  for (const tag of metaTags) {
+    if (
+      !/(?:property|name)=["'](?:og:image|twitter:image)["']/i.test(tag)
+    ) {
+      continue;
+    }
+    const content = tag.match(/content=["']([^"']+)["']/i)?.[1];
+    if (!content) continue;
+    try {
+      return new URL(content, pageUrl).href;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function fetchImagemPrincipal(
+  externalUrl: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(externalUrl, {
+      headers: { 'User-Agent': 'NP-Connect-CRM/1.0' },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) return null;
+    return extractMetaImage(await response.text(), externalUrl);
+  } catch {
+    return null;
+  }
+}
+
+async function preencherImagens(items: ParsedEmpreendimento[]) {
+  const comImagens = [...items];
+  const concorrencia = 4;
+
+  for (let inicio = 0; inicio < comImagens.length; inicio += concorrencia) {
+    const lote = comImagens.slice(inicio, inicio + concorrencia);
+    const imagens = await Promise.all(
+      lote.map((item) => fetchImagemPrincipal(item.externalUrl)),
+    );
+    imagens.forEach((imagemUrl, index) => {
+      comImagens[inicio + index] = {
+        ...comImagens[inicio + index],
+        imagemUrl,
+      };
+    });
+  }
+
+  return comImagens;
 }
 
 export async function fetchSiteEmpreendimentos(): Promise<{
@@ -221,7 +278,7 @@ export async function fetchSiteEmpreendimentos(): Promise<{
     );
     if (!scriptMatch) {
       return {
-        items: fallbackParsed(),
+        items: await preencherImagens(fallbackParsed()),
         source: 'fallback',
         detail: 'Script do site não encontrado no HTML (SPA).',
       };
@@ -239,16 +296,16 @@ export async function fetchSiteEmpreendimentos(): Promise<{
     const parsed = parseEmpreendimentosFromBundle(js);
     if (parsed.length === 0) {
       return {
-        items: fallbackParsed(),
+        items: await preencherImagens(fallbackParsed()),
         source: 'fallback',
         detail: 'Nenhum empreendimento encontrado no bundle; usando fallback.',
       };
     }
-    return { items: parsed, source: 'bundle' };
+    return { items: await preencherImagens(parsed), source: 'bundle' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
-      items: fallbackParsed(),
+      items: await preencherImagens(fallbackParsed()),
       source: 'fallback',
       detail: `Falha ao sincronizar do site: ${message}`,
     };
