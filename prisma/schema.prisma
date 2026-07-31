@@ -202,6 +202,7 @@ model Lead {
   analise       Analise?
   agendamentos  Agendamento[]
   notificacoes  Notificacao[]
+  ozapLink      LeadOzapLink?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -214,6 +215,42 @@ model Lead {
   @@index([createdAt])
   @@index([perdidoAt])
   @@map("leads")
+}
+
+/// Vínculo entre um lead do CRM e o chat correspondente na instância OZap.
+model LeadOzapLink {
+  id String @id @default(uuid())
+
+  leadId String @unique
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  instanceId Int
+  chatId     String
+  categoria  String?
+
+  lastMessageAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([instanceId, chatId])
+  @@index([instanceId])
+  @@map("lead_ozap_links")
+}
+
+/// Entrega recebida do webhook OZap, usada para impedir duplicação por retry.
+model OzapWebhookDelivery {
+  id String @id @default(uuid())
+
+  deliveryKey String @unique
+  event       String
+  instanceId  Int
+  chatId      String?
+  messageId   String?
+  payload     Json
+  processedAt DateTime @default(now())
+
+  @@index([instanceId, event])
+  @@map("ozap_webhook_deliveries")
 }
 
 /// Origem do relato de triagem (após avanço no funil ou criação manual).

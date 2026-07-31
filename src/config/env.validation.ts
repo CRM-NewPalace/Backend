@@ -26,6 +26,7 @@ export function validateEnv(config: Record<string, unknown>) {
 
   const accessSecret = String(config.JWT_ACCESS_SECRET ?? '');
   const refreshSecret = String(config.JWT_REFRESH_SECRET ?? '');
+  const ozapWebhookSecret = String(config.OZAP_WEBHOOK_SECRET ?? '');
 
   for (const [key, secret] of [
     ['JWT_ACCESS_SECRET', accessSecret],
@@ -44,6 +45,15 @@ export function validateEnv(config: Record<string, unknown>) {
   if (accessSecret && accessSecret === refreshSecret) {
     errors.push(
       'JWT_ACCESS_SECRET e JWT_REFRESH_SECRET devem ser diferentes: com segredos iguais, um access token vale como refresh token.',
+    );
+  }
+
+  if (
+    ozapWebhookSecret &&
+    ozapWebhookSecret.length < MIN_SECRET_LENGTH
+  ) {
+    errors.push(
+      `OZAP_WEBHOOK_SECRET deve ter ao menos ${MIN_SECRET_LENGTH} caracteres.`,
     );
   }
 
