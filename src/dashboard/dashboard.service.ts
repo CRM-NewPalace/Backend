@@ -15,6 +15,17 @@ export class DashboardService {
     const inicioProximoMes = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
     );
+    // Recife não usa horário de verão; a agenda deve respeitar o dia local do corretor.
+    const recifeAgora = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+    const inicioHoje = new Date(
+      Date.UTC(
+        recifeAgora.getUTCFullYear(),
+        recifeAgora.getUTCMonth(),
+        recifeAgora.getUTCDate(),
+        3,
+      ),
+    );
+    const inicioAmanha = new Date(inicioHoje.getTime() + 24 * 60 * 60 * 1000);
     const leadWhere = { corretorId: requester.id, perdidoAt: null };
 
     const [
@@ -24,6 +35,7 @@ export class DashboardService {
       analises,
       documentacoes,
       vgvVendido,
+      agendaHoje,
     ] = await Promise.all([
       this.prisma.lead.groupBy({
         by: ['tipo'],
@@ -58,6 +70,22 @@ export class DashboardService {
           dataVenda: { gte: inicioMes, lt: inicioProximoMes },
         },
         _sum: { vgv: true },
+      }),
+      this.prisma.agendamento.findMany({
+        where: {
+          autorId: requester.id,
+          startsAt: { gte: inicioHoje, lt: inicioAmanha },
+          status: { not: 'cancelado' },
+        },
+        select: {
+          id: true,
+          titulo: true,
+          tipo: true,
+          status: true,
+          startsAt: true,
+          lead: { select: { nome: true } },
+        },
+        orderBy: { startsAt: 'asc' },
       }),
     ]);
 
@@ -106,6 +134,23 @@ export class DashboardService {
             (item) => item.status2 === DocumentacaoStatus2.andamento,
           )?._count._all ?? 0,
         vgvVendidoMes: vgvVendido._sum.vgv ?? 0,
+      },
+      agenda: {
+        totalHoje: agendaHoje.length,
+        pendentesHoje: agendaHoje.filter(
+          (item) => item.status === 'agendado',
+        ).length,
+        concluidosHoje: agendaHoje.filter(
+          (item) => item.status === 'concluido',
+        ).length,
+        itens: agendaHoje.map((item) => ({
+          id: item.id,
+          titulo: item.titulo,
+          tipo: item.tipo,
+          status: item.status,
+          startsAt: item.startsAt,
+          contato: item.lead?.nome ?? null,
+        })),
       },
     };
   }
