@@ -1,11 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import { AnaliseStatus, ContatoTipo, DocumentacaoStatus2 } from '@prisma/client';
+import {
+  AgendamentoAlvo,
+  AgendamentoEscopo,
+  AnaliseStatus,
+  ContatoTipo,
+  DocumentacaoStatus2,
+} from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { AgendaService } from '../agenda/agenda.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly agendaService: AgendaService,
+  ) {}
 
   async resumoCorretor(requester: AuthenticatedUser) {
     const now = new Date();
@@ -71,22 +81,13 @@ export class DashboardService {
         },
         _sum: { vgv: true },
       }),
-      this.prisma.agendamento.findMany({
-        where: {
-          autorId: requester.id,
-          startsAt: { gte: inicioHoje, lt: inicioAmanha },
-          status: { not: 'cancelado' },
+      this.agendaService.list(
+        {
+          from: inicioHoje.toISOString(),
+          to: new Date(inicioAmanha.getTime() - 1).toISOString(),
         },
-        select: {
-          id: true,
-          titulo: true,
-          tipo: true,
-          status: true,
-          startsAt: true,
-          lead: { select: { nome: true } },
-        },
-        orderBy: { startsAt: 'asc' },
-      }),
+        requester,
+      ),
     ]);
 
     const totalPorTipo = new Map(
@@ -97,6 +98,9 @@ export class DashboardService {
     const totalCarteira = totalLeads + totalClientes;
     const emAnalise =
       funil.find((item) => item.stage === 'em-analise')?._count._all ?? 0;
+    const agendaAtiva = agendaHoje.filter(
+      (item) => item.status !== 'cancelado',
+    );
 
     return {
       periodo: {
@@ -136,20 +140,25 @@ export class DashboardService {
         vgvVendidoMes: vgvVendido._sum.vgv ?? 0,
       },
       agenda: {
-        totalHoje: agendaHoje.length,
-        pendentesHoje: agendaHoje.filter(
+        totalHoje: agendaAtiva.length,
+        pendentesHoje: agendaAtiva.filter(
           (item) => item.status === 'agendado',
         ).length,
-        concluidosHoje: agendaHoje.filter(
+        concluidosHoje: agendaAtiva.filter(
           (item) => item.status === 'concluido',
         ).length,
-        itens: agendaHoje.map((item) => ({
+        itens: agendaAtiva.map((item) => ({
           id: item.id,
           titulo: item.titulo,
           tipo: item.tipo,
           status: item.status,
           startsAt: item.startsAt,
           contato: item.lead?.nome ?? null,
+          categoria:
+            item.escopo === AgendamentoEscopo.com_gerente ||
+            item.alvoTipo !== AgendamentoAlvo.nenhum
+              ? 'compartilhada'
+              : 'pessoal',
         })),
       },
     };

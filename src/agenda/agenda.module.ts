@@ -8,5 +8,6 @@ import { AgendaService } from './agenda.service';
   imports: [EquipesModule, NotificacoesModule],
   controllers: [AgendaController],
   providers: [AgendaService],
+  exports: [AgendaService],
 })
 export class AgendaModule {}
