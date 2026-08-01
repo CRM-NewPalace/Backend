@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -192,35 +193,47 @@ export class TenantsService {
   async update(id: string, dto: UpdateTenantDto) {
     await this.ensureExists(id);
 
-    return this.prisma.tenant.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.status !== undefined ? { status: dto.status } : {}),
-        ...(dto.logoUrl !== undefined
-          ? { logoUrl: dto.logoUrl?.trim() || null }
-          : {}),
-        ...(dto.primaryColor !== undefined
-          ? {
-              primaryColor: dto.primaryColor?.trim().toUpperCase() || null,
-            }
-          : {}),
-        ...(dto.sidebarStyle !== undefined
-          ? { sidebarStyle: dto.sidebarStyle }
-          : {}),
-        ...(dto.density !== undefined ? { density: dto.density } : {}),
-        ...(dto.homePath !== undefined ? { homePath: dto.homePath } : {}),
-        ...(dto.modules !== undefined
-          ? {
-              modules:
-                dto.modules === null
-                  ? Prisma.DbNull
-                  : (dto.modules as Prisma.InputJsonValue),
-            }
-          : {}),
-      },
-      select: tenantSelect,
-    });
+    try {
+      return await this.prisma.tenant.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
+          ...(dto.logoUrl !== undefined
+            ? { logoUrl: dto.logoUrl?.trim() || null }
+            : {}),
+          ...(dto.primaryColor !== undefined
+            ? {
+                primaryColor: dto.primaryColor?.trim().toUpperCase() || null,
+              }
+            : {}),
+          ...(dto.sidebarStyle !== undefined
+            ? { sidebarStyle: dto.sidebarStyle }
+            : {}),
+          ...(dto.density !== undefined ? { density: dto.density } : {}),
+          ...(dto.homePath !== undefined ? { homePath: dto.homePath } : {}),
+          ...(dto.modules !== undefined
+            ? {
+                modules:
+                  dto.modules === null
+                    ? Prisma.DbNull
+                    : (dto.modules as Prisma.InputJsonValue),
+              }
+            : {}),
+        },
+        select: tenantSelect,
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2022'
+      ) {
+        throw new BadRequestException(
+          'Banco desatualizado: rode as migrations de branding do tenant (prisma migrate deploy).',
+        );
+      }
+      throw error;
+    }
   }
 
   // ---------------------------------------------------------------------

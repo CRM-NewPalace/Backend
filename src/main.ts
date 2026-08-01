@@ -54,8 +54,9 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
-      // Em produção, não devolve detalhes da validação que revelem o schema.
-      disableErrorMessages: isProd,
+      // Mensagens de validação ajudam a diagnosticar 400 no front (ex.: tenant branding).
+      // Não expõem stack/SQL — só constraints do DTO.
+      disableErrorMessages: false,
     }),
   );
 
