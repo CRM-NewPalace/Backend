@@ -7,7 +7,7 @@ import {
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { requireTenantId } from '../common/utils/tenant';
+import { requireTenantId, DEFAULT_TENANT_SLUG } from '../common/utils/tenant';
 import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
 import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
 import { QueryEmpreendimentosDto } from './dto/query-empreendimentos.dto';
@@ -34,13 +34,16 @@ const empreendimentoSelect = {
 @Injectable()
 export class EmpreendimentosService {
   private readonly logger = new Logger(EmpreendimentosService.name);
-  private lazySyncPromises = new Map<string, Promise<void>>();
   private imageSyncPromises = new Map<string, Promise<void>>();
+  /** Evita deleteMany repetido a cada listagem no mesmo processo. */
+  private purgedTenantIds = new Set<string>();
 
   constructor(private readonly prisma: PrismaService) {}
 
   async list(query: QueryEmpreendimentosDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
+    await this.purgeForeignSiteCatalogIfNeeded(tenantId);
+
     const where = {
       tenantId,
       ...(query.construtoraId ? { construtoraId: query.construtoraId } : {}),
@@ -53,16 +56,9 @@ export class EmpreendimentosService {
       orderBy: { nome: 'asc' },
     });
 
-    // Primeira carga: se o catálogo estiver vazio, importa do site automaticamente.
-    if (items.length === 0 && !query.construtoraId) {
-      await this.ensureCatalogSeeded(tenantId);
-      items = await this.prisma.empreendimento.findMany({
-        where,
-        select: empreendimentoSelect,
-        orderBy: { nome: 'asc' },
-      });
-    }
+    // Capas: só para o tenant New Palace (único com sync de site).
     if (
+      (await this.isSiteSyncTenant(tenantId)) &&
       items.length > 0 &&
       items.some((item) => !item.imagemUrl) &&
       !query.construtoraId
@@ -162,38 +158,42 @@ export class EmpreendimentosService {
   async syncFromSite(requester: AuthenticatedUser) {
     this.assertAdmin(requester);
     const tenantId = requireTenantId(requester);
+    if (!(await this.isSiteSyncTenant(tenantId))) {
+      throw new ForbiddenException(
+        'Sincronização com o site está disponível apenas para o tenant New Palace. Cadastre os imóveis manualmente.',
+      );
+    }
     return this.runSync(tenantId);
   }
 
-  /** Garante catálogo inicial (uma vez) quando a tabela está vazia. */
-  private async ensureCatalogSeeded(tenantId: string) {
-    const total = await this.prisma.empreendimento.count({
-      where: { tenantId },
+  /**
+   * Remove catálogo importado do site New Palace em tenants que não são a New Palace.
+   * Itens criados manualmente (externalKey manual-*) são preservados.
+   */
+  private async purgeForeignSiteCatalogIfNeeded(tenantId: string) {
+    if (await this.isSiteSyncTenant(tenantId)) return;
+    if (this.purgedTenantIds.has(tenantId)) return;
+
+    const result = await this.prisma.empreendimento.deleteMany({
+      where: {
+        tenantId,
+        NOT: { externalKey: { startsWith: 'manual-' } },
+      },
     });
-    if (total > 0) return;
-
-    let promise = this.lazySyncPromises.get(tenantId);
-    if (!promise) {
-      promise = this.runSync(tenantId)
-        .then((result) => {
-          this.logger.log(
-            `Catálogo inicial: ${result.created} empreendimentos (${result.source}).`,
-          );
-        })
-        .catch((err) => {
-          this.logger.error(
-            `Falha ao popular empreendimentos: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        })
-        .finally(() => {
-          this.lazySyncPromises.delete(tenantId);
-        });
-      this.lazySyncPromises.set(tenantId, promise);
+    this.purgedTenantIds.add(tenantId);
+    if (result.count > 0) {
+      this.logger.log(
+        `Removidos ${result.count} imóveis importados do site New Palace do tenant ${tenantId}.`,
+      );
     }
+  }
 
-    await promise;
+  private async isSiteSyncTenant(tenantId: string): Promise<boolean> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { slug: true },
+    });
+    return tenant?.slug === DEFAULT_TENANT_SLUG;
   }
 
   /** Completa uma única vez as capas do catálogo importado antes da migration. */

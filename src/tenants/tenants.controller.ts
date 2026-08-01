@@ -60,6 +60,7 @@ export class TenantsController {
   }
 
   @Patch(':id')
+  @Roles(Role.super_admin)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTenantDto,
@@ -68,6 +69,7 @@ export class TenantsController {
   }
 
   @Delete(':id')
+  @Roles(Role.super_admin)
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.tenantsService.remove(id);
   }
