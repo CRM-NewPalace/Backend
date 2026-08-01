@@ -6,6 +6,7 @@ import {
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { CreateConstrutoraDto } from './dto/create-construtora.dto';
 import { UpdateConstrutoraDto } from './dto/update-construtora.dto';
 
@@ -25,16 +26,19 @@ const construtoraSelect = {
 export class ConstrutorasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list() {
+  list(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     return this.prisma.construtora.findMany({
+      where: { tenantId },
       select: construtoraSelect,
       orderBy: { nome: 'asc' },
     });
   }
 
-  async findOne(id: string) {
-    const item = await this.prisma.construtora.findUnique({
-      where: { id },
+  async findOne(id: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const item = await this.prisma.construtora.findFirst({
+      where: { id, tenantId },
       select: construtoraSelect,
     });
     if (!item) throw new NotFoundException('Construtora não encontrada.');
@@ -43,8 +47,10 @@ export class ConstrutorasService {
 
   create(dto: CreateConstrutoraDto, requester: AuthenticatedUser) {
     this.assertAdmin(requester);
+    const tenantId = requireTenantId(requester);
     return this.prisma.construtora.create({
       data: {
+        tenantId,
         nome: dto.nome.trim(),
         contato: dto.contato?.trim() || null,
         endereco: dto.endereco?.trim() || null,
@@ -61,7 +67,7 @@ export class ConstrutorasService {
     requester: AuthenticatedUser,
   ) {
     this.assertAdmin(requester);
-    await this.findOne(id);
+    await this.findOne(id, requester);
     return this.prisma.construtora.update({
       where: { id },
       data: {
@@ -85,7 +91,7 @@ export class ConstrutorasService {
 
   async remove(id: string, requester: AuthenticatedUser) {
     this.assertAdmin(requester);
-    await this.findOne(id);
+    await this.findOne(id, requester);
     await this.prisma.construtora.delete({ where: { id } });
     return { ok: true };
   }

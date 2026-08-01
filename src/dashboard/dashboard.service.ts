@@ -7,6 +7,7 @@ import {
   DocumentacaoStatus2,
 } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { AgendaService } from '../agenda/agenda.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -18,6 +19,7 @@ export class DashboardService {
   ) {}
 
   async resumoCorretor(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const now = new Date();
     const inicioMes = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
@@ -36,7 +38,7 @@ export class DashboardService {
       ),
     );
     const inicioAmanha = new Date(inicioHoje.getTime() + 24 * 60 * 60 * 1000);
-    const leadWhere = { corretorId: requester.id, perdidoAt: null };
+    const leadWhere = { tenantId, corretorId: requester.id, perdidoAt: null };
 
     const [
       carteira,
@@ -65,16 +67,17 @@ export class DashboardService {
       }),
       this.prisma.analise.groupBy({
         by: ['status'],
-        where: { lead: leadWhere },
+        where: { tenantId, lead: leadWhere },
         _count: { _all: true },
       }),
       this.prisma.documentacao.groupBy({
         by: ['status2'],
-        where: { lead: leadWhere },
+        where: { tenantId, lead: leadWhere },
         _count: { _all: true },
       }),
       this.prisma.documentacao.aggregate({
         where: {
+          tenantId,
           lead: leadWhere,
           status2: DocumentacaoStatus2.vendido,
           dataVenda: { gte: inicioMes, lt: inicioProximoMes },

@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { QueryAnaliseDto, UpdateAnaliseDto } from './dto/analise.dto';
 
 const analiseSelect = {
@@ -73,6 +74,7 @@ export class AnaliseService {
   ) {}
 
   async list(query: QueryAnaliseDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     await this.backfillMissing(requester);
 
     const leadFilter: Prisma.LeadWhereInput = {
@@ -93,6 +95,7 @@ export class AnaliseService {
 
     return this.prisma.analise.findMany({
       where: {
+        tenantId,
         lead: leadFilter,
         ...(query.status ? { status: query.status as AnaliseStatus } : {}),
       },
@@ -102,8 +105,9 @@ export class AnaliseService {
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
-    const item = await this.prisma.analise.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const item = await this.prisma.analise.findFirst({
+      where: { id, tenantId },
       select: analiseSelect,
     });
     if (!item) {
@@ -115,8 +119,9 @@ export class AnaliseService {
 
   /** Analista assume processo da fila: pendente → em_analise. */
   async assumir(id: string, requester: AuthenticatedUser) {
-    const existing = await this.prisma.analise.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const existing = await this.prisma.analise.findFirst({
+      where: { id, tenantId },
       select: { id: true, leadId: true, status: true },
     });
     if (!existing) {
@@ -145,8 +150,9 @@ export class AnaliseService {
     dto: UpdateAnaliseDto,
     requester: AuthenticatedUser,
   ) {
-    const existing = await this.prisma.analise.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const existing = await this.prisma.analise.findFirst({
+      where: { id, tenantId },
       select: {
         id: true,
         leadId: true,
@@ -217,15 +223,15 @@ export class AnaliseService {
    * Cria a ficha de análise ao entrar em "em-analise" (idempotente).
    * Usa snapshot do lead + última documentação, se houver.
    */
-  async ensureForLead(leadId: string, autorId: string) {
+  async ensureForLead(leadId: string, autorId: string, tenantId: string) {
     const existing = await this.prisma.analise.findUnique({
       where: { leadId },
       select: { id: true },
     });
     if (existing) return existing;
 
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: leadId },
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, tenantId },
       select: {
         id: true,
         tipo: true,
@@ -258,6 +264,7 @@ export class AnaliseService {
     try {
       return await this.prisma.analise.create({
         data: {
+          tenantId,
           leadId: lead.id,
           autorId,
           tipoContato: lead.tipo,
@@ -296,6 +303,7 @@ export class AnaliseService {
   }
 
   private async backfillMissing(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const leadScope = await this.teamScope.leadScope(requester);
     const leads = await this.prisma.lead.findMany({
       where: {
@@ -310,7 +318,7 @@ export class AnaliseService {
 
     for (const lead of leads) {
       const autorId = lead.corretorId ?? requester.id;
-      await this.ensureForLead(lead.id, autorId);
+      await this.ensureForLead(lead.id, autorId, tenantId);
     }
   }
 
@@ -318,8 +326,9 @@ export class AnaliseService {
     leadId: string,
     requester: AuthenticatedUser,
   ) {
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: leadId },
+    const tenantId = requireTenantId(requester);
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, tenantId },
       select: {
         id: true,
         corretorId: true,

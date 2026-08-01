@@ -37,14 +37,20 @@ export class EquipesController {
 
   @Get('opcoes/gerentes')
   @Roles(Role.admin)
-  listGerentes(@Query('equipeId') equipeId?: string) {
-    return this.equipesService.listAvailableGerentes(equipeId);
+  listGerentes(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query('equipeId') equipeId?: string,
+  ) {
+    return this.equipesService.listAvailableGerentes(requester, equipeId);
   }
 
   @Get('opcoes/corretores')
   @Roles(Role.admin)
-  listCorretores(@Query('equipeId') equipeId?: string) {
-    return this.equipesService.listAvailableCorretores(equipeId);
+  listCorretores(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query('equipeId') equipeId?: string,
+  ) {
+    return this.equipesService.listAvailableCorretores(requester, equipeId);
   }
 
   @Get(':id')
@@ -58,8 +64,11 @@ export class EquipesController {
 
   @Post()
   @Roles(Role.admin)
-  create(@Body() dto: CreateEquipeDto) {
-    return this.equipesService.create(dto);
+  create(
+    @Body() dto: CreateEquipeDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.equipesService.create(dto, requester);
   }
 
   @Patch(':id')
@@ -67,13 +76,17 @@ export class EquipesController {
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateEquipeDto,
+    @CurrentUser() requester: AuthenticatedUser,
   ) {
-    return this.equipesService.update(id, dto);
+    return this.equipesService.update(id, dto, requester);
   }
 
   @Delete(':id')
   @Roles(Role.admin)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.equipesService.remove(id);
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.equipesService.remove(id, requester);
   }
 }

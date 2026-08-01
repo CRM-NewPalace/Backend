@@ -12,6 +12,7 @@ export interface JwtPayload {
   email: string;
   role: Role;
   name: string;
+  tenantId: string | null;
 }
 
 /** Lê o JWT do cookie httpOnly; cai no Authorization Bearer se existir. */
@@ -48,6 +49,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       email: payload.email,
       role: payload.role,
       name: payload.name,
+      tenantId: payload.tenantId ?? null,
     };
   }
 }

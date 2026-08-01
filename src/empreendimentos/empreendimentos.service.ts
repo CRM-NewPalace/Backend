@@ -7,6 +7,7 @@ import {
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
 import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
 import { QueryEmpreendimentosDto } from './dto/query-empreendimentos.dto';
@@ -33,13 +34,15 @@ const empreendimentoSelect = {
 @Injectable()
 export class EmpreendimentosService {
   private readonly logger = new Logger(EmpreendimentosService.name);
-  private lazySyncPromise: Promise<void> | null = null;
-  private imageSyncPromise: Promise<void> | null = null;
+  private lazySyncPromises = new Map<string, Promise<void>>();
+  private imageSyncPromises = new Map<string, Promise<void>>();
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: QueryEmpreendimentosDto) {
+  async list(query: QueryEmpreendimentosDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const where = {
+      tenantId,
       ...(query.construtoraId ? { construtoraId: query.construtoraId } : {}),
       ...(query.ativo !== undefined ? { ativo: query.ativo } : {}),
     };
@@ -52,7 +55,7 @@ export class EmpreendimentosService {
 
     // Primeira carga: se o catálogo estiver vazio, importa do site automaticamente.
     if (items.length === 0 && !query.construtoraId) {
-      await this.ensureCatalogSeeded();
+      await this.ensureCatalogSeeded(tenantId);
       items = await this.prisma.empreendimento.findMany({
         where,
         select: empreendimentoSelect,
@@ -64,7 +67,7 @@ export class EmpreendimentosService {
       items.some((item) => !item.imagemUrl) &&
       !query.construtoraId
     ) {
-      await this.ensureCatalogImages();
+      await this.ensureCatalogImages(tenantId);
       items = await this.prisma.empreendimento.findMany({
         where,
         select: empreendimentoSelect,
@@ -75,9 +78,10 @@ export class EmpreendimentosService {
     return items;
   }
 
-  async findOne(id: string) {
-    const item = await this.prisma.empreendimento.findUnique({
-      where: { id },
+  async findOne(id: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const item = await this.prisma.empreendimento.findFirst({
+      where: { id, tenantId },
       select: empreendimentoSelect,
     });
     if (!item) throw new NotFoundException('Empreendimento não encontrado.');
@@ -86,9 +90,10 @@ export class EmpreendimentosService {
 
   async create(dto: CreateEmpreendimentoDto, requester: AuthenticatedUser) {
     this.assertAdminOrManager(requester);
+    const tenantId = requireTenantId(requester);
     if (dto.construtoraId) {
-      const construtora = await this.prisma.construtora.findUnique({
-        where: { id: dto.construtoraId },
+      const construtora = await this.prisma.construtora.findFirst({
+        where: { id: dto.construtoraId, tenantId },
         select: { id: true },
       });
       if (!construtora) {
@@ -98,6 +103,7 @@ export class EmpreendimentosService {
     const key = this.slugify(dto.nome);
     return this.prisma.empreendimento.create({
       data: {
+        tenantId,
         nome: dto.nome.trim(),
         construtoraId: dto.construtoraId ?? null,
         cidade: dto.cidade?.trim() || null,
@@ -120,7 +126,7 @@ export class EmpreendimentosService {
     requester: AuthenticatedUser,
   ) {
     this.assertAdmin(requester);
-    await this.findOne(id);
+    await this.findOne(id, requester);
     return this.prisma.empreendimento.update({
       where: { id },
       data: {
@@ -148,23 +154,27 @@ export class EmpreendimentosService {
 
   async remove(id: string, requester: AuthenticatedUser) {
     this.assertAdmin(requester);
-    await this.findOne(id);
+    await this.findOne(id, requester);
     await this.prisma.empreendimento.delete({ where: { id } });
     return { ok: true };
   }
 
   async syncFromSite(requester: AuthenticatedUser) {
     this.assertAdmin(requester);
-    return this.runSync();
+    const tenantId = requireTenantId(requester);
+    return this.runSync(tenantId);
   }
 
   /** Garante catálogo inicial (uma vez) quando a tabela está vazia. */
-  private async ensureCatalogSeeded() {
-    const total = await this.prisma.empreendimento.count();
+  private async ensureCatalogSeeded(tenantId: string) {
+    const total = await this.prisma.empreendimento.count({
+      where: { tenantId },
+    });
     if (total > 0) return;
 
-    if (!this.lazySyncPromise) {
-      this.lazySyncPromise = this.runSync()
+    let promise = this.lazySyncPromises.get(tenantId);
+    if (!promise) {
+      promise = this.runSync(tenantId)
         .then((result) => {
           this.logger.log(
             `Catálogo inicial: ${result.created} empreendimentos (${result.source}).`,
@@ -178,17 +188,19 @@ export class EmpreendimentosService {
           );
         })
         .finally(() => {
-          this.lazySyncPromise = null;
+          this.lazySyncPromises.delete(tenantId);
         });
+      this.lazySyncPromises.set(tenantId, promise);
     }
 
-    await this.lazySyncPromise;
+    await promise;
   }
 
   /** Completa uma única vez as capas do catálogo importado antes da migration. */
-  private async ensureCatalogImages() {
-    if (!this.imageSyncPromise) {
-      this.imageSyncPromise = this.runSync()
+  private async ensureCatalogImages(tenantId: string) {
+    let promise = this.imageSyncPromises.get(tenantId);
+    if (!promise) {
+      promise = this.runSync(tenantId)
         .then((result) => {
           this.logger.log(
             `Capas do catálogo atualizadas: ${result.updated + result.created} empreendimentos.`,
@@ -202,13 +214,14 @@ export class EmpreendimentosService {
           );
         })
         .finally(() => {
-          this.imageSyncPromise = null;
+          this.imageSyncPromises.delete(tenantId);
         });
+      this.imageSyncPromises.set(tenantId, promise);
     }
-    await this.imageSyncPromise;
+    await promise;
   }
 
-  private async runSync() {
+  private async runSync(tenantId: string) {
     const { items, source, detail } = await fetchSiteEmpreendimentos();
     if (detail) {
       this.logger.warn(detail);
@@ -219,7 +232,9 @@ export class EmpreendimentosService {
 
     for (const item of items) {
       const existing = await this.prisma.empreendimento.findUnique({
-        where: { externalKey: item.externalKey },
+        where: {
+          tenantId_externalKey: { tenantId, externalKey: item.externalKey },
+        },
         select: { id: true },
       });
 
@@ -242,6 +257,7 @@ export class EmpreendimentosService {
       } else {
         await this.prisma.empreendimento.create({
           data: {
+            tenantId,
             nome: item.nome,
             cidade: item.cidade,
             endereco: item.endereco,

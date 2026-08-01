@@ -11,7 +11,9 @@ datasource db {
 }
 
 /// Perfis de acesso (RBAC). Espelha os perfis usados no frontend.
+/// super_admin = plataforma Zone Connection (sem tenant).
 enum Role {
+  super_admin
   admin
   gerente
   corretor
@@ -51,11 +53,73 @@ enum ContatoTipo {
   cliente
 }
 
+/// Imobiliária / empresa cliente da plataforma (tenant).
+model Tenant {
+  id     String     @id @default(uuid())
+  name   String
+  slug   String     @unique
+  status UserStatus @default(ativo)
+
+  users             User[]
+  equipes           Equipe[]
+  leads             Lead[]
+  construtoras      Construtora[]
+  empreendimentos   Empreendimento[]
+  catalogItems      CatalogItem[]
+  documentacoes     Documentacao[]
+  analises          Analise[]
+  agendamentos      Agendamento[]
+  notificacoes      Notificacao[]
+  metas             Meta[]
+  metaConnections   TenantMetaConnection[]
+  ozapConnections   TenantOzapConnection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("tenants")
+}
+
+/// Página Meta Lead Ads vinculada a um tenant (roteamento por pageId).
+model TenantMetaConnection {
+  id               String  @id @default(uuid())
+  tenantId         String
+  tenant           Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pageId           String  @unique
+  pageAccessToken  String
+  ativo            Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("tenant_meta_connections")
+}
+
+/// Instância OZap vinculada a um tenant (roteamento por instanceId).
+model TenantOzapConnection {
+  id         String  @id @default(uuid())
+  tenantId   String
+  tenant     Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instanceId Int     @unique
+  ativo      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("tenant_ozap_connections")
+}
+
 /// Usuário do sistema (login, RBAC e gestão de equipe).
+/// tenantId é obrigatório para roles de imobiliária; null só para super_admin.
 model User {
   id        String     @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name      String
-  email     String     @unique
+  email     String
   password  String
   phone     String?
   /// WhatsApp do corretor (admin cadastra; usado para enviar resultado da análise).
@@ -130,18 +194,22 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([tenantId, email])
   @@index([role])
   @@index([status])
   @@index([equipeId])
+  @@index([tenantId])
   @@map("users")
 }
 
 /// Equipe comercial: um gerente e vários corretores.
 /// Só o admin cria/edita; o gerente enxerga apenas os processos dos membros.
 model Equipe {
-  id        String     @id @default(uuid())
-  name      String
-  status    UserStatus @default(ativo)
+  id       String     @id @default(uuid())
+  tenantId String
+  tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name     String
+  status   UserStatus @default(ativo)
 
   gerenteId String @unique
   gerente   User   @relation("EquipeGerente", fields: [gerenteId], references: [id], onDelete: Restrict)
@@ -155,6 +223,7 @@ model Equipe {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([tenantId])
   @@map("equipes")
 }
 
@@ -163,6 +232,8 @@ model Equipe {
 /// com os identificadores usados no frontend, inclusive acentos e hífens).
 model Lead {
   id         String      @id @default(uuid())
+  tenantId   String
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// lead = captação; cliente = carteira pessoal do corretor.
   tipo       ContatoTipo @default(lead)
   nome       String
@@ -203,10 +274,14 @@ model Lead {
   agendamentos  Agendamento[]
   notificacoes  Notificacao[]
   ozapLink      LeadOzapLink?
+  metaLink      LeadMetaLink?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([tenantId])
+  @@index([tenantId, tipo])
+  @@index([tenantId, stage])
   @@index([tipo])
   @@index([stage])
   @@index([corretorId])
@@ -227,6 +302,8 @@ model LeadOzapLink {
   instanceId Int
   chatId     String
   categoria  String?
+  /// Campo do lead solicitado pela última pergunta enviada pela IA.
+  campoPendente String?
 
   lastMessageAt DateTime?
   createdAt     DateTime @default(now())
@@ -251,6 +328,43 @@ model OzapWebhookDelivery {
 
   @@index([instanceId, event])
   @@map("ozap_webhook_deliveries")
+}
+
+/// Vínculo entre um lead do CRM e um leadgen do Meta Lead Ads.
+model LeadMetaLink {
+  id String @id @default(uuid())
+
+  leadId String @unique
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  leadgenId String  @unique
+  pageId    String
+  formId    String?
+  adId      String?
+  adgroupId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pageId])
+  @@index([formId])
+  @@map("lead_meta_links")
+}
+
+/// Entrega recebida do webhook Meta, usada para impedir duplicação por retry.
+model MetaWebhookDelivery {
+  id String @id @default(uuid())
+
+  deliveryKey String @unique
+  leadgenId   String
+  pageId      String
+  formId      String?
+  payload     Json
+  processedAt DateTime @default(now())
+
+  @@index([pageId])
+  @@index([leadgenId])
+  @@map("meta_webhook_deliveries")
 }
 
 /// Origem do relato de triagem (após avanço no funil ou criação manual).
@@ -304,6 +418,8 @@ enum DocumentacaoStatus2 {
 /// Construtora parceira (cadastro admin; gerente só visualiza).
 model Construtora {
   id                  String  @id @default(uuid())
+  tenantId            String
+  tenant              Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome                String
   contato             String?
   endereco            String?
@@ -317,6 +433,7 @@ model Construtora {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([tenantId])
   @@index([nome])
   @@map("construtoras")
 }
@@ -324,6 +441,8 @@ model Construtora {
 /// Empreendimento / imóvel (sync do site New Palace + vínculo opcional à construtora).
 model Empreendimento {
   id            String  @id @default(uuid())
+  tenantId      String
+  tenant        Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome          String
   construtoraId String?
   construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
@@ -337,7 +456,7 @@ model Empreendimento {
   /// Imagem principal extraída da página pública do empreendimento.
   imagemUrl   String?
   /// Chave estável para upsert no sync (slug/URL/nome normalizado).
-  externalKey String  @unique
+  externalKey String
   ativo       Boolean @default(true)
 
   documentacoes Documentacao[]
@@ -346,6 +465,8 @@ model Empreendimento {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([tenantId, externalKey])
+  @@index([tenantId])
   @@index([construtoraId])
   @@index([ativo])
   @@index([nome])
@@ -354,11 +475,13 @@ model Empreendimento {
 
 /// Ficha de documentação operacional (campos da planilha), vinculada a lead/cliente.
 model Documentacao {
-  id     String @id @default(uuid())
-  leadId String
-  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  autorId String
-  autor   User  @relation("DocumentacaoAutor", fields: [autorId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leadId   String
+  lead     Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId  String
+  autor    User   @relation("DocumentacaoAutor", fields: [autorId], references: [id], onDelete: Cascade)
 
   /// Snapshot do tipo e etapa do funil no momento do cadastro.
   tipoContato   ContatoTipo
@@ -391,6 +514,7 @@ model Documentacao {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([tenantId])
   @@index([leadId])
   @@index([autorId])
   @@index([construtoraId])
@@ -412,11 +536,13 @@ enum AnaliseStatus {
 /// Ficha de análise gerada ao entrar na etapa "Em análise" do funil.
 /// Guarda snapshot do cadastro (+ dados financeiros da documentação, se houver).
 model Analise {
-  id      String @id @default(uuid())
-  leadId  String @unique
-  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  autorId String
-  autor   User   @relation("AnaliseAutor", fields: [autorId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leadId   String @unique
+  lead     Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId  String
+  autor    User   @relation("AnaliseAutor", fields: [autorId], references: [id], onDelete: Cascade)
 
   /// Analista que assumiu o processo (pendente → em_analise).
   analistaId String?
@@ -448,6 +574,7 @@ model Analise {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([tenantId])
   @@index([autorId])
   @@index([analistaId])
   @@index([status])
@@ -502,11 +629,13 @@ enum AgendamentoSolicitacaoStatus {
 /// Compromisso vinculado a um lead/cliente (visita, ligação, reunião, tarefa…).
 /// leadId é opcional para tarefas pessoais sem contato (ex.: "fazer lista").
 model Agendamento {
-  id      String @id @default(uuid())
-  leadId  String?
-  lead    Lead?  @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  autorId String
-  autor   User   @relation("AgendamentoAutor", fields: [autorId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leadId   String?
+  lead     Lead?  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId  String
+  autor    User   @relation("AgendamentoAutor", fields: [autorId], references: [id], onDelete: Cascade)
 
   titulo       String
   tipo         AgendamentoTipo              @default(visita)
@@ -534,6 +663,7 @@ model Agendamento {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([tenantId])
   @@index([leadId])
   @@index([autorId])
   @@index([startsAt])
@@ -559,13 +689,15 @@ enum NotificacaoTipo {
 
 /// Aviso in-app para o usuário (ex.: resultado da análise para o corretor).
 model Notificacao {
-  id     String          @id @default(uuid())
-  userId String
-  user   User            @relation("NotificacaoDestinatario", fields: [userId], references: [id], onDelete: Cascade)
-  tipo   NotificacaoTipo
-  titulo String
-  corpo  String
-  lida   Boolean         @default(false)
+  id       String          @id @default(uuid())
+  tenantId String
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User            @relation("NotificacaoDestinatario", fields: [userId], references: [id], onDelete: Cascade)
+  tipo     NotificacaoTipo
+  titulo   String
+  corpo    String
+  lida     Boolean         @default(false)
 
   leadId         String?
   lead           Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -574,6 +706,7 @@ model Notificacao {
 
   createdAt DateTime @default(now())
 
+  @@index([tenantId])
   @@index([userId, lida])
   @@index([createdAt])
   @@map("notificacoes")
@@ -592,6 +725,8 @@ enum CatalogType {
 /// o histórico caso um item seja renomeado ou desativado.
 model CatalogItem {
   id        String      @id @default(uuid())
+  tenantId  String
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   type      CatalogType
   label     String
   slug      String? // usado nas etapas do funil (ex.: "visita-agendada")
@@ -601,14 +736,17 @@ model CatalogItem {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  @@unique([type, label])
+  @@unique([tenantId, type, label])
+  @@index([tenantId])
   @@index([type, sortOrder])
   @@map("catalog_items")
 }
 
 /// Meta comercial individual, aplicável ao período diário, semanal ou mensal.
 model Meta {
-  id String @id @default(uuid())
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   corretorId String
   corretor   User   @relation("MetaCorretor", fields: [corretorId], references: [id], onDelete: Cascade)
@@ -628,6 +766,7 @@ model Meta {
   updatedAt DateTime @updatedAt
 
   @@unique([corretorId, origem, tipo, periodo, inicio])
+  @@index([tenantId])
   @@index([corretorId, inicio, fim])
   @@index([criadorId])
   @@map("metas")

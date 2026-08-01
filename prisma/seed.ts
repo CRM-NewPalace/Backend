@@ -10,6 +10,9 @@ import * as bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 12;
 
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const DEFAULT_TENANT_SLUG = 'new-palace';
+
 /** Espelha Backend/src/catalog/catalog.defaults.ts — mantido inline no seed (ts-node). */
 const DEFAULT_FUNNEL_STAGES = [
   { label: 'Novo lead', slug: 'novo', color: 'bg-slate-200 text-slate-700', sortOrder: 0 },
@@ -615,10 +618,14 @@ const demoLeads: SeedLead[] = [
   },
 ];
 
-async function seedDefaultFunnelStages() {
+async function seedDefaultFunnelStages(tenantId: string) {
   for (const stage of DEFAULT_FUNNEL_STAGES) {
     const bySlug = await prisma.catalogItem.findFirst({
-      where: { type: CatalogType.funil_etapa, slug: stage.slug },
+      where: {
+        tenantId,
+        type: CatalogType.funil_etapa,
+        slug: stage.slug,
+      },
     });
     if (bySlug) {
       await prisma.catalogItem.update({
@@ -635,7 +642,11 @@ async function seedDefaultFunnelStages() {
 
     const byLabel = await prisma.catalogItem.findUnique({
       where: {
-        type_label: { type: CatalogType.funil_etapa, label: stage.label },
+        tenantId_type_label: {
+          tenantId,
+          type: CatalogType.funil_etapa,
+          label: stage.label,
+        },
       },
     });
     if (byLabel) {
@@ -653,6 +664,7 @@ async function seedDefaultFunnelStages() {
 
     await prisma.catalogItem.create({
       data: {
+        tenantId,
         type: CatalogType.funil_etapa,
         label: stage.label,
         slug: stage.slug,
@@ -667,12 +679,15 @@ async function seedDefaultFunnelStages() {
 
 /** Catálogos com label + cor das badges. */
 async function seedSimpleCatalog(
+  tenantId: string,
   type: CatalogType,
   items: readonly { label: string; color: string }[],
 ): Promise<void> {
   for (const [index, item] of items.entries()) {
     await prisma.catalogItem.upsert({
-      where: { type_label: { type, label: item.label } },
+      where: {
+        tenantId_type_label: { tenantId, type, label: item.label },
+      },
       update: {
         slug: slugify(item.label),
         color: item.color,
@@ -680,6 +695,7 @@ async function seedSimpleCatalog(
         active: true,
       },
       create: {
+        tenantId,
         type,
         label: item.label,
         slug: slugify(item.label),
@@ -695,9 +711,12 @@ function diasAtras(dias: number): Date {
   return new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
 }
 
-async function seedLeads(userIds: Map<string, string>): Promise<void> {
+async function seedLeads(
+  tenantId: string,
+  userIds: Map<string, string>,
+): Promise<void> {
   // Recria a carteira de demonstração do zero para o seed ser reprodutível.
-  await prisma.lead.deleteMany();
+  await prisma.lead.deleteMany({ where: { tenantId } });
 
   await prisma.lead.createMany({
     data: demoLeads.map((lead) => {
@@ -705,6 +724,7 @@ async function seedLeads(userIds: Map<string, string>): Promise<void> {
       const perdidoEm = lead.perda ? diasAtras(lead.perda.diasAtras) : null;
 
       return {
+        tenantId,
         tipo: lead.tipo ?? ContatoTipo.lead,
         nome: lead.nome,
         telefone: lead.telefone,
@@ -748,12 +768,26 @@ async function main() {
     );
   }
 
+  const tenant = await prisma.tenant.upsert({
+    where: { slug: DEFAULT_TENANT_SLUG },
+    update: { name: 'New Palace' },
+    create: {
+      id: DEFAULT_TENANT_ID,
+      name: 'New Palace',
+      slug: DEFAULT_TENANT_SLUG,
+      status: UserStatus.ativo,
+    },
+  });
+  console.log(`  ✓ tenant ${tenant.slug} (${tenant.id})`);
+
   const userIds = new Map<string, string>();
 
   for (const user of demoAccounts) {
     const hashed = await bcrypt.hash(user.password, SALT_ROUNDS);
     const saved = await prisma.user.upsert({
-      where: { email: user.email },
+      where: {
+        tenantId_email: { tenantId: tenant.id, email: user.email },
+      },
       update: {
         name: user.name,
         password: hashed,
@@ -765,6 +799,7 @@ async function main() {
         lockedUntil: null,
       },
       create: {
+        tenantId: tenant.id,
         name: user.name,
         email: user.email,
         password: hashed,
@@ -779,11 +814,15 @@ async function main() {
     console.log(`  ✓ ${user.email} (${user.role})`);
   }
 
-  await seedDefaultFunnelStages();
-  await seedSimpleCatalog(CatalogType.origem, DEFAULT_ORIGENS);
-  await seedSimpleCatalog(CatalogType.tag, DEFAULT_TAGS);
-  await seedSimpleCatalog(CatalogType.motivo_perda, DEFAULT_MOTIVOS_PERDA);
-  await seedLeads(userIds);
+  await seedDefaultFunnelStages(tenant.id);
+  await seedSimpleCatalog(tenant.id, CatalogType.origem, DEFAULT_ORIGENS);
+  await seedSimpleCatalog(tenant.id, CatalogType.tag, DEFAULT_TAGS);
+  await seedSimpleCatalog(
+    tenant.id,
+    CatalogType.motivo_perda,
+    DEFAULT_MOTIVOS_PERDA,
+  );
+  await seedLeads(tenant.id, userIds);
 
   console.log('\nSeed concluído.');
   console.log('Contas demo: admin@imob.com / gerente@imob.com / analista@imob.com / corretor@imob.com');

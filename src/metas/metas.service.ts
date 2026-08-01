@@ -12,6 +12,7 @@ import {
   UserStatus,
 } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMetaDto } from './dto/create-meta.dto';
@@ -27,10 +28,12 @@ export class MetasService {
   ) {}
 
   async list(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const agora = new Date();
     const corretorIds = await this.getCorretorIdsVisiveis(requester);
     const metas = await this.prisma.meta.findMany({
       where: {
+        tenantId,
         ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
         inicio: { lte: agora },
         fim: { gt: agora },
@@ -49,10 +52,11 @@ export class MetasService {
       orderBy: [{ corretor: { name: 'asc' } }, { periodo: 'asc' }, { tipo: 'asc' }],
     });
 
-    return Promise.all(metas.map((meta) => this.withProgress(meta)));
+    return Promise.all(metas.map((meta) => this.withProgress(meta, tenantId)));
   }
 
   async create(dto: CreateMetaDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const definicao = this.getDefinicaoPeriodo(dto.periodo);
     const { corretorId, origem } = await this.getDestinoCriacao(dto, requester);
 
@@ -67,6 +71,7 @@ export class MetasService {
         },
       },
       create: {
+        tenantId,
         corretorId,
         criadorId: requester.id,
         origem,
@@ -88,7 +93,7 @@ export class MetasService {
         criador: { select: { id: true, name: true } },
       },
     });
-    return this.withProgress(meta);
+    return this.withProgress(meta, tenantId);
   }
 
   async update(id: string, dto: UpdateMetaDto, requester: AuthenticatedUser) {
@@ -109,6 +114,7 @@ export class MetasService {
     dto: CreateMetaDto,
     requester: AuthenticatedUser,
   ) {
+    const tenantId = requireTenantId(requester);
     if (requester.role === Role.corretor) {
       return { corretorId: requester.id, origem: MetaOrigem.pessoal };
     }
@@ -126,6 +132,7 @@ export class MetasService {
     const corretor = await this.prisma.user.findFirst({
       where: {
         id: dto.corretorId,
+        tenantId,
         role: Role.corretor,
         status: UserStatus.ativo,
       },
@@ -147,7 +154,10 @@ export class MetasService {
   }
 
   private async findEditable(id: string, requester: AuthenticatedUser) {
-    const meta = await this.prisma.meta.findUnique({ where: { id } });
+    const tenantId = requireTenantId(requester);
+    const meta = await this.prisma.meta.findFirst({
+      where: { id, tenantId },
+    });
     if (!meta) throw new NotFoundException('Meta não encontrada.');
 
     const podeEditarPessoal =
@@ -194,8 +204,10 @@ export class MetasService {
 
   private async withProgress<T extends { corretorId: string; tipo: MetaTipo; inicio: Date; fim: Date; valor: number }>(
     meta: T,
+    tenantId: string,
   ) {
     const where = {
+      tenantId,
       corretorId: meta.corretorId,
       dataVenda: { gte: meta.inicio, lt: meta.fim },
       status2: DocumentacaoStatus2.vendido,
@@ -205,6 +217,7 @@ export class MetasService {
     if (meta.tipo === MetaTipo.documentacoes) {
       atual = await this.prisma.documentacao.count({
         where: {
+          tenantId,
           corretorId: meta.corretorId,
           createdAt: { gte: meta.inicio, lt: meta.fim },
         },

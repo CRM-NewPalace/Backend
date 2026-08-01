@@ -27,6 +27,8 @@ export function validateEnv(config: Record<string, unknown>) {
   const accessSecret = String(config.JWT_ACCESS_SECRET ?? '');
   const refreshSecret = String(config.JWT_REFRESH_SECRET ?? '');
   const ozapWebhookSecret = String(config.OZAP_WEBHOOK_SECRET ?? '');
+  const metaAppSecret = String(config.META_APP_SECRET ?? '');
+  const metaVerifyToken = String(config.META_VERIFY_TOKEN ?? '');
 
   for (const [key, secret] of [
     ['JWT_ACCESS_SECRET', accessSecret],
@@ -55,6 +57,29 @@ export function validateEnv(config: Record<string, unknown>) {
     errors.push(
       `OZAP_WEBHOOK_SECRET deve ter ao menos ${MIN_SECRET_LENGTH} caracteres.`,
     );
+  }
+
+  if (metaAppSecret && metaAppSecret.length < 16) {
+    errors.push('META_APP_SECRET parece inválido (muito curto).');
+  }
+
+  if (metaVerifyToken && metaVerifyToken.length < 8) {
+    errors.push(
+      'META_VERIFY_TOKEN deve ter ao menos 8 caracteres.',
+    );
+  }
+
+  const metaConfigured = Boolean(
+    config.META_APP_SECRET || config.META_VERIFY_TOKEN,
+  );
+  if (metaConfigured) {
+    for (const key of ['META_APP_SECRET', 'META_VERIFY_TOKEN'] as const) {
+      if (!config[key]) {
+        errors.push(
+          `${key} é obrigatório quando a integração Meta está parcialmente configurada.`,
+        );
+      }
+    }
   }
 
   if (isProd && !config.FRONTEND_URL) {

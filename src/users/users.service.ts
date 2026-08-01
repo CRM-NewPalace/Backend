@@ -10,6 +10,7 @@ import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { publicUserSelect, PublicUser } from '../common/utils/user-select';
 import { SALT_ROUNDS } from '../config/security.constants';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -28,12 +29,24 @@ export class UsersService {
     private readonly teamScope: TeamScopeService,
   ) {}
 
-  async create(dto: CreateUserDto): Promise<PublicUser> {
+  async create(
+    dto: CreateUserDto,
+    requester: AuthenticatedUser,
+  ): Promise<PublicUser> {
+    const tenantId = requireTenantId(requester);
+
+    if (dto.role === Role.super_admin) {
+      throw new ForbiddenException(
+        'Não é possível criar usuários da plataforma por este endpoint.',
+      );
+    }
+
     const email = dto.email.toLowerCase().trim();
-    await this.ensureEmailIsAvailable(email);
+    await this.ensureEmailIsAvailable(tenantId, email);
 
     return this.prisma.user.create({
       data: {
+        tenantId,
         name: dto.name.trim(),
         email,
         password: await bcrypt.hash(dto.password, SALT_ROUNDS),
@@ -97,8 +110,9 @@ export class UsersService {
     id: string,
     requester: AuthenticatedUser,
   ): Promise<PublicUser> {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const user = await this.prisma.user.findFirst({
+      where: { id, tenantId },
       select: publicUserSelect,
     });
 
@@ -110,12 +124,17 @@ export class UsersService {
     return user;
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<PublicUser> {
-    await this.ensureExists(id);
+  async update(
+    id: string,
+    dto: UpdateUserDto,
+    requester: AuthenticatedUser,
+  ): Promise<PublicUser> {
+    const tenantId = requireTenantId(requester);
+    await this.ensureExists(id, tenantId);
 
     const email = dto.email?.toLowerCase().trim();
     if (email) {
-      await this.ensureEmailIsAvailable(email, id);
+      await this.ensureEmailIsAvailable(tenantId, email, id);
     }
 
     return this.prisma.user.update({
@@ -134,23 +153,25 @@ export class UsersService {
     });
   }
 
-  async remove(id: string, requesterId: string): Promise<void> {
-    if (id === requesterId) {
+  async remove(id: string, requester: AuthenticatedUser): Promise<void> {
+    const tenantId = requireTenantId(requester);
+    if (id === requester.id) {
       throw new ForbiddenException('Você não pode excluir a própria conta.');
     }
-    await this.ensureExists(id);
+    await this.ensureExists(id, tenantId);
     await this.prisma.user.delete({ where: { id } });
   }
 
   async updateStatus(
     id: string,
     status: UserStatus,
-    requesterId: string,
+    requester: AuthenticatedUser,
   ): Promise<PublicUser> {
-    if (id === requesterId && status === UserStatus.inativo) {
+    const tenantId = requireTenantId(requester);
+    if (id === requester.id && status === UserStatus.inativo) {
       throw new ForbiddenException('Você não pode inativar a própria conta.');
     }
-    await this.ensureExists(id);
+    await this.ensureExists(id, tenantId);
 
     return this.prisma.user.update({
       where: { id },
@@ -165,8 +186,12 @@ export class UsersService {
   }
 
   /** Libera manualmente uma conta bloqueada por excesso de tentativas. */
-  async unlock(id: string): Promise<PublicUser> {
-    await this.ensureExists(id);
+  async unlock(
+    id: string,
+    requester: AuthenticatedUser,
+  ): Promise<PublicUser> {
+    const tenantId = requireTenantId(requester);
+    await this.ensureExists(id, tenantId);
 
     const user = await this.prisma.user.update({
       where: { id },
@@ -190,8 +215,9 @@ export class UsersService {
     password: string | undefined,
     requester: AuthenticatedUser,
   ): Promise<{ user: PublicUser; temporaryPassword?: string }> {
-    const target = await this.prisma.user.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const target = await this.prisma.user.findFirst({
+      where: { id, tenantId },
       select: { ...publicUserSelect },
     });
     if (!target) {
@@ -219,12 +245,14 @@ export class UsersService {
     return { user, temporaryPassword };
   }
 
-  /** Gerente: só membros da própria equipe (+ ele mesmo). Admin: todos. */
+  /** Gerente: só membros da própria equipe (+ ele mesmo). Admin: todos do tenant. */
   private async teamUserFilter(
     requester: AuthenticatedUser,
   ): Promise<Prisma.UserWhereInput> {
+    const tenantId = requireTenantId(requester);
+
     if (requester.role === Role.admin) {
-      return {};
+      return { tenantId };
     }
 
     if (requester.role !== Role.gerente) {
@@ -234,7 +262,7 @@ export class UsersService {
     const corretorIds = await this.teamScope.getVisibleCorretorIds(requester);
     const ids = [...(corretorIds ?? []), requester.id];
 
-    return { id: { in: ids } };
+    return { tenantId, id: { in: ids } };
   }
 
   private async ensureCanViewUser(
@@ -289,18 +317,21 @@ export class UsersService {
     }
   }
 
-  private async ensureExists(id: string): Promise<void> {
-    const count = await this.prisma.user.count({ where: { id } });
+  private async ensureExists(id: string, tenantId: string): Promise<void> {
+    const count = await this.prisma.user.count({ where: { id, tenantId } });
     if (count === 0) {
       throw new NotFoundException('Usuário não encontrado.');
     }
   }
 
   private async ensureEmailIsAvailable(
+    tenantId: string,
     email: string,
     ignoreId?: string,
   ): Promise<void> {
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const existing = await this.prisma.user.findFirst({
+      where: { tenantId, email },
+    });
     if (existing && existing.id !== ignoreId) {
       throw new ConflictException('Já existe um usuário com este e-mail.');
     }

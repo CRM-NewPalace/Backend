@@ -7,6 +7,7 @@ import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
 import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
 import { QueryDocumentacaoDto } from './dto/query-documentacao.dto';
@@ -63,6 +64,7 @@ export class DocumentacaoService {
   ) {}
 
   async list(query: QueryDocumentacaoDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const leadFilter: Prisma.LeadWhereInput = {
       perdidoAt: null,
       ...(await this.teamScope.leadScope(requester)),
@@ -80,15 +82,16 @@ export class DocumentacaoService {
     }
 
     return this.prisma.documentacao.findMany({
-      where: { lead: leadFilter },
+      where: { tenantId, lead: leadFilter },
       select: docSelect,
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
-    const doc = await this.prisma.documentacao.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const doc = await this.prisma.documentacao.findFirst({
+      where: { id, tenantId },
       select: docSelect,
     });
     if (!doc) {
@@ -100,15 +103,20 @@ export class DocumentacaoService {
   }
 
   async create(dto: CreateDocumentacaoDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const lead = await this.ensureLeadAccessible(dto.leadId, requester);
 
     let gerenteId = dto.gerenteId ?? null;
     if (!gerenteId && lead.corretorId) {
-      gerenteId = await this.resolveGerenteOfCorretor(lead.corretorId);
+      gerenteId = await this.resolveGerenteOfCorretor(
+        lead.corretorId,
+        tenantId,
+      );
     }
 
     return this.prisma.documentacao.create({
       data: {
+        tenantId,
         leadId: lead.id,
         autorId: requester.id,
         tipoContato: lead.tipo,
@@ -136,8 +144,9 @@ export class DocumentacaoService {
     dto: UpdateDocumentacaoDto,
     requester: AuthenticatedUser,
   ) {
-    const existing = await this.prisma.documentacao.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const existing = await this.prisma.documentacao.findFirst({
+      where: { id, tenantId },
       select: { id: true, leadId: true },
     });
     if (!existing) {
@@ -188,8 +197,9 @@ export class DocumentacaoService {
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
-    const existing = await this.prisma.documentacao.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const existing = await this.prisma.documentacao.findFirst({
+      where: { id, tenantId },
       select: { id: true, leadId: true, autorId: true },
     });
     if (!existing) {
@@ -213,9 +223,10 @@ export class DocumentacaoService {
 
   private async resolveGerenteOfCorretor(
     corretorId: string,
+    tenantId: string,
   ): Promise<string | null> {
-    const corretor = await this.prisma.user.findUnique({
-      where: { id: corretorId },
+    const corretor = await this.prisma.user.findFirst({
+      where: { id: corretorId, tenantId },
       select: {
         equipe: { select: { gerenteId: true } },
       },
@@ -227,8 +238,9 @@ export class DocumentacaoService {
     leadId: string,
     requester: AuthenticatedUser,
   ) {
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: leadId },
+    const tenantId = requireTenantId(requester);
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, tenantId },
       select: {
         id: true,
         tipo: true,

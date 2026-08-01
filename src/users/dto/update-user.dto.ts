@@ -1,6 +1,7 @@
 import { Role, UserStatus } from '@prisma/client';
 import {
   IsEmail,
+  IsIn,
   IsEnum,
   IsOptional,
   IsString,
@@ -32,7 +33,9 @@ export class UpdateUserDto {
   cargo?: string;
 
   @IsOptional()
-  @IsEnum(Role, { message: 'Perfil inválido.' })
+  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista], {
+    message: 'Perfil inválido.',
+  })
   role?: Role;
 
   @IsOptional()

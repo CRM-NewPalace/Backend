@@ -29,8 +29,11 @@ export class EmpreendimentosController {
 
   @Get()
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
-  list(@Query() query: QueryEmpreendimentosDto) {
-    return this.empreendimentosService.list(query);
+  list(
+    @Query() query: QueryEmpreendimentosDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.empreendimentosService.list(query, requester);
   }
 
   @Post('sync')
@@ -41,8 +44,11 @@ export class EmpreendimentosController {
 
   @Get(':id')
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.empreendimentosService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.empreendimentosService.findOne(id, requester);
   }
 
   @Post()

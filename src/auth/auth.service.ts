@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -59,6 +60,7 @@ export class AuthService {
     email: string,
     password: string,
     context: RequestContext = {},
+    tenantSlug?: string,
   ): Promise<AuthResult> {
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -74,9 +76,7 @@ export class AuthService {
       );
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-    });
+    const user = await this.resolveLoginUser(normalizedEmail, tenantSlug);
 
     // Mesmo sem usuário, roda um bcrypt para igualar o tempo de resposta.
     const passwordMatches = await bcrypt.compare(
@@ -116,6 +116,43 @@ export class AuthService {
     await this.recordAttempt(normalizedEmail, true, context);
 
     return { ...tokens, user: this.toPublicUser(user) };
+  }
+
+  /** Resolve usuário por e-mail (+ tenantSlug quando o e-mail existe em vários tenants). */
+  private async resolveLoginUser(
+    normalizedEmail: string,
+    tenantSlug?: string,
+  ): Promise<User | null> {
+    if (tenantSlug) {
+      return this.prisma.user.findFirst({
+        where: {
+          email: normalizedEmail,
+          OR: [
+            { tenantId: null, role: Role.super_admin },
+            { tenant: { slug: tenantSlug } },
+          ],
+        },
+      });
+    }
+
+    const candidates = await this.prisma.user.findMany({
+      where: { email: normalizedEmail },
+      take: 5,
+    });
+
+    if (candidates.length === 0) return null;
+
+    // Conta de plataforma tem prioridade quando o slug não foi informado.
+    const platform = candidates.find(
+      (user) => user.role === Role.super_admin || user.tenantId === null,
+    );
+    if (platform) return platform;
+
+    if (candidates.length === 1) return candidates[0];
+
+    throw new BadRequestException(
+      'Este e-mail existe em mais de um tenant. Informe o tenantSlug no login.',
+    );
   }
 
   async refresh(refreshToken: string): Promise<AuthTokens> {
@@ -230,13 +267,17 @@ export class AuthService {
    * Em dev o token volta na resposta; em produção iria por e-mail.
    */
   async forgotPassword(email: string): Promise<{ resetToken?: string }> {
-    const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
+    const normalized = email.toLowerCase().trim();
+    const users = await this.prisma.user.findMany({
+      where: { email: normalized, status: UserStatus.ativo },
+      take: 2,
     });
 
-    if (!user || user.status === UserStatus.inativo) {
+    // Ambíguo ou inexistente: mesma resposta genérica.
+    if (users.length !== 1) {
       return {};
     }
+    const user = users[0];
 
     const rawToken = randomBytes(32).toString('hex');
     const hashedToken = createHash('sha256').update(rawToken).digest('hex');
@@ -354,6 +395,7 @@ export class AuthService {
       email: user.email,
       role: user.role as Role,
       name: user.name,
+      tenantId: user.tenantId,
     };
 
     const accessExpiresIn = this.config.get<string>(
@@ -370,13 +412,10 @@ export class AuthService {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
         expiresIn: accessExpiresIn as unknown as number,
       }),
-      this.jwt.signAsync(
-        { sub: user.id, email: user.email, role: user.role, name: user.name },
-        {
-          secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
-          expiresIn: refreshExpiresIn as unknown as number,
-        },
-      ),
+      this.jwt.signAsync(payload, {
+        secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        expiresIn: refreshExpiresIn as unknown as number,
+      }),
     ]);
 
     return { accessToken, refreshToken };
@@ -385,6 +424,7 @@ export class AuthService {
   private toPublicUser(user: User): PublicUser {
     return {
       id: user.id,
+      tenantId: user.tenantId,
       name: user.name,
       email: user.email,
       phone: user.phone,
