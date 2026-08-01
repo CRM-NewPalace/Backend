@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { CatalogType, Prisma, Role, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateTenantAdminDto } from './dto/create-tenant-admin.dto';
@@ -20,6 +21,22 @@ import { SALT_ROUNDS } from '../config/security.constants';
 import { DEFAULT_FUNNEL_STAGES } from '../catalog/catalog.defaults';
 
 const tenantSelect = tenantAdminSelect;
+
+/** Admin “principal” do tenant (mais antigo com role admin). */
+const tenantAdminUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  status: true,
+} satisfies Prisma.UserSelect;
+
+const adminUsersInclude = {
+  where: { role: Role.admin },
+  orderBy: { createdAt: 'asc' as const },
+  take: 1,
+  select: tenantAdminUserSelect,
+};
 
 const metaConnectionSelect = {
   id: true,
@@ -61,10 +78,20 @@ export class TenantsService {
   constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
-    return this.prisma.tenant.findMany({
-      select: tenantSelect,
-      orderBy: { name: 'asc' },
-    });
+    return this.prisma.tenant
+      .findMany({
+        select: {
+          ...tenantSelect,
+          users: adminUsersInclude,
+        },
+        orderBy: { name: 'asc' },
+      })
+      .then((rows) =>
+        rows.map(({ users, ...tenant }) => ({
+          ...tenant,
+          admin: users[0] ?? null,
+        })),
+      );
   }
 
   async create(dto: CreateTenantDto) {
@@ -165,6 +192,7 @@ export class TenantsService {
       where: { id },
       select: {
         ...tenantSelect,
+        users: adminUsersInclude,
         metaConnections: {
           select: metaConnectionSelect,
           orderBy: { createdAt: 'desc' },
@@ -181,13 +209,51 @@ export class TenantsService {
       throw new NotFoundException('Tenant não encontrado.');
     }
 
-    const { _count, metaConnections, ozapConnections, ...rest } = tenant;
+    const { _count, metaConnections, ozapConnections, users, ...rest } =
+      tenant;
     return {
       ...rest,
+      admin: users[0] ?? null,
       userCount: _count.users,
       metaConnections: metaConnections.map(maskMetaConnection),
       ozapConnections,
     };
+  }
+
+  /**
+   * Gera senha temporária para o admin principal do tenant (super_admin).
+   * A senha só é legível nesta resposta.
+   */
+  async resetAdminPassword(tenantId: string) {
+    await this.ensureExists(tenantId);
+
+    const admin = await this.prisma.user.findFirst({
+      where: { tenantId, role: Role.admin },
+      orderBy: { createdAt: 'asc' },
+      select: tenantAdminUserSelect,
+    });
+
+    if (!admin) {
+      throw new NotFoundException(
+        'Este tenant ainda não tem administrador. Crie o admin inicial primeiro.',
+      );
+    }
+
+    const temporaryPassword = this.generateTemporaryPassword();
+    const user = await this.prisma.user.update({
+      where: { id: admin.id },
+      data: {
+        password: await bcrypt.hash(temporaryPassword, SALT_ROUNDS),
+        hashedRefreshToken: null,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+      select: publicUserSelect,
+    });
+
+    return { user, temporaryPassword };
   }
 
   async update(id: string, dto: UpdateTenantDto) {
@@ -398,6 +464,27 @@ export class TenantsService {
       })),
       skipDuplicates: true,
     });
+  }
+
+  /** Senha temporária aleatória (maiúscula, minúscula e número). */
+  private generateTemporaryPassword(): string {
+    const lower = 'abcdefghijkmnopqrstuvwxyz';
+    const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const digits = '23456789';
+    const all = lower + upper + digits;
+
+    const pick = (set: string) => set[randomInt(set.length)];
+    const chars = [pick(lower), pick(upper), pick(digits)];
+    for (let i = chars.length; i < 14; i++) {
+      chars.push(pick(all));
+    }
+
+    for (let i = chars.length - 1; i > 0; i--) {
+      const j = randomInt(i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+
+    return chars.join('');
   }
 
   private async ensureExists(id: string): Promise<void> {

@@ -54,6 +54,11 @@ export class TenantsController {
     return this.tenantsService.createInitialAdmin(id, dto);
   }
 
+  @Post(':id/admin/reset-password')
+  resetAdminPassword(@Param('id', ParseUUIDPipe) id: string) {
+    return this.tenantsService.resetAdminPassword(id);
+  }
+
   @Patch(':id')
   update(
     @Param('id', ParseUUIDPipe) id: string,
