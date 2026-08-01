@@ -36,8 +36,11 @@ export class UsersController {
 
   @Post()
   @Roles(Role.admin)
-  create(@Body() dto: CreateUserDto) {
-    return this.usersService.create(dto);
+  create(
+    @Body() dto: CreateUserDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.usersService.create(dto, requester);
   }
 
   @Get()
@@ -63,8 +66,9 @@ export class UsersController {
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateUserDto,
+    @CurrentUser() requester: AuthenticatedUser,
   ) {
-    return this.usersService.update(id, dto);
+    return this.usersService.update(id, dto, requester);
   }
 
   @Patch(':id/status')
@@ -72,9 +76,9 @@ export class UsersController {
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateStatusDto,
-    @CurrentUser('id') requesterId: string,
+    @CurrentUser() requester: AuthenticatedUser,
   ) {
-    return this.usersService.updateStatus(id, dto.status, requesterId);
+    return this.usersService.updateStatus(id, dto.status, requester);
   }
 
   @Patch(':id/reset-password')
@@ -89,8 +93,11 @@ export class UsersController {
 
   @Patch(':id/unlock')
   @Roles(Role.admin)
-  unlock(@Param('id', ParseUUIDPipe) id: string) {
-    return this.usersService.unlock(id);
+  unlock(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.usersService.unlock(id, requester);
   }
 
   @Delete(':id')
@@ -98,8 +105,8 @@ export class UsersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('id') requesterId: string,
+    @CurrentUser() requester: AuthenticatedUser,
   ) {
-    await this.usersService.remove(id, requesterId);
+    await this.usersService.remove(id, requester);
   }
 }

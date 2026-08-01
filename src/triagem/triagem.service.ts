@@ -10,6 +10,7 @@ import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { CreateTriagemDto } from './dto/create-triagem.dto';
 import { QueryTriagemLeadsDto } from './dto/query-triagem-leads.dto';
 
@@ -55,9 +56,12 @@ export class TriagemService {
    * Admin/gerente: só leads (`tipo=lead`) do `corretorId` obrigatório (dentro da equipe).
    */
   async listLeads(query: QueryTriagemLeadsDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+
     if (requester.role === Role.corretor) {
       const contacts = await this.prisma.lead.findMany({
         where: {
+          tenantId,
           corretorId: requester.id,
           perdidoAt: null,
         },
@@ -87,6 +91,7 @@ export class TriagemService {
 
     const leads = await this.prisma.lead.findMany({
       where: {
+        tenantId,
         corretorId: query.corretorId,
         tipo: ContatoTipo.lead,
         perdidoAt: null,
@@ -123,14 +128,16 @@ export class TriagemService {
 
   /** Só corretor cria relatos; opcionalmente avança a etapa do lead. */
   async create(dto: CreateTriagemDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+
     if (requester.role !== Role.corretor) {
       throw new ForbiddenException(
         'Apenas corretores podem registrar relatos na triagem.',
       );
     }
 
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: dto.leadId },
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: dto.leadId, tenantId },
       select: {
         id: true,
         corretorId: true,
@@ -159,7 +166,7 @@ export class TriagemService {
       dto.origem === 'funil' ? TriagemOrigem.funil : TriagemOrigem.manual;
 
     if (targetStage) {
-      await this.ensureStageIsValid(targetStage);
+      await this.ensureStageIsValid(tenantId, targetStage);
       if (targetStage !== lead.stage) {
         stageAnterior = lead.stage;
         stageNovo = targetStage;
@@ -192,7 +199,7 @@ export class TriagemService {
     });
 
     if (targetStage === 'em-analise') {
-      await this.analiseService.ensureForLead(lead.id, requester.id);
+      await this.analiseService.ensureForLead(lead.id, requester.id, tenantId);
     }
 
     return event;
@@ -202,8 +209,9 @@ export class TriagemService {
     leadId: string,
     requester: AuthenticatedUser,
   ) {
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: leadId },
+    const tenantId = requireTenantId(requester);
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, tenantId },
       select: {
         id: true,
         tipo: true,
@@ -238,8 +246,11 @@ export class TriagemService {
     return lead;
   }
 
-  private async ensureStageIsValid(stage: string): Promise<void> {
-    const validStages = await this.catalog.getActiveStageSlugs();
+  private async ensureStageIsValid(
+    tenantId: string,
+    stage: string,
+  ): Promise<void> {
+    const validStages = await this.catalog.getActiveStageSlugs(tenantId);
     if (validStages.length === 0) {
       throw new BadRequestException(
         'Nenhuma etapa do funil cadastrada. Configure as etapas em Configurações.',

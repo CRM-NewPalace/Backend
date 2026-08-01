@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 /** Campos públicos de usuário retornados pela API (nunca inclui senha/segredos). */
 export const publicUserSelect = {
   id: true,
+  tenantId: true,
   name: true,
   email: true,
   phone: true,

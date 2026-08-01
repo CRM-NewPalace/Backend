@@ -24,11 +24,13 @@ export class MetaGraphApiService {
 
   constructor(private readonly config: ConfigService) {}
 
-  async fetchLead(leadgenId: string): Promise<MetaLeadPayload> {
-    const token = this.config.get<string>('META_PAGE_ACCESS_TOKEN');
-    if (!token) {
+  async fetchLead(
+    leadgenId: string,
+    pageAccessToken: string,
+  ): Promise<MetaLeadPayload> {
+    if (!pageAccessToken) {
       throw new ServiceUnavailableException(
-        'META_PAGE_ACCESS_TOKEN não configurado.',
+        'Page access token Meta não configurado para este tenant.',
       );
     }
 
@@ -41,7 +43,7 @@ export class MetaGraphApiService {
       'fields',
       'created_time,ad_id,form_id,field_data',
     );
-    url.searchParams.set('access_token', token);
+    url.searchParams.set('access_token', pageAccessToken);
 
     const response = await fetch(url);
     const body = (await response.json()) as MetaLeadPayload & {

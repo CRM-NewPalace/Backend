@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 const SALT_ROUNDS = 12;
 
 /**
- * Garante um administrador “de sistema” no banco a cada subida da API.
+ * Garante um super_admin de plataforma no banco a cada subida da API.
  * Credenciais vêm só do ambiente (Render env vars) — não é conta demo de UI.
  */
 @Injectable()
@@ -28,40 +28,52 @@ export class BootstrapAdminService implements OnModuleInit {
 
     if (!email || !password) {
       this.logger.warn(
-        'BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD não definidos — admin de sistema não será criado.',
+        'BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD não definidos — super_admin não será criado.',
       );
       return;
     }
 
     if (password.length < 4) {
       this.logger.error(
-        'BOOTSTRAP_ADMIN_PASSWORD muito curta — admin de sistema ignorado.',
+        'BOOTSTRAP_ADMIN_PASSWORD muito curta — super_admin ignorado.',
       );
       return;
     }
 
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
+    const normalizedEmail = email.toLowerCase();
 
-    await this.prisma.user.upsert({
-      where: { email: email.toLowerCase() },
-      update: {
-        name,
-        password: hashed,
-        role: Role.admin,
-        status: UserStatus.ativo,
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-      },
-      create: {
-        name,
-        email: email.toLowerCase(),
-        password: hashed,
-        role: Role.admin,
-        status: UserStatus.ativo,
-        cargo: 'Administrador',
-      },
+    const existing = await this.prisma.user.findFirst({
+      where: { email: normalizedEmail, tenantId: null },
     });
 
-    this.logger.log(`Admin de sistema garantido: ${email.toLowerCase()}`);
+    if (existing) {
+      await this.prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          password: hashed,
+          role: Role.super_admin,
+          status: UserStatus.ativo,
+          tenantId: null,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
+    } else {
+      await this.prisma.user.create({
+        data: {
+          name,
+          email: normalizedEmail,
+          password: hashed,
+          role: Role.super_admin,
+          status: UserStatus.ativo,
+          tenantId: null,
+          cargo: 'Super Administrador',
+        },
+      });
+    }
+
+    this.logger.log(`Super admin de plataforma garantido: ${normalizedEmail}`);
   }
 }

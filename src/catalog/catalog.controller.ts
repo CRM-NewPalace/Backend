@@ -12,7 +12,9 @@ import {
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CatalogService } from './catalog.service';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
@@ -28,34 +30,43 @@ export class CatalogController {
   constructor(private readonly catalogService: CatalogService) {}
 
   @Get()
-  find(@Query() query: QueryCatalogDto) {
+  find(
+    @Query() query: QueryCatalogDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
     const activeOnly = query.activeOnly ?? true;
     if (query.type) {
-      return this.catalogService.findByType(query.type, activeOnly);
+      return this.catalogService.findByType(requester, query.type, activeOnly);
     }
-    return this.catalogService.findAllGrouped(activeOnly);
+    return this.catalogService.findAllGrouped(requester, activeOnly);
   }
 
   @Post()
   @UseGuards(RolesGuard)
   @Roles(Role.admin, Role.gerente)
-  create(@Body() dto: CreateCatalogItemDto) {
-    return this.catalogService.create(dto);
+  create(
+    @Body() dto: CreateCatalogItemDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.catalogService.create(dto, requester);
   }
 
   /** Instala/restaura o pacote padrão de etapas do funil no banco. */
   @Post('defaults/funil')
   @UseGuards(RolesGuard)
   @Roles(Role.admin, Role.gerente)
-  installDefaultFunnel() {
-    return this.catalogService.installDefaultFunnelStages();
+  installDefaultFunnel(@CurrentUser() requester: AuthenticatedUser) {
+    return this.catalogService.installDefaultFunnelStages(requester);
   }
 
   @Patch('reorder')
   @UseGuards(RolesGuard)
   @Roles(Role.admin, Role.gerente)
-  reorder(@Body() dto: ReorderCatalogDto) {
-    return this.catalogService.reorder(dto);
+  reorder(
+    @Body() dto: ReorderCatalogDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.catalogService.reorder(dto, requester);
   }
 
   @Patch(':id')
@@ -64,14 +75,18 @@ export class CatalogController {
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCatalogItemDto,
+    @CurrentUser() requester: AuthenticatedUser,
   ) {
-    return this.catalogService.update(id, dto);
+    return this.catalogService.update(id, dto, requester);
   }
 
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles(Role.admin, Role.gerente)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.catalogService.remove(id);
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.catalogService.remove(id, requester);
   }
 }

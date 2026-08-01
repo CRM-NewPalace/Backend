@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, Role, UserStatus } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateEquipeDto } from './dto/create-equipe.dto';
 import { UpdateEquipeDto } from './dto/update-equipe.dto';
@@ -38,8 +39,11 @@ export class EquipesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+
     if (requester.role === Role.admin) {
       return this.prisma.equipe.findMany({
+        where: { tenantId },
         select: equipeSelect,
         orderBy: { name: 'asc' },
       });
@@ -47,15 +51,16 @@ export class EquipesService {
 
     // Gerente: só a equipe que lidera.
     return this.prisma.equipe.findMany({
-      where: { gerenteId: requester.id },
+      where: { tenantId, gerenteId: requester.id },
       select: equipeSelect,
       orderBy: { name: 'asc' },
     });
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
-    const equipe = await this.prisma.equipe.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const equipe = await this.prisma.equipe.findFirst({
+      where: { id, tenantId },
       select: equipeSelect,
     });
     if (!equipe) {
@@ -73,9 +78,14 @@ export class EquipesService {
   }
 
   /** Gerentes ativos ainda sem equipe. */
-  async listAvailableGerentes(excludeEquipeId?: string) {
+  async listAvailableGerentes(
+    requester: AuthenticatedUser,
+    excludeEquipeId?: string,
+  ) {
+    const tenantId = requireTenantId(requester);
     return this.prisma.user.findMany({
       where: {
+        tenantId,
         role: Role.gerente,
         status: UserStatus.ativo,
         OR: [
@@ -91,9 +101,14 @@ export class EquipesService {
   }
 
   /** Corretores ativos livres ou já nesta equipe. */
-  async listAvailableCorretores(excludeEquipeId?: string) {
+  async listAvailableCorretores(
+    requester: AuthenticatedUser,
+    excludeEquipeId?: string,
+  ) {
+    const tenantId = requireTenantId(requester);
     return this.prisma.user.findMany({
       where: {
+        tenantId,
         role: Role.corretor,
         status: UserStatus.ativo,
         OR: [
@@ -112,14 +127,16 @@ export class EquipesService {
     });
   }
 
-  async create(dto: CreateEquipeDto) {
-    await this.ensureGerenteEligible(dto.gerenteId);
+  async create(dto: CreateEquipeDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    await this.ensureGerenteEligible(tenantId, dto.gerenteId);
     const membroIds = [...new Set(dto.membroIds ?? [])];
-    await this.ensureCorretoresEligible(membroIds);
+    await this.ensureCorretoresEligible(tenantId, membroIds);
 
     return this.prisma.$transaction(async (tx) => {
       const equipe = await tx.equipe.create({
         data: {
+          tenantId,
           name: dto.name.trim(),
           status: dto.status ?? UserStatus.ativo,
           gerenteId: dto.gerenteId,
@@ -128,7 +145,7 @@ export class EquipesService {
 
       if (membroIds.length > 0) {
         await tx.user.updateMany({
-          where: { id: { in: membroIds } },
+          where: { id: { in: membroIds }, tenantId },
           data: { equipeId: equipe.id },
         });
       }
@@ -140,9 +157,10 @@ export class EquipesService {
     });
   }
 
-  async update(id: string, dto: UpdateEquipeDto) {
-    const existing = await this.prisma.equipe.findUnique({
-      where: { id },
+  async update(id: string, dto: UpdateEquipeDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const existing = await this.prisma.equipe.findFirst({
+      where: { id, tenantId },
       select: { id: true, gerenteId: true },
     });
     if (!existing) {
@@ -150,7 +168,7 @@ export class EquipesService {
     }
 
     if (dto.gerenteId && dto.gerenteId !== existing.gerenteId) {
-      await this.ensureGerenteEligible(dto.gerenteId, id);
+      await this.ensureGerenteEligible(tenantId, dto.gerenteId, id);
     }
 
     const membroIds =
@@ -158,7 +176,7 @@ export class EquipesService {
         ? [...new Set(dto.membroIds)]
         : undefined;
     if (membroIds) {
-      await this.ensureCorretoresEligible(membroIds, id);
+      await this.ensureCorretoresEligible(tenantId, membroIds, id);
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -178,6 +196,7 @@ export class EquipesService {
         await tx.user.updateMany({
           where: {
             equipeId: id,
+            tenantId,
             id: { notIn: membroIds },
           },
           data: { equipeId: null },
@@ -185,7 +204,7 @@ export class EquipesService {
         // Inclui/mantém os informados.
         if (membroIds.length > 0) {
           await tx.user.updateMany({
-            where: { id: { in: membroIds } },
+            where: { id: { in: membroIds }, tenantId },
             data: { equipeId: id },
           });
         }
@@ -198,9 +217,10 @@ export class EquipesService {
     });
   }
 
-  async remove(id: string) {
-    const existing = await this.prisma.equipe.findUnique({
-      where: { id },
+  async remove(id: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const existing = await this.prisma.equipe.findFirst({
+      where: { id, tenantId },
       select: { id: true },
     });
     if (!existing) {
@@ -209,7 +229,7 @@ export class EquipesService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.updateMany({
-        where: { equipeId: id },
+        where: { equipeId: id, tenantId },
         data: { equipeId: null },
       });
       await tx.equipe.delete({ where: { id } });
@@ -219,11 +239,12 @@ export class EquipesService {
   }
 
   private async ensureGerenteEligible(
+    tenantId: string,
     gerenteId: string,
     allowEquipeId?: string,
   ) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: gerenteId },
+    const user = await this.prisma.user.findFirst({
+      where: { id: gerenteId, tenantId },
       select: {
         id: true,
         role: true,
@@ -249,13 +270,14 @@ export class EquipesService {
   }
 
   private async ensureCorretoresEligible(
+    tenantId: string,
     membroIds: string[],
     allowEquipeId?: string,
   ) {
     if (membroIds.length === 0) return;
 
     const users = await this.prisma.user.findMany({
-      where: { id: { in: membroIds } },
+      where: { id: { in: membroIds }, tenantId },
       select: {
         id: true,
         role: true,

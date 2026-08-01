@@ -51,6 +51,23 @@ export class NotificacoesService {
     return { ok: true };
   }
 
+  /**
+   * Resolve o tenant do destinatário a partir do próprio usuário — necessário
+   * porque estes helpers são chamados por outros services sem o requester.
+   */
+  private async resolveTenantId(userId: string): Promise<string> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
+    if (!user.tenantId) {
+      throw new Error(
+        `Usuário ${userId} sem tenant não pode receber notificações.`,
+      );
+    }
+    return user.tenantId;
+  }
+
   /** Cria aviso de resultado de análise para o corretor dono do lead. */
   async createAnaliseResultado(params: {
     userId: string;
@@ -65,9 +82,11 @@ export class NotificacoesService {
     const parecer = params.parecer?.trim()
       ? ` Parecer: ${params.parecer.trim().slice(0, 280)}`
       : '';
+    const tenantId = await this.resolveTenantId(params.userId);
 
     return this.prisma.notificacao.create({
       data: {
+        tenantId,
         userId: params.userId,
         tipo: NotificacaoTipo.analise_resultado,
         titulo: `Análise ${statusLabel} — ${params.nomeProcesso}`,
@@ -88,8 +107,10 @@ export class NotificacoesService {
     autorNome: string;
     quando: string;
   }) {
+    const tenantId = await this.resolveTenantId(params.userId);
     return this.prisma.notificacao.create({
       data: {
+        tenantId,
         userId: params.userId,
         tipo: NotificacaoTipo.agenda_solicitacao,
         titulo: `Solicitação de agenda — ${params.titulo}`,
@@ -114,8 +135,10 @@ export class NotificacoesService {
       !params.aprovado && params.motivo
         ? ` Motivo: ${params.motivo.slice(0, 280)}`
         : '';
+    const tenantId = await this.resolveTenantId(params.userId);
     return this.prisma.notificacao.create({
       data: {
+        tenantId,
         userId: params.userId,
         tipo: NotificacaoTipo.agenda_resposta,
         titulo: params.aprovado
@@ -172,8 +195,11 @@ export class NotificacoesService {
       ? `Aviso informativo: compromisso da equipe "${params.titulo}"${envolvidos} em ${params.quando}.`
       : `Seu compromisso "${params.titulo}"${envolvidos} começa em ${params.quando}.`;
 
+    const tenantId = await this.resolveTenantId(params.userId);
+
     return this.prisma.notificacao.create({
       data: {
+        tenantId,
         userId: params.userId,
         tipo: params.tipo,
         titulo,

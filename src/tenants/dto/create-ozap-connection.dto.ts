@@ -1,0 +1,11 @@
+import { IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
+
+export class CreateOzapConnectionDto {
+  @IsInt({ message: 'O instanceId deve ser um número inteiro.' })
+  @Min(1, { message: 'O instanceId deve ser maior que zero.' })
+  instanceId!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  ativo?: boolean;
+}

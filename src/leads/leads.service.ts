@@ -7,6 +7,7 @@ import {
 import { ContatoTipo, CatalogType, Prisma, Role, TriagemOrigem, UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
@@ -33,6 +34,8 @@ export class LeadsService {
     dto: CreateLeadDto,
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
+    const tenantId = requireTenantId(requester);
+
     if (requester.role === Role.analista) {
       throw new ForbiddenException(
         'Analistas não podem criar leads ou clientes.',
@@ -46,11 +49,12 @@ export class LeadsService {
 
     await this.ensureCorretorAssignable(corretorId, requester);
 
-    const stage = dto.stage ?? (await this.catalog.getDefaultStageSlug());
-    await this.ensureStageIsValid(stage);
+    const stage = dto.stage ?? (await this.catalog.getDefaultStageSlug(tenantId));
+    await this.ensureStageIsValid(tenantId, stage);
 
     return this.prisma.lead.create({
       data: {
+        tenantId,
         tipo: dto.tipo === 'cliente' ? ContatoTipo.cliente : ContatoTipo.lead,
         nome: dto.nome.trim(),
         telefone: dto.telefone.trim(),
@@ -155,8 +159,9 @@ export class LeadsService {
     id: string,
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
-    const lead = await this.prisma.lead.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, tenantId },
       select: leadSelect,
     });
 
@@ -183,6 +188,7 @@ export class LeadsService {
     query: QueryLeadsDto,
     requester: AuthenticatedUser,
   ): Promise<PaginatedLeads> {
+    const tenantId = requireTenantId(requester);
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
         'Apenas administradores podem ver leads perdidos.',
@@ -194,6 +200,7 @@ export class LeadsService {
     const search = query.search?.trim();
 
     const where: Prisma.LeadWhereInput = {
+      tenantId,
       perdidoAt: { not: null },
       ...(query.origem ? { origem: query.origem } : {}),
       ...(query.interesse ? { interesse: query.interesse } : {}),
@@ -237,6 +244,7 @@ export class LeadsService {
     dto: UpdateLeadDto,
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
+    const tenantId = requireTenantId(requester);
     await this.ensureExistsAndAccessible(id, requester);
 
     // Corretor não pode reatribuir o lead para outra pessoa.
@@ -252,7 +260,7 @@ export class LeadsService {
     }
 
     if (dto.stage !== undefined) {
-      await this.ensureStageIsValid(dto.stage);
+      await this.ensureStageIsValid(tenantId, dto.stage);
     }
 
     return this.prisma.lead.update({
@@ -282,12 +290,13 @@ export class LeadsService {
     dto: { stage: string; construtoraId?: string; empreendimentoId?: string },
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
+    const tenantId = requireTenantId(requester);
     await this.ensureExistsAndAccessible(id, requester);
     const stage = dto.stage;
-    await this.ensureStageIsValid(stage);
+    await this.ensureStageIsValid(tenantId, stage);
 
-    const previous = await this.prisma.lead.findUnique({
-      where: { id },
+    const previous = await this.prisma.lead.findFirst({
+      where: { id, tenantId },
       select: {
         stage: true,
         construtoraId: true,
@@ -330,8 +339,8 @@ export class LeadsService {
     // Sempre registra na Triagem a mudança de etapa (mesmo sem relato manual).
     if (stageAnterior && stageAnterior !== stage) {
       const [fromLabel, toLabel] = await Promise.all([
-        this.resolveStageLabel(stageAnterior),
-        this.resolveStageLabel(stage),
+        this.resolveStageLabel(tenantId, stageAnterior),
+        this.resolveStageLabel(tenantId, stage),
       ]);
       await this.prisma.triagemEvent.create({
         data: {
@@ -346,16 +355,19 @@ export class LeadsService {
     }
 
     if (stage === 'em-analise') {
-      await this.analiseService.ensureForLead(id, requester.id);
+      await this.analiseService.ensureForLead(id, requester.id, tenantId);
     }
 
     return lead;
   }
 
   /** Label amigável da etapa do funil (fallback para o slug). */
-  private async resolveStageLabel(slug: string): Promise<string> {
+  private async resolveStageLabel(
+    tenantId: string,
+    slug: string,
+  ): Promise<string> {
     const item = await this.prisma.catalogItem.findFirst({
-      where: { type: CatalogType.funil_etapa, slug },
+      where: { tenantId, type: CatalogType.funil_etapa, slug },
       select: { label: true },
     });
     return item?.label ?? slug;
@@ -370,6 +382,7 @@ export class LeadsService {
     motivo: string,
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
+    const tenantId = requireTenantId(requester);
     await this.ensureExistsAndAccessible(id, requester);
 
     const motivoTrim = motivo.trim();
@@ -378,7 +391,7 @@ export class LeadsService {
     }
 
     // Move para a etapa "perdido" do funil quando existir.
-    const stageSlugs = await this.catalog.getActiveStageSlugs();
+    const stageSlugs = await this.catalog.getActiveStageSlugs(tenantId);
     const perdidoStage = stageSlugs.includes('perdido') ? 'perdido' : undefined;
 
     return this.prisma.lead.update({
@@ -394,14 +407,15 @@ export class LeadsService {
   }
 
   async remove(id: string, requester: AuthenticatedUser): Promise<void> {
+    const tenantId = requireTenantId(requester);
     // Hard delete só para admin, e apenas de leads já perdidos.
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
         'Para remover um lead da operação, informe o motivo — ele irá para Leads Perdidos.',
       );
     }
-    const lead = await this.prisma.lead.findUnique({
-      where: { id },
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, tenantId },
       select: { id: true, perdidoAt: true },
     });
     if (!lead) {
@@ -422,6 +436,7 @@ export class LeadsService {
   async listAssignees(
     requester: AuthenticatedUser,
   ): Promise<{ id: string; name: string; role: Role }[]> {
+    const tenantId = requireTenantId(requester);
     if (this.isCorretor(requester)) {
       return [
         {
@@ -435,6 +450,7 @@ export class LeadsService {
     const ids = await this.teamScope.getVisibleCorretorIds(requester);
     return this.prisma.user.findMany({
       where: {
+        tenantId,
         status: UserStatus.ativo,
         role: Role.corretor,
         ...(ids !== null ? { id: { in: ids } } : {}),
@@ -467,8 +483,9 @@ export class LeadsService {
     id: string,
     requester: AuthenticatedUser,
   ): Promise<void> {
-    const lead = await this.prisma.lead.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, tenantId },
       select: { id: true, corretorId: true, perdidoAt: true },
     });
     if (!lead || lead.perdidoAt) {
@@ -481,9 +498,11 @@ export class LeadsService {
     corretorId: string,
     requester: AuthenticatedUser,
   ): Promise<void> {
+    const tenantId = requireTenantId(requester);
     const count = await this.prisma.user.count({
       where: {
         id: corretorId,
+        tenantId,
         status: UserStatus.ativo,
         role: Role.corretor,
       },
@@ -506,8 +525,11 @@ export class LeadsService {
   }
 
   /** Garante que a etapa exista entre as etapas ativas do catálogo do funil. */
-  private async ensureStageIsValid(stage: string): Promise<void> {
-    const validStages = await this.catalog.getActiveStageSlugs();
+  private async ensureStageIsValid(
+    tenantId: string,
+    stage: string,
+  ): Promise<void> {
+    const validStages = await this.catalog.getActiveStageSlugs(tenantId);
     if (validStages.length === 0) {
       throw new BadRequestException(
         'Nenhuma etapa do funil cadastrada. Configure as etapas em Configurações antes de criar ou mover leads.',

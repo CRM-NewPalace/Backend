@@ -37,6 +37,14 @@ export class OzapService {
   constructor(private readonly prisma: PrismaService) {}
 
   async handleWebhook(payload: OzapWebhookDto) {
+    const connection = await this.prisma.tenantOzapConnection.findFirst({
+      where: { instanceId: payload.instance_id, ativo: true },
+      select: { tenantId: true },
+    });
+    if (!connection) {
+      return { ok: true, ignored: true, reason: 'instance_not_mapped' };
+    }
+
     const data = payload.data;
     const chatId = this.asString(data.chat_id);
     const messageId = this.asString(data.message_id);
@@ -73,6 +81,7 @@ export class OzapService {
         payload.instance_id,
         data as MessageReceivedData,
         payload.timestamp,
+        connection.tenantId,
       );
       return { ok: true, leadId };
     }
@@ -97,6 +106,7 @@ export class OzapService {
     instanceId: number,
     data: MessageReceivedData,
     timestamp: string,
+    tenantId: string,
   ) {
     const chatId = this.requiredString(data.chat_id, 'chat_id');
     const phone = this.formatBrazilianPhone(
@@ -111,10 +121,14 @@ export class OzapService {
     });
 
     let lead = existingLink?.lead;
+    if (lead && lead.tenantId !== tenantId) {
+      // Link aponta para lead de outro tenant — não reutiliza.
+      lead = undefined;
+    }
     if (!lead) {
       lead =
         (await this.prisma.lead.findFirst({
-          where: { telefone: phone, perdidoAt: null },
+          where: { tenantId, telefone: phone, perdidoAt: null },
         })) ?? undefined;
     }
 
@@ -122,6 +136,7 @@ export class OzapService {
       const digits = phone.replace(/\D/g, '');
       lead = await this.prisma.lead.create({
         data: {
+          tenantId,
           nome: contactName,
           telefone: phone,
           email: `${digits}@whatsapp.ozap.local`,
@@ -152,7 +167,7 @@ export class OzapService {
         chatId,
         lastMessageAt: timestampDate,
       },
-      update: { lastMessageAt: timestampDate },
+      update: { lastMessageAt: timestampDate, instanceId, chatId },
     });
 
     await this.applyPendingField(instanceId, chatId, lead.id, data.content);

@@ -14,6 +14,7 @@ import { EquipesModule } from './equipes/equipes.module';
 import { AnaliseModule } from './analise/analise.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { AgendaModule } from './agenda/agenda.module';
+import { TenantsModule } from './tenants/tenants.module';
 import { ConstrutorasModule } from './construtoras/construtoras.module';
 import { EmpreendimentosModule } from './empreendimentos/empreendimentos.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -48,6 +49,7 @@ import { THROTTLE } from './config/security.constants';
     AnaliseModule,
     NotificacoesModule,
     AgendaModule,
+    TenantsModule,
   ],
   controllers: [AppController],
   providers: [

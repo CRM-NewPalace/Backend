@@ -21,6 +21,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { CreateAgendamentoDto } from './dto/create-agendamento.dto';
 import { UpdateAgendamentoDto } from './dto/update-agendamento.dto';
 import { QueryAgendamentoDto } from './dto/query-agendamento.dto';
@@ -85,6 +86,7 @@ export class AgendaService {
    * - com_gerente pendente: corretor autor ainda vê no calendário
    */
   async list(query: QueryAgendamentoDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const sharedAccess = await this.buildSharedAccessFilter(
       requester,
       query.corretorId,
@@ -98,6 +100,7 @@ export class AgendaService {
     );
 
     const where: Prisma.AgendamentoWhereInput = {
+      tenantId,
       AND: [
         {
           OR: [
@@ -150,6 +153,7 @@ export class AgendaService {
 
   /** Solicitações pendentes: gerente aprova da equipe; corretor acompanha as próprias. Admin não recebe. */
   async listSolicitacoes(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     // Pedidos corretor → gerente são só do gerente da equipe; admin não entra na fila.
     if (requester.role === Role.admin) {
       return [];
@@ -159,6 +163,7 @@ export class AgendaService {
     if (!sharedAccess) return [];
 
     const where: Prisma.AgendamentoWhereInput = {
+      tenantId,
       AND: [
         sharedAccess,
         {
@@ -388,8 +393,9 @@ export class AgendaService {
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
-    const item = await this.prisma.agendamento.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const item = await this.prisma.agendamento.findFirst({
+      where: { id, tenantId },
       select: agendamentoSelect,
     });
     if (!item) {
@@ -401,6 +407,7 @@ export class AgendaService {
   }
 
   async create(dto: CreateAgendamentoDto, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
     const escopo = dto.escopo as AgendamentoEscopo;
     const leadId = dto.leadId?.trim() || null;
     const alvo = await this.resolveAlvoOnCreate(dto, requester);
@@ -437,6 +444,7 @@ export class AgendaService {
 
     const created = await this.prisma.agendamento.create({
       data: {
+        tenantId,
         leadId: lead?.id ?? null,
         autorId: requester.id,
         titulo: dto.titulo.trim(),
@@ -488,6 +496,7 @@ export class AgendaService {
         lead.id,
         lead.stage,
         requester.id,
+        tenantId,
       );
     }
 
@@ -499,8 +508,9 @@ export class AgendaService {
     dto: UpdateAgendamentoDto,
     requester: AuthenticatedUser,
   ) {
-    const existing = await this.prisma.agendamento.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const existing = await this.prisma.agendamento.findFirst({
+      where: { id, tenantId },
       select: {
         id: true,
         leadId: true,
@@ -585,9 +595,10 @@ export class AgendaService {
 
   async aprovar(id: string, requester: AuthenticatedUser) {
     this.assertSomenteGerente(requester);
+    const tenantId = requireTenantId(requester);
 
-    const existing = await this.prisma.agendamento.findUnique({
-      where: { id },
+    const existing = await this.prisma.agendamento.findFirst({
+      where: { id, tenantId },
       select: {
         id: true,
         leadId: true,
@@ -641,6 +652,7 @@ export class AgendaService {
         existing.leadId,
         existing.lead.stage,
         requester.id,
+        tenantId,
       );
     }
 
@@ -653,9 +665,10 @@ export class AgendaService {
     requester: AuthenticatedUser,
   ) {
     this.assertSomenteGerente(requester);
+    const tenantId = requireTenantId(requester);
 
-    const existing = await this.prisma.agendamento.findUnique({
-      where: { id },
+    const existing = await this.prisma.agendamento.findFirst({
+      where: { id, tenantId },
       select: {
         id: true,
         leadId: true,
@@ -702,8 +715,9 @@ export class AgendaService {
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
-    const existing = await this.prisma.agendamento.findUnique({
-      where: { id },
+    const tenantId = requireTenantId(requester);
+    const existing = await this.prisma.agendamento.findFirst({
+      where: { id, tenantId },
       select: {
         id: true,
         leadId: true,
@@ -753,14 +767,15 @@ export class AgendaService {
     filterCorretorId?: string,
     filterEquipeId?: string,
   ): Promise<Prisma.AgendamentoWhereInput | null> {
+    const tenantId = requireTenantId(requester);
     const leadFilter: Prisma.LeadWhereInput = {
       perdidoAt: null,
       ...(await this.teamScope.leadScope(requester)),
     };
 
     if (filterEquipeId && requester.role !== Role.corretor) {
-      const equipe = await this.prisma.equipe.findUnique({
-        where: { id: filterEquipeId },
+      const equipe = await this.prisma.equipe.findFirst({
+        where: { id: filterEquipeId, tenantId },
         select: {
           id: true,
           gerenteId: true,
@@ -815,6 +830,7 @@ export class AgendaService {
     requester: AuthenticatedUser,
     filterEquipeId?: string,
   ): Promise<Prisma.AgendamentoWhereInput | null> {
+    const tenantId = requireTenantId(requester);
     if (requester.role === Role.admin) {
       if (!filterEquipeId) {
         return {
@@ -828,8 +844,8 @@ export class AgendaService {
         };
       }
 
-      const equipe = await this.prisma.equipe.findUnique({
-        where: { id: filterEquipeId },
+      const equipe = await this.prisma.equipe.findFirst({
+        where: { id: filterEquipeId, tenantId },
         select: { id: true, gerenteId: true },
       });
       if (!equipe) return null;
@@ -910,6 +926,7 @@ export class AgendaService {
     }
 
     return this.assertAndNormalizeAlvo(
+      requireTenantId(requester),
       tipo,
       dto.alvoEquipeId,
       dto.alvoGerenteId,
@@ -952,10 +969,16 @@ export class AgendaService {
         ? dto.alvoGerenteId?.trim() || null
         : existing.alvoGerenteId;
 
-    return this.assertAndNormalizeAlvo(tipo, equipeId, gerenteId);
+    return this.assertAndNormalizeAlvo(
+      requireTenantId(requester),
+      tipo,
+      equipeId,
+      gerenteId,
+    );
   }
 
   private async assertAndNormalizeAlvo(
+    tenantId: string,
     tipo: AgendamentoAlvo,
     alvoEquipeId?: string | null,
     alvoGerenteId?: string | null,
@@ -977,8 +1000,8 @@ export class AgendaService {
       if (!id) {
         throw new BadRequestException('Selecione a equipe do evento.');
       }
-      const equipe = await this.prisma.equipe.findUnique({
-        where: { id },
+      const equipe = await this.prisma.equipe.findFirst({
+        where: { id, tenantId },
         select: { id: true },
       });
       if (!equipe) {
@@ -997,7 +1020,7 @@ export class AgendaService {
         throw new BadRequestException('Selecione o gerente do evento.');
       }
       const gerente = await this.prisma.user.findFirst({
-        where: { id, role: Role.gerente, status: UserStatus.ativo },
+        where: { id, tenantId, role: Role.gerente, status: UserStatus.ativo },
         select: { id: true },
       });
       if (!gerente) {
@@ -1025,6 +1048,7 @@ export class AgendaService {
     },
     requester: AuthenticatedUser,
   ) {
+    const tenantId = requireTenantId(requester);
     const alvoTipo = item.alvoTipo ?? AgendamentoAlvo.nenhum;
 
     if (alvoTipo !== AgendamentoAlvo.nenhum) {
@@ -1039,7 +1063,7 @@ export class AgendaService {
       if (alvoTipo === AgendamentoAlvo.equipe && item.alvoEquipeId) {
         if (requester.role === Role.gerente) {
           const equipe = await this.prisma.equipe.findFirst({
-            where: { id: item.alvoEquipeId, gerenteId: requester.id },
+            where: { id: item.alvoEquipeId, gerenteId: requester.id, tenantId },
             select: { id: true },
           });
           if (equipe) return;
@@ -1197,6 +1221,7 @@ export class AgendaService {
     leadId: string,
     stageAnterior: string,
     autorId: string,
+    tenantId: string,
   ) {
     const stageNovo = 'visita-agendada';
     await this.prisma.lead.update({
@@ -1205,8 +1230,8 @@ export class AgendaService {
     });
 
     const [fromLabel, toLabel] = await Promise.all([
-      this.resolveStageLabel(stageAnterior),
-      this.resolveStageLabel(stageNovo),
+      this.resolveStageLabel(tenantId, stageAnterior),
+      this.resolveStageLabel(tenantId, stageNovo),
     ]);
 
     await this.prisma.triagemEvent.create({
@@ -1221,9 +1246,12 @@ export class AgendaService {
     });
   }
 
-  private async resolveStageLabel(slug: string): Promise<string> {
+  private async resolveStageLabel(
+    tenantId: string,
+    slug: string,
+  ): Promise<string> {
     const item = await this.prisma.catalogItem.findFirst({
-      where: { type: CatalogType.funil_etapa, slug },
+      where: { tenantId, type: CatalogType.funil_etapa, slug },
       select: { label: true },
     });
     return item?.label ?? slug;
@@ -1233,8 +1261,9 @@ export class AgendaService {
     leadId: string,
     requester: AuthenticatedUser,
   ) {
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: leadId },
+    const tenantId = requireTenantId(requester);
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, tenantId },
       select: {
         id: true,
         tipo: true,

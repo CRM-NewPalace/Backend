@@ -25,14 +25,17 @@ export class ConstrutorasController {
 
   @Get()
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
-  list() {
-    return this.construtorasService.list();
+  list(@CurrentUser() requester: AuthenticatedUser) {
+    return this.construtorasService.list(requester);
   }
 
   @Get(':id')
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.construtorasService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.construtorasService.findOne(id, requester);
   }
 
   @Post()

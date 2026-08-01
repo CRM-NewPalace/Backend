@@ -70,18 +70,10 @@ export function validateEnv(config: Record<string, unknown>) {
   }
 
   const metaConfigured = Boolean(
-    config.META_APP_SECRET ||
-      config.META_VERIFY_TOKEN ||
-      config.META_PAGE_ACCESS_TOKEN ||
-      config.META_PAGE_ID,
+    config.META_APP_SECRET || config.META_VERIFY_TOKEN,
   );
   if (metaConfigured) {
-    for (const key of [
-      'META_APP_SECRET',
-      'META_VERIFY_TOKEN',
-      'META_PAGE_ACCESS_TOKEN',
-      'META_PAGE_ID',
-    ] as const) {
+    for (const key of ['META_APP_SECRET', 'META_VERIFY_TOKEN'] as const) {
       if (!config[key]) {
         errors.push(
           `${key} é obrigatório quando a integração Meta está parcialmente configurada.`,

@@ -17,6 +17,11 @@ type LeadgenEvent = {
   adgroupId: string | null;
 };
 
+type TenantMetaConn = {
+  tenantId: string;
+  pageAccessToken: string;
+};
+
 @Injectable()
 export class MetaService {
   private readonly logger = new Logger(MetaService.name);
@@ -42,23 +47,37 @@ export class MetaService {
   }
 
   async handleWebhook(payload: MetaWebhookDto) {
-    const configuredPageId = this.config.get<string>('META_PAGE_ID');
     const events = this.extractLeadgenEvents(payload);
     const leadIds: string[] = [];
 
     for (const event of events) {
-      if (configuredPageId && event.pageId !== configuredPageId) {
+      const connection = await this.resolveConnection(event.pageId);
+      if (!connection) {
         this.logger.warn(
-          `Ignorando leadgen ${event.leadgenId}: page_id ${event.pageId} ≠ META_PAGE_ID.`,
+          `Ignorando leadgen ${event.leadgenId}: page_id ${event.pageId} sem TenantMetaConnection ativa.`,
         );
         continue;
       }
 
-      const result = await this.processLeadgenEvent(event, payload);
+      const result = await this.processLeadgenEvent(
+        event,
+        payload,
+        connection,
+      );
       if (result.leadId) leadIds.push(result.leadId);
     }
 
     return { ok: true, leadIds };
+  }
+
+  private async resolveConnection(
+    pageId: string,
+  ): Promise<TenantMetaConn | null> {
+    const connection = await this.prisma.tenantMetaConnection.findFirst({
+      where: { pageId, ativo: true },
+      select: { tenantId: true, pageAccessToken: true },
+    });
+    return connection;
   }
 
   private extractLeadgenEvents(payload: MetaWebhookDto): LeadgenEvent[] {
@@ -87,6 +106,7 @@ export class MetaService {
   private async processLeadgenEvent(
     event: LeadgenEvent,
     payload: MetaWebhookDto,
+    connection: TenantMetaConn,
   ) {
     const deliveryKey = `leadgen:${event.leadgenId}`;
 
@@ -123,9 +143,17 @@ export class MetaService {
         return { ok: true, duplicate: true, leadId: existingLink.leadId };
       }
 
-      const metaLead = await this.graphApi.fetchLead(event.leadgenId);
+      const metaLead = await this.graphApi.fetchLead(
+        event.leadgenId,
+        connection.pageAccessToken,
+      );
       const mapped = this.mapFieldData(metaLead.field_data ?? []);
-      const lead = await this.findOrCreateLead(mapped, event, metaLead);
+      const lead = await this.findOrCreateLead(
+        mapped,
+        event,
+        metaLead,
+        connection.tenantId,
+      );
 
       await this.prisma.leadMetaLink.upsert({
         where: { leadgenId: event.leadgenId },
@@ -141,7 +169,7 @@ export class MetaService {
       });
 
       this.logger.log(
-        `Lead Meta ${event.leadgenId} → CRM lead ${lead.id}`,
+        `Lead Meta ${event.leadgenId} → CRM lead ${lead.id} (tenant ${connection.tenantId})`,
       );
       return { ok: true, leadId: lead.id };
     } catch (error) {
@@ -157,8 +185,9 @@ export class MetaService {
     mapped: ReturnType<MetaService['mapFieldData']>,
     event: LeadgenEvent,
     metaLead: MetaLeadPayload,
+    tenantId: string,
   ) {
-    const reusable = await this.findReusableLead(mapped);
+    const reusable = await this.findReusableLead(mapped, tenantId);
     if (reusable) {
       await this.mergeTags(reusable.id, reusable.tags, mapped.extraTags);
       return reusable;
@@ -176,6 +205,7 @@ export class MetaService {
 
     return this.prisma.lead.create({
       data: {
+        tenantId,
         nome: mapped.nome,
         telefone: mapped.telefone ?? '(00) 00000-0000',
         email: mapped.email ?? `${event.leadgenId}@facebook.meta.local`,
@@ -193,10 +223,11 @@ export class MetaService {
   /** Reusa lead existente sem vínculo Meta (evita conflito no leadId unique). */
   private async findReusableLead(
     mapped: ReturnType<MetaService['mapFieldData']>,
+    tenantId: string,
   ) {
     if (mapped.telefone) {
       const byPhone = await this.prisma.lead.findFirst({
-        where: { telefone: mapped.telefone, perdidoAt: null },
+        where: { tenantId, telefone: mapped.telefone, perdidoAt: null },
         include: { metaLink: true },
       });
       if (byPhone && !byPhone.metaLink) return byPhone;
@@ -204,7 +235,7 @@ export class MetaService {
 
     if (mapped.email && !mapped.email.endsWith('@facebook.meta.local')) {
       const byEmail = await this.prisma.lead.findFirst({
-        where: { email: mapped.email, perdidoAt: null },
+        where: { tenantId, email: mapped.email, perdidoAt: null },
         include: { metaLink: true },
       });
       if (byEmail && !byEmail.metaLink) return byEmail;

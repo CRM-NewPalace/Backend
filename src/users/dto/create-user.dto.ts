@@ -2,6 +2,7 @@ import { Role, UserStatus } from '@prisma/client';
 import {
   IsEmail,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   Matches,
@@ -43,7 +44,9 @@ export class CreateUserDto {
   @MaxLength(80)
   cargo?: string;
 
-  @IsEnum(Role, { message: 'Perfil inválido.' })
+  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista], {
+    message: 'Perfil inválido.',
+  })
   role!: Role;
 
   @IsOptional()

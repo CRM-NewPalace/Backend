@@ -50,6 +50,7 @@ export class AuthController {
       dto.email,
       dto.password,
       context,
+      dto.tenantSlug,
     );
 
     const csrfToken = randomBytes(32).toString('hex');

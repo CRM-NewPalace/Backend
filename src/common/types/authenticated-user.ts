@@ -6,4 +6,6 @@ export interface AuthenticatedUser {
   email: string;
   role: Role;
   name: string;
+  /** Null apenas para super_admin (plataforma). */
+  tenantId: string | null;
 }
