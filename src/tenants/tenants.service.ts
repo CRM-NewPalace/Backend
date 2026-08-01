@@ -3,15 +3,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserStatus } from '@prisma/client';
+import { CatalogType, Prisma, Role, UserStatus } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { CreateTenantAdminDto } from './dto/create-tenant-admin.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
 import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
 import { tenantAdminSelect } from '../common/utils/tenant-branding';
+import { publicUserSelect } from '../common/utils/user-select';
+import { SALT_ROUNDS } from '../config/security.constants';
+import { DEFAULT_FUNNEL_STAGES } from '../catalog/catalog.defaults';
 
 const tenantSelect = tenantAdminSelect;
 
@@ -65,19 +70,91 @@ export class TenantsService {
     const slug = dto.slug.toLowerCase().trim();
     await this.ensureSlugAvailable(slug);
 
+    const adminEmail = dto.adminEmail.toLowerCase().trim();
+    const adminName = dto.adminName.trim();
+    const passwordHash = await bcrypt.hash(dto.adminPassword, SALT_ROUNDS);
+
     try {
-      return await this.prisma.tenant.create({
-        data: {
-          name: dto.name.trim(),
-          slug,
-          status: dto.status ?? UserStatus.ativo,
-        },
-        select: tenantSelect,
+      return await this.prisma.$transaction(async (tx) => {
+        const tenant = await tx.tenant.create({
+          data: {
+            name: dto.name.trim(),
+            slug,
+            status: dto.status ?? UserStatus.ativo,
+          },
+          select: tenantSelect,
+        });
+
+        const admin = await tx.user.create({
+          data: {
+            tenantId: tenant.id,
+            name: adminName,
+            email: adminEmail,
+            password: passwordHash,
+            role: Role.admin,
+            status: UserStatus.ativo,
+            cargo: 'Administrador',
+          },
+          select: publicUserSelect,
+        });
+
+        await this.seedDefaultFunnelStages(tx, tenant.id);
+
+        return { ...tenant, admin };
       });
     } catch (error) {
       throw this.translateUniqueConstraint(
         error,
-        'Já existe um tenant com este slug.',
+        'Já existe um tenant com este slug ou o e-mail do admin já está em uso neste tenant.',
+      );
+    }
+  }
+
+  /**
+   * Cria o primeiro admin de um tenant que ainda não tem usuários
+   * (ex.: tenants criados antes do fluxo com admin inicial).
+   */
+  async createInitialAdmin(tenantId: string, dto: CreateTenantAdminDto) {
+    await this.ensureExists(tenantId);
+
+    const userCount = await this.prisma.user.count({ where: { tenantId } });
+    if (userCount > 0) {
+      throw new ConflictException(
+        'Este tenant já possui usuários. Entre como admin do tenant para gerenciar a equipe.',
+      );
+    }
+
+    const email = dto.email.toLowerCase().trim();
+    const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const admin = await tx.user.create({
+          data: {
+            tenantId,
+            name: dto.name.trim(),
+            email,
+            password: passwordHash,
+            role: Role.admin,
+            status: UserStatus.ativo,
+            cargo: 'Administrador',
+          },
+          select: publicUserSelect,
+        });
+
+        const catalogCount = await tx.catalogItem.count({
+          where: { tenantId, type: CatalogType.funil_etapa },
+        });
+        if (catalogCount === 0) {
+          await this.seedDefaultFunnelStages(tx, tenantId);
+        }
+
+        return admin;
+      });
+    } catch (error) {
+      throw this.translateUniqueConstraint(
+        error,
+        'Este e-mail já está em uso neste tenant.',
       );
     }
   }
@@ -95,6 +172,7 @@ export class TenantsService {
           select: ozapConnectionSelect,
           orderBy: { createdAt: 'desc' },
         },
+        _count: { select: { users: true } },
       },
     });
 
@@ -102,9 +180,12 @@ export class TenantsService {
       throw new NotFoundException('Tenant não encontrado.');
     }
 
+    const { _count, metaConnections, ozapConnections, ...rest } = tenant;
     return {
-      ...tenant,
-      metaConnections: tenant.metaConnections.map(maskMetaConnection),
+      ...rest,
+      userCount: _count.users,
+      metaConnections: metaConnections.map(maskMetaConnection),
+      ozapConnections,
     };
   }
 
@@ -273,6 +354,24 @@ export class TenantsService {
   // ---------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------
+
+  private async seedDefaultFunnelStages(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+  ): Promise<void> {
+    await tx.catalogItem.createMany({
+      data: DEFAULT_FUNNEL_STAGES.map((stage) => ({
+        tenantId,
+        type: CatalogType.funil_etapa,
+        label: stage.label,
+        slug: stage.slug,
+        color: stage.color,
+        sortOrder: stage.sortOrder,
+        active: true,
+      })),
+      skipDuplicates: true,
+    });
+  }
 
   private async ensureExists(id: string): Promise<void> {
     const count = await this.prisma.tenant.count({ where: { id } });

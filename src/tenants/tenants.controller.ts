@@ -14,6 +14,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantsService } from './tenants.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { CreateTenantAdminDto } from './dto/create-tenant-admin.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
@@ -43,6 +44,14 @@ export class TenantsController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.tenantsService.findOne(id);
+  }
+
+  @Post(':id/admin')
+  createInitialAdmin(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateTenantAdminDto,
+  ) {
+    return this.tenantsService.createInitialAdmin(id, dto);
   }
 
   @Patch(':id')
