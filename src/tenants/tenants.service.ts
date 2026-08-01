@@ -103,7 +103,7 @@ export class TenantsService {
     const adminEmail = this.buildAdminEmail(slug);
     const temporaryPassword = this.generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
-    const branding = this.sanitizeBranding(dto);
+    const extras = this.sanitizeTenantExtras(dto);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -112,7 +112,11 @@ export class TenantsService {
             name: tenantName,
             slug,
             status: dto.status ?? UserStatus.ativo,
-            ...branding,
+            primaryColor: null,
+            sidebarStyle: 'default',
+            density: 'comfortable',
+            homePath: '/dashboard',
+            ...extras,
           },
           select: tenantSelect,
         });
@@ -297,7 +301,7 @@ export class TenantsService {
   async update(id: string, dto: UpdateTenantDto) {
     await this.ensureExists(id);
 
-    const branding = this.sanitizeBranding(dto);
+    const extras = this.sanitizeTenantExtras(dto);
 
     try {
       return await this.prisma.tenant.update({
@@ -305,7 +309,12 @@ export class TenantsService {
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(dto.status !== undefined ? { status: dto.status } : {}),
-          ...branding,
+          // Mantém só logo + módulos; limpa cor/layout antigos.
+          primaryColor: null,
+          sidebarStyle: 'default',
+          density: 'comfortable',
+          homePath: '/dashboard',
+          ...extras,
         },
         select: tenantSelect,
       });
@@ -472,24 +481,13 @@ export class TenantsService {
     });
   }
 
-  /**
-   * Normaliza campos de branding/layout (create e update).
-   * Campos omitidos não entram no objeto retornado.
-   */
-  private sanitizeBranding(dto: {
+  /** Normaliza logoUrl e modules (create/update). */
+  private sanitizeTenantExtras(dto: {
     logoUrl?: string | null;
-    primaryColor?: string | null;
-    sidebarStyle?: string;
-    density?: string;
-    homePath?: string;
     modules?: Record<string, boolean> | null;
   }) {
     const data: {
       logoUrl?: string | null;
-      primaryColor?: string | null;
-      sidebarStyle?: string;
-      density?: string;
-      homePath?: string;
       modules?: Prisma.InputJsonValue | typeof Prisma.DbNull;
     } = {};
 
@@ -507,27 +505,6 @@ export class TenantsService {
       }
     }
 
-    if (dto.primaryColor !== undefined) {
-      if (dto.primaryColor === null) {
-        data.primaryColor = null;
-      } else {
-        const trimmed = dto.primaryColor.trim().toUpperCase();
-        if (trimmed && !/^#[0-9A-F]{6}$/.test(trimmed)) {
-          throw new BadRequestException('primaryColor deve ser hex (#RRGGBB).');
-        }
-        data.primaryColor = trimmed || null;
-      }
-    }
-
-    if (dto.sidebarStyle !== undefined) {
-      data.sidebarStyle = dto.sidebarStyle;
-    }
-    if (dto.density !== undefined) {
-      data.density = dto.density;
-    }
-    if (dto.homePath !== undefined) {
-      data.homePath = dto.homePath;
-    }
     if (dto.modules !== undefined) {
       data.modules =
         dto.modules === null
