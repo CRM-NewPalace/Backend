@@ -17,6 +17,14 @@ type ChatStatusChangedData = {
   lead_category?: unknown;
 };
 
+type MessageSentData = {
+  chat_id?: unknown;
+  content?: unknown;
+  source?: unknown;
+};
+
+type CampoLeadOzap = 'nome' | 'cidade' | 'bairro' | 'renda' | 'tipo_renda';
+
 const CATEGORIA_PRIORIDADE: Record<string, string> = {
   cold: 'Baixa',
   warm: 'Média',
@@ -73,6 +81,12 @@ export class OzapService {
       await this.handleStatusChanged(
         payload.instance_id,
         data as ChatStatusChangedData,
+      );
+    }
+    if (payload.event === 'message.sent') {
+      await this.handleMessageSent(
+        payload.instance_id,
+        data as MessageSentData,
       );
     }
 
@@ -141,7 +155,50 @@ export class OzapService {
       update: { lastMessageAt: timestampDate },
     });
 
+    await this.applyPendingField(instanceId, chatId, lead.id, data.content);
+
     return lead.id;
+  }
+
+  private async handleMessageSent(instanceId: number, data: MessageSentData) {
+    const chatId = this.asString(data.chat_id);
+    const content = this.asString(data.content);
+    const source = this.asString(data.source);
+    if (!chatId || !content || (source && source !== 'ai')) return;
+
+    const campoPendente = this.identifyRequestedField(content);
+    if (!campoPendente) return;
+
+    await this.prisma.leadOzapLink.updateMany({
+      where: { instanceId, chatId },
+      data: { campoPendente },
+    });
+  }
+
+  private async applyPendingField(
+    instanceId: number,
+    chatId: string,
+    leadId: string,
+    content: unknown,
+  ) {
+    const resposta = this.asString(content);
+    if (!resposta) return;
+
+    const link = await this.prisma.leadOzapLink.findUnique({
+      where: { instanceId_chatId: { instanceId, chatId } },
+      select: { campoPendente: true },
+    });
+    const campo = link?.campoPendente as CampoLeadOzap | null;
+    if (!campo) return;
+
+    const data = this.getLeadAnswerData(campo, resposta);
+    await this.prisma.$transaction([
+      this.prisma.lead.update({ where: { id: leadId }, data }),
+      this.prisma.leadOzapLink.update({
+        where: { instanceId_chatId: { instanceId, chatId } },
+        data: { campoPendente: null },
+      }),
+    ]);
   }
 
   private async handleStatusChanged(
@@ -220,5 +277,45 @@ export class OzapService {
         human_intervention: 'atendimento humano',
       }[categoria] ?? categoria
     );
+  }
+
+  private identifyRequestedField(content: string): CampoLeadOzap | null {
+    const normalized = content.toLocaleLowerCase('pt-BR');
+    if (/com quem (eu )?falo|qual (é )?seu nome|seu nome/.test(normalized)) {
+      return 'nome';
+    }
+    if (/cidade|região|regiao/.test(normalized)) return 'cidade';
+    if (/bairro/.test(normalized)) return 'bairro';
+    if (/renda (bruta|mensal)|ganha por mês|ganha por mes/.test(normalized)) {
+      return 'renda';
+    }
+    if (/tipo de renda|clt|autônomo|autonomo|funcionário público|funcionario publico/.test(normalized)) {
+      return 'tipo_renda';
+    }
+    return null;
+  }
+
+  private getLeadAnswerData(campo: CampoLeadOzap, resposta: string) {
+    if (campo === 'renda') {
+      const renda = this.parseIncome(resposta);
+      return renda ? { renda } : {};
+    }
+    if (campo === 'tipo_renda') {
+      return {
+        tags: {
+          push: `Renda: ${resposta.trim().slice(0, 80)}`,
+        },
+      };
+    }
+    return { [campo]: resposta.trim().slice(0, 120) };
+  }
+
+  private parseIncome(value: string) {
+    const normalized = value.trim().replace(/[^\d,.-]/g, '');
+    if (!normalized) return null;
+    const semCentavos = normalized.replace(/[.,]\d{2}$/, '');
+    const digits = semCentavos.replace(/\D/g, '');
+    const renda = Number(digits);
+    return Number.isSafeInteger(renda) && renda > 0 ? renda : null;
   }
 }

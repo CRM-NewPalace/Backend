@@ -203,6 +203,7 @@ model Lead {
   agendamentos  Agendamento[]
   notificacoes  Notificacao[]
   ozapLink      LeadOzapLink?
+  metaLink      LeadMetaLink?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -227,6 +228,8 @@ model LeadOzapLink {
   instanceId Int
   chatId     String
   categoria  String?
+  /// Campo do lead solicitado pela última pergunta enviada pela IA.
+  campoPendente String?
 
   lastMessageAt DateTime?
   createdAt     DateTime @default(now())
@@ -251,6 +254,43 @@ model OzapWebhookDelivery {
 
   @@index([instanceId, event])
   @@map("ozap_webhook_deliveries")
+}
+
+/// Vínculo entre um lead do CRM e um leadgen do Meta Lead Ads.
+model LeadMetaLink {
+  id String @id @default(uuid())
+
+  leadId String @unique
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  leadgenId String  @unique
+  pageId    String
+  formId    String?
+  adId      String?
+  adgroupId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pageId])
+  @@index([formId])
+  @@map("lead_meta_links")
+}
+
+/// Entrega recebida do webhook Meta, usada para impedir duplicação por retry.
+model MetaWebhookDelivery {
+  id String @id @default(uuid())
+
+  deliveryKey String @unique
+  leadgenId   String
+  pageId      String
+  formId      String?
+  payload     Json
+  processedAt DateTime @default(now())
+
+  @@index([pageId])
+  @@index([leadgenId])
+  @@map("meta_webhook_deliveries")
 }
 
 /// Origem do relato de triagem (após avanço no funil ou criação manual).
