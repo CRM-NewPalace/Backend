@@ -9,6 +9,9 @@ const SALT_ROUNDS = 12;
 /**
  * Garante um super_admin de plataforma no banco a cada subida da API.
  * Credenciais vêm só do ambiente (Render env vars) — não é conta demo de UI.
+ *
+ * Se o e-mail já existir como admin de um tenant (ex.: backfill da migration),
+ * a conta é promovida a plataforma (tenantId null + role super_admin).
  */
 @Injectable()
 export class BootstrapAdminService implements OnModuleInit {
@@ -24,7 +27,7 @@ export class BootstrapAdminService implements OnModuleInit {
     const password = this.config.get<string>('BOOTSTRAP_ADMIN_PASSWORD');
     const name =
       this.config.get<string>('BOOTSTRAP_ADMIN_NAME')?.trim() ||
-      'Administrador';
+      'Zone Connection';
 
     if (!email || !password) {
       this.logger.warn(
@@ -43,9 +46,15 @@ export class BootstrapAdminService implements OnModuleInit {
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
     const normalizedEmail = email.toLowerCase();
 
-    const existing = await this.prisma.user.findFirst({
-      where: { email: normalizedEmail, tenantId: null },
-    });
+    // Prefere conta já de plataforma; senão reaproveita qualquer conta com o e-mail.
+    const existing =
+      (await this.prisma.user.findFirst({
+        where: { email: normalizedEmail, tenantId: null },
+      })) ??
+      (await this.prisma.user.findFirst({
+        where: { email: normalizedEmail },
+        orderBy: { createdAt: 'asc' },
+      }));
 
     if (existing) {
       await this.prisma.user.update({
@@ -56,8 +65,18 @@ export class BootstrapAdminService implements OnModuleInit {
           role: Role.super_admin,
           status: UserStatus.ativo,
           tenantId: null,
+          equipeId: null,
+          cargo: 'Super Administrador',
           failedLoginAttempts: 0,
           lockedUntil: null,
+        },
+      });
+
+      // Remove duplicatas do mesmo e-mail que ficaram em tenants (evita login ambíguo).
+      await this.prisma.user.deleteMany({
+        where: {
+          email: normalizedEmail,
+          id: { not: existing.id },
         },
       });
     } else {

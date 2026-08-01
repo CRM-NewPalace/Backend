@@ -137,10 +137,17 @@ export class AuthService {
 
     const candidates = await this.prisma.user.findMany({
       where: { email: normalizedEmail },
-      take: 3,
+      take: 5,
     });
 
     if (candidates.length === 0) return null;
+
+    // Conta de plataforma tem prioridade quando o slug não foi informado.
+    const platform = candidates.find(
+      (user) => user.role === Role.super_admin || user.tenantId === null,
+    );
+    if (platform) return platform;
+
     if (candidates.length === 1) return candidates[0];
 
     throw new BadRequestException(
