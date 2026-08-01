@@ -51,6 +51,9 @@ function baseCookieOptions(config: ConfigService): CookieOptions {
     secure: isProd || sameSite === 'none',
     sameSite,
     path: '/api',
+    // CHIPS: cookie particionado ajuda em cross-site (Vercel→Render) quando
+    // o browser restringe third-party cookies — sem isso o XHR volta 401.
+    ...(sameSite === 'none' ? { partitioned: true } : {}),
   };
 }
 
@@ -109,4 +112,13 @@ export function clearAuthCookies(res: Response, config: ConfigService): void {
   // Limpa ambos os paths (legado /api e atual /).
   res.clearCookie(COOKIE.csrf, { ...base, httpOnly: false });
   res.clearCookie(COOKIE.csrf, csrfCookieOptions(config));
+  // Cookies antigos sem Partitioned (pré-CHIPS) — limpa o jar clássico também.
+  if (base.partitioned) {
+    const legacy = { ...base, partitioned: undefined };
+    delete (legacy as { partitioned?: boolean }).partitioned;
+    res.clearCookie(COOKIE.access, legacy);
+    res.clearCookie(COOKIE.refresh, legacy);
+    res.clearCookie(COOKIE.csrf, { ...legacy, httpOnly: false });
+    res.clearCookie(COOKIE.csrf, { ...csrfCookieOptions(config), partitioned: undefined });
+  }
 }

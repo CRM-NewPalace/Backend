@@ -13,6 +13,10 @@ import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { publicUserSelect, PublicUser } from '../common/utils/user-select';
 import {
+  tenantBrandingSelect,
+  type TenantBranding,
+} from '../common/utils/tenant-branding';
+import {
   FAILED_LOGIN_WINDOW_MS,
   LOCKOUT_DURATION_MS,
   MAX_FAILED_LOGIN_ATTEMPTS,
@@ -26,8 +30,12 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+export type AuthUserPayload = PublicUser & {
+  tenant: TenantBranding | null;
+};
+
 export interface AuthResult extends AuthTokens {
-  user: PublicUser;
+  user: AuthUserPayload;
 }
 
 /** Origem da requisição, usada na trilha de auditoria. */
@@ -115,7 +123,7 @@ export class AuthService {
     });
     await this.recordAttempt(normalizedEmail, true, context);
 
-    return { ...tokens, user: this.toPublicUser(user) };
+    return { ...tokens, user: await this.toPublicUser(user) };
   }
 
   /** Resolve usuário por e-mail (+ tenantSlug quando o e-mail existe em vários tenants). */
@@ -213,10 +221,13 @@ export class AuthService {
     });
   }
 
-  async me(userId: string): Promise<PublicUser> {
+  async me(userId: string): Promise<AuthUserPayload> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: publicUserSelect,
+      select: {
+        ...publicUserSelect,
+        tenant: { select: tenantBrandingSelect },
+      },
     });
 
     if (!user) {
@@ -227,7 +238,8 @@ export class AuthService {
       throw new ForbiddenException('Usuário inativo. Contate o administrador.');
     }
 
-    return user;
+    const { tenant, ...rest } = user;
+    return { ...rest, tenant };
   }
 
   async changePassword(
@@ -421,7 +433,14 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private toPublicUser(user: User): PublicUser {
+  private async toPublicUser(user: User): Promise<AuthUserPayload> {
+    const tenant = user.tenantId
+      ? await this.prisma.tenant.findUnique({
+          where: { id: user.tenantId },
+          select: tenantBrandingSelect,
+        })
+      : null;
+
     return {
       id: user.id,
       tenantId: user.tenantId,
@@ -436,6 +455,7 @@ export class AuthService {
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      tenant,
     };
   }
 }
