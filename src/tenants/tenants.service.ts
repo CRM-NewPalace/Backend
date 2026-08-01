@@ -103,6 +103,7 @@ export class TenantsService {
     const adminEmail = this.buildAdminEmail(slug);
     const temporaryPassword = this.generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
+    const branding = this.sanitizeBranding(dto);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -111,6 +112,7 @@ export class TenantsService {
             name: tenantName,
             slug,
             status: dto.status ?? UserStatus.ativo,
+            ...branding,
           },
           select: tenantSelect,
         });
@@ -295,25 +297,7 @@ export class TenantsService {
   async update(id: string, dto: UpdateTenantDto) {
     await this.ensureExists(id);
 
-    let primaryColor = dto.primaryColor;
-    if (typeof primaryColor === 'string') {
-      const trimmed = primaryColor.trim().toUpperCase();
-      if (trimmed && !/^#[0-9A-F]{6}$/.test(trimmed)) {
-        throw new BadRequestException('primaryColor deve ser hex (#RRGGBB).');
-      }
-      primaryColor = trimmed || null;
-    }
-
-    let logoUrl = dto.logoUrl;
-    if (typeof logoUrl === 'string') {
-      const trimmed = logoUrl.trim();
-      if (trimmed && !/^https?:\/\/.+/i.test(trimmed)) {
-        throw new BadRequestException(
-          'logoUrl deve ser uma URL http(s) válida.',
-        );
-      }
-      logoUrl = trimmed || null;
-    }
+    const branding = this.sanitizeBranding(dto);
 
     try {
       return await this.prisma.tenant.update({
@@ -321,21 +305,7 @@ export class TenantsService {
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(dto.status !== undefined ? { status: dto.status } : {}),
-          ...(dto.logoUrl !== undefined ? { logoUrl } : {}),
-          ...(dto.primaryColor !== undefined ? { primaryColor } : {}),
-          ...(dto.sidebarStyle !== undefined
-            ? { sidebarStyle: dto.sidebarStyle }
-            : {}),
-          ...(dto.density !== undefined ? { density: dto.density } : {}),
-          ...(dto.homePath !== undefined ? { homePath: dto.homePath } : {}),
-          ...(dto.modules !== undefined
-            ? {
-                modules:
-                  dto.modules === null
-                    ? Prisma.DbNull
-                    : (dto.modules as Prisma.InputJsonValue),
-              }
-            : {}),
+          ...branding,
         },
         select: tenantSelect,
       });
@@ -502,6 +472,72 @@ export class TenantsService {
     });
   }
 
+  /**
+   * Normaliza campos de branding/layout (create e update).
+   * Campos omitidos não entram no objeto retornado.
+   */
+  private sanitizeBranding(dto: {
+    logoUrl?: string | null;
+    primaryColor?: string | null;
+    sidebarStyle?: string;
+    density?: string;
+    homePath?: string;
+    modules?: Record<string, boolean> | null;
+  }) {
+    const data: {
+      logoUrl?: string | null;
+      primaryColor?: string | null;
+      sidebarStyle?: string;
+      density?: string;
+      homePath?: string;
+      modules?: Prisma.InputJsonValue | typeof Prisma.DbNull;
+    } = {};
+
+    if (dto.logoUrl !== undefined) {
+      if (dto.logoUrl === null) {
+        data.logoUrl = null;
+      } else {
+        const trimmed = dto.logoUrl.trim();
+        if (trimmed && !/^https?:\/\/.+/i.test(trimmed)) {
+          throw new BadRequestException(
+            'logoUrl deve ser uma URL http(s) válida.',
+          );
+        }
+        data.logoUrl = trimmed || null;
+      }
+    }
+
+    if (dto.primaryColor !== undefined) {
+      if (dto.primaryColor === null) {
+        data.primaryColor = null;
+      } else {
+        const trimmed = dto.primaryColor.trim().toUpperCase();
+        if (trimmed && !/^#[0-9A-F]{6}$/.test(trimmed)) {
+          throw new BadRequestException('primaryColor deve ser hex (#RRGGBB).');
+        }
+        data.primaryColor = trimmed || null;
+      }
+    }
+
+    if (dto.sidebarStyle !== undefined) {
+      data.sidebarStyle = dto.sidebarStyle;
+    }
+    if (dto.density !== undefined) {
+      data.density = dto.density;
+    }
+    if (dto.homePath !== undefined) {
+      data.homePath = dto.homePath;
+    }
+    if (dto.modules !== undefined) {
+      data.modules =
+        dto.modules === null
+          ? Prisma.DbNull
+          : (dto.modules as Prisma.InputJsonValue);
+    }
+
+    return data;
+  }
+
   /** Senha temporária aleatória (maiúscula, minúscula e número). */
   private generateTemporaryPassword(): string {
     const lower = 'abcdefghijkmnopqrstuvwxyz';
@@ -523,10 +559,12 @@ export class TenantsService {
     return chars.join('');
   }
 
-  /** E-mail padrão do admin: admin.{slug}@zoneconnection.com */
+  /** E-mail padrão do admin: admin@{slugSemHifen}.com */
   private buildAdminEmail(slug: string): string {
-    const safe = slug.replace(/[^a-z0-9-]/g, '').slice(0, 60) || 'tenant';
-    return `admin.${safe}@zoneconnection.com`;
+    const safe =
+      slug.replace(/[^a-z0-9-]/g, '').replace(/-/g, '').slice(0, 60) ||
+      'tenant';
+    return `admin@${safe}.com`;
   }
 
   private async ensureExists(id: string): Promise<void> {
