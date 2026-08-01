@@ -11,6 +11,8 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     // Em produção não expõe stack trace / detalhes internos nos logs de erro.
     logger: ['error', 'warn', 'log'],
+    // Necessário para validar X-Hub-Signature-256 do webhook Meta.
+    rawBody: true,
   });
   const config = app.get(ConfigService);
   const isProd = config.get<string>('NODE_ENV') === 'production';
