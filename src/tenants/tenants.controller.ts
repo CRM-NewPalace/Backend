@@ -51,7 +51,7 @@ export class TenantsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateTenantAdminDto,
   ) {
-    return this.tenantsService.createInitialAdmin(id, dto);
+    return this.tenantsService.createInitialAdmin(id, dto ?? {});
   }
 
   @Post(':id/admin/reset-password')
@@ -65,6 +65,11 @@ export class TenantsController {
     @Body() dto: UpdateTenantDto,
   ) {
     return this.tenantsService.update(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.tenantsService.remove(id);
   }
 
   @Get(':id/meta-connections')

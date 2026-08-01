@@ -98,15 +98,17 @@ export class TenantsService {
     const slug = dto.slug.toLowerCase().trim();
     await this.ensureSlugAvailable(slug);
 
-    const adminEmail = dto.adminEmail.toLowerCase().trim();
-    const adminName = dto.adminName.trim();
-    const passwordHash = await bcrypt.hash(dto.adminPassword, SALT_ROUNDS);
+    const tenantName = dto.name.trim();
+    const adminName = `Admin ${tenantName}`;
+    const adminEmail = this.buildAdminEmail(slug);
+    const temporaryPassword = this.generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.create({
           data: {
-            name: dto.name.trim(),
+            name: tenantName,
             slug,
             status: dto.status ?? UserStatus.ativo,
           },
@@ -128,7 +130,7 @@ export class TenantsService {
 
         await this.seedDefaultFunnelStages(tx, tenant.id);
 
-        return { ...tenant, admin };
+        return { ...tenant, admin, temporaryPassword };
       });
     } catch (error) {
       throw this.translateUniqueConstraint(
@@ -139,10 +141,10 @@ export class TenantsService {
   }
 
   /**
-   * Cria o primeiro admin de um tenant que ainda não tem usuários
-   * (ex.: tenants criados antes do fluxo com admin inicial).
+   * Cria o primeiro admin de um tenant que ainda não tem usuários.
+   * Sem body (ou campos omitidos): gera e-mail e senha automaticamente.
    */
-  async createInitialAdmin(tenantId: string, dto: CreateTenantAdminDto) {
+  async createInitialAdmin(tenantId: string, dto: CreateTenantAdminDto = {}) {
     await this.ensureExists(tenantId);
 
     const userCount = await this.prisma.user.count({ where: { tenantId } });
@@ -152,15 +154,28 @@ export class TenantsService {
       );
     }
 
-    const email = dto.email.toLowerCase().trim();
-    const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, slug: true },
+    });
+    if (!tenant) {
+      throw new NotFoundException('Tenant não encontrado.');
+    }
+
+    const name = dto.name?.trim() || `Admin ${tenant.name}`;
+    const email = (
+      dto.email?.trim().toLowerCase() || this.buildAdminEmail(tenant.slug)
+    );
+    const temporaryPassword =
+      dto.password?.trim() || this.generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
         const admin = await tx.user.create({
           data: {
             tenantId,
-            name: dto.name.trim(),
+            name,
             email,
             password: passwordHash,
             role: Role.admin,
@@ -177,7 +192,7 @@ export class TenantsService {
           await this.seedDefaultFunnelStages(tx, tenantId);
         }
 
-        return admin;
+        return { user: admin, temporaryPassword };
       });
     } catch (error) {
       throw this.translateUniqueConstraint(
@@ -254,6 +269,27 @@ export class TenantsService {
     });
 
     return { user, temporaryPassword };
+  }
+
+  /**
+   * Remove o tenant e todos os dados vinculados (cascade).
+   * Equipes são apagadas antes por causa do FK Restrict em gerenteId → User.
+   */
+  async remove(id: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!tenant) {
+      throw new NotFoundException('Tenant não encontrado.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.equipe.deleteMany({ where: { tenantId: id } });
+      await tx.tenant.delete({ where: { id } });
+    });
+
+    return { id: tenant.id, name: tenant.name, slug: tenant.slug };
   }
 
   async update(id: string, dto: UpdateTenantDto) {
@@ -485,6 +521,12 @@ export class TenantsService {
     }
 
     return chars.join('');
+  }
+
+  /** E-mail padrão do admin: admin.{slug}@zoneconnection.com */
+  private buildAdminEmail(slug: string): string {
+    const safe = slug.replace(/[^a-z0-9-]/g, '').slice(0, 60) || 'tenant';
+    return `admin.${safe}@zoneconnection.com`;
   }
 
   private async ensureExists(id: string): Promise<void> {

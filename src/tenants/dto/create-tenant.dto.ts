@@ -1,18 +1,10 @@
-import {
-  IsEmail,
-  IsIn,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { UserStatus } from '@prisma/client';
-import {
-  PASSWORD_REGEX,
-  PASSWORD_RULE_MESSAGE,
-} from '../../config/security.constants';
 
+/**
+ * Criação de tenant.
+ * O admin inicial (e-mail + senha) é gerado automaticamente no service.
+ */
 export class CreateTenantDto {
   @IsString()
   @MinLength(2, { message: 'O nome deve ter ao menos 2 caracteres.' })
@@ -33,19 +25,4 @@ export class CreateTenantDto {
     message: 'Status inválido.',
   })
   status?: UserStatus;
-
-  /** Nome do administrador inicial da imobiliária. */
-  @IsString()
-  @MinLength(2, { message: 'O nome do admin deve ter ao menos 2 caracteres.' })
-  @MaxLength(120)
-  adminName!: string;
-
-  @IsEmail({}, { message: 'Informe um e-mail válido para o admin.' })
-  @MaxLength(255)
-  adminEmail!: string;
-
-  @IsString()
-  @MaxLength(72, { message: 'A senha deve ter no máximo 72 caracteres.' })
-  @Matches(PASSWORD_REGEX, { message: PASSWORD_RULE_MESSAGE })
-  adminPassword!: string;
 }
