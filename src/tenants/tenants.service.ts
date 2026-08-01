@@ -193,20 +193,34 @@ export class TenantsService {
   async update(id: string, dto: UpdateTenantDto) {
     await this.ensureExists(id);
 
+    let primaryColor = dto.primaryColor;
+    if (typeof primaryColor === 'string') {
+      const trimmed = primaryColor.trim().toUpperCase();
+      if (trimmed && !/^#[0-9A-F]{6}$/.test(trimmed)) {
+        throw new BadRequestException('primaryColor deve ser hex (#RRGGBB).');
+      }
+      primaryColor = trimmed || null;
+    }
+
+    let logoUrl = dto.logoUrl;
+    if (typeof logoUrl === 'string') {
+      const trimmed = logoUrl.trim();
+      if (trimmed && !/^https?:\/\/.+/i.test(trimmed)) {
+        throw new BadRequestException(
+          'logoUrl deve ser uma URL http(s) válida.',
+        );
+      }
+      logoUrl = trimmed || null;
+    }
+
     try {
       return await this.prisma.tenant.update({
         where: { id },
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(dto.status !== undefined ? { status: dto.status } : {}),
-          ...(dto.logoUrl !== undefined
-            ? { logoUrl: dto.logoUrl?.trim() || null }
-            : {}),
-          ...(dto.primaryColor !== undefined
-            ? {
-                primaryColor: dto.primaryColor?.trim().toUpperCase() || null,
-              }
-            : {}),
+          ...(dto.logoUrl !== undefined ? { logoUrl } : {}),
+          ...(dto.primaryColor !== undefined ? { primaryColor } : {}),
           ...(dto.sidebarStyle !== undefined
             ? { sidebarStyle: dto.sidebarStyle }
             : {}),
