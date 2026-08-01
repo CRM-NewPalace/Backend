@@ -1,11 +1,25 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import { ValidationError } from 'class-validator';
 import { AppModule } from './app.module';
 import { CSRF_HEADER } from './common/utils/auth-cookies';
+
+function flattenValidationErrors(errors: ValidationError[]): string[] {
+  const out: string[] = [];
+  for (const error of errors) {
+    if (error.constraints) {
+      out.push(...Object.values(error.constraints));
+    }
+    if (error.children?.length) {
+      out.push(...flattenValidationErrors(error.children));
+    }
+  }
+  return out;
+}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -52,10 +66,16 @@ async function bootstrap() {
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
+      forbidUnknownValues: false,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
-      // Em produção, não devolve detalhes da validação que revelem o schema.
-      disableErrorMessages: isProd,
+      disableErrorMessages: false,
+      exceptionFactory: (errors) => {
+        const messages = flattenValidationErrors(errors);
+        return new BadRequestException(
+          messages.length > 0 ? messages : 'Dados inválidos.',
+        );
+      },
     }),
   );
 

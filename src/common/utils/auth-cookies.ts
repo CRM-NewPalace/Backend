@@ -31,28 +31,28 @@ type SameSite = 'lax' | 'none' | 'strict';
 /**
  * SameSite dos cookies de sessão.
  *
- * Cross-site (frontend em outro domínio/porta que a API) só funciona com
- * 'none' — com 'lax' o browser não envia o cookie no XHR e toda requisição
- * autenticada volta 401 depois de um login aparentemente bem-sucedido.
- * Use COOKIE_SAMESITE=lax quando frontend e API compartilham a origem.
+ * Produção usa proxy same-origin (Vercel /api → Render), então o padrão é
+ * 'lax' — cookies first-party, sem avisos de third-party no Firefox.
+ * Use COOKIE_SAMESITE=none só se o front chamar a API em outro domínio
+ * sem proxy (cenário frágil; browsers bloqueiam com frequência).
  */
-function resolveSameSite(config: ConfigService, isProd: boolean): SameSite {
+function resolveSameSite(config: ConfigService): SameSite {
   const raw = config.get<string>('COOKIE_SAMESITE')?.trim().toLowerCase();
   if (raw === 'lax' || raw === 'none' || raw === 'strict') return raw;
-  return isProd ? 'none' : 'lax';
+  // Mesmo em produção o front deve falar via /api (same-site).
+  return 'lax';
 }
 
 function baseCookieOptions(config: ConfigService): CookieOptions {
   const isProd = config.get<string>('NODE_ENV') === 'production';
-  const sameSite = resolveSameSite(config, isProd);
+  const sameSite = resolveSameSite(config);
   return {
     httpOnly: true,
     // O browser descarta SameSite=None sem Secure.
     secure: isProd || sameSite === 'none',
     sameSite,
     path: '/api',
-    // CHIPS: cookie particionado ajuda em cross-site (Vercel→Render) quando
-    // o browser restringe third-party cookies — sem isso o XHR volta 401.
+    // CHIPS só quando realmente cross-site (SameSite=None).
     ...(sameSite === 'none' ? { partitioned: true } : {}),
   };
 }
