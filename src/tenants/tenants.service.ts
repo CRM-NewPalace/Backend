@@ -11,15 +11,9 @@ import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
 import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
+import { tenantAdminSelect } from '../common/utils/tenant-branding';
 
-const tenantSelect = {
-  id: true,
-  name: true,
-  slug: true,
-  status: true,
-  createdAt: true,
-  updatedAt: true,
-} satisfies Prisma.TenantSelect;
+const tenantSelect = tenantAdminSelect;
 
 const metaConnectionSelect = {
   id: true,
@@ -122,6 +116,27 @@ export class TenantsService {
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.logoUrl !== undefined
+          ? { logoUrl: dto.logoUrl?.trim() || null }
+          : {}),
+        ...(dto.primaryColor !== undefined
+          ? {
+              primaryColor: dto.primaryColor?.trim().toUpperCase() || null,
+            }
+          : {}),
+        ...(dto.sidebarStyle !== undefined
+          ? { sidebarStyle: dto.sidebarStyle }
+          : {}),
+        ...(dto.density !== undefined ? { density: dto.density } : {}),
+        ...(dto.homePath !== undefined ? { homePath: dto.homePath } : {}),
+        ...(dto.modules !== undefined
+          ? {
+              modules:
+                dto.modules === null
+                  ? Prisma.DbNull
+                  : (dto.modules as Prisma.InputJsonValue),
+            }
+          : {}),
       },
       select: tenantSelect,
     });

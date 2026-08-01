@@ -60,6 +60,21 @@ model Tenant {
   slug   String     @unique
   status UserStatus @default(ativo)
 
+  /// Branding visual (nível 1).
+  logoUrl      String?
+  /// Cor primária em hex (#RRGGBB). Null = tema padrão da plataforma.
+  primaryColor String?
+
+  /// Layout configurável (nível 2).
+  /// default | dark | compact
+  sidebarStyle String @default("default")
+  /// comfortable | compact
+  density      String @default("comfortable")
+  /// Rota inicial após login (ex.: /dashboard, /funil).
+  homePath     String @default("/dashboard")
+  /// Módulos ligados/desligados: { "metas": true, "financeiro": false, ... }
+  modules      Json?
+
   users             User[]
   equipes           Equipe[]
   leads             Lead[]
