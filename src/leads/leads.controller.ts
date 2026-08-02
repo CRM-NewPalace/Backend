@@ -24,6 +24,10 @@ import { UpdateLeadStageDto } from './dto/update-lead-stage.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { MarkLeadLostDto } from './dto/mark-lead-lost.dto';
 import { ImportLeadsDto } from './dto/import-leads.dto';
+import {
+  DistribuirCorretoresDto,
+  DistribuirEquipesDto,
+} from './dto/distribuir-leads.dto';
 
 /**
  * Leads / clientes. Acessível a qualquer usuário autenticado; a visibilidade é
@@ -47,6 +51,33 @@ export class LeadsController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.leadsService.importMany(dto, requester);
+  }
+
+  @Get('distribuir/resumo')
+  @UseGuards(RolesGuard)
+  @Roles(Role.admin, Role.gerente)
+  distribuirResumo(@CurrentUser() requester: AuthenticatedUser) {
+    return this.leadsService.distribuirResumo(requester);
+  }
+
+  @Post('distribuir/equipes')
+  @UseGuards(RolesGuard)
+  @Roles(Role.admin)
+  distribuirEquipes(
+    @Body() dto: DistribuirEquipesDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.distribuirEquipes(dto, requester);
+  }
+
+  @Post('distribuir/corretores')
+  @UseGuards(RolesGuard)
+  @Roles(Role.gerente)
+  distribuirCorretores(
+    @Body() dto: DistribuirCorretoresDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.distribuirCorretores(dto, requester);
   }
 
   @Get()

@@ -17,6 +17,8 @@ export const leadSelect = {
   tags: true,
   corretorId: true,
   corretor: { select: { id: true, name: true } },
+  equipeId: true,
+  equipe: { select: { id: true, name: true } },
   construtoraId: true,
   construtora: { select: { id: true, nome: true } },
   empreendimentoId: true,

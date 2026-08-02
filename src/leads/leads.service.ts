@@ -16,6 +16,10 @@ import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { ImportLeadsDto } from './dto/import-leads.dto';
+import {
+  DistribuirCorretoresDto,
+  DistribuirEquipesDto,
+} from './dto/distribuir-leads.dto';
 
 export interface PaginatedLeads {
   data: LeadEntity[];
@@ -141,6 +145,249 @@ export class LeadsService {
       failed: errors.length,
       leads: created,
       errors,
+    };
+  }
+
+  /** Resumo para o diálogo de distribuição. */
+  async distribuirResumo(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+
+    if (requester.role === Role.admin) {
+      const disponiveis = await this.prisma.lead.count({
+        where: {
+          tenantId,
+          tipo: ContatoTipo.lead,
+          perdidoAt: null,
+          corretorId: null,
+          equipeId: null,
+        },
+      });
+      const equipes = await this.prisma.equipe.findMany({
+        where: { tenantId, status: UserStatus.ativo },
+        select: {
+          id: true,
+          name: true,
+          gerente: { select: { id: true, name: true } },
+          membros: {
+            where: { role: Role.corretor, status: UserStatus.ativo },
+            select: { id: true },
+          },
+        },
+        orderBy: { name: 'asc' },
+      });
+      return {
+        modo: 'equipes' as const,
+        disponiveis,
+        equipes: equipes.map((e) => ({
+          equipeId: e.id,
+          nome: e.name,
+          gerente: e.gerente.name,
+          corretores: e.membros.length,
+        })),
+      };
+    }
+
+    if (requester.role === Role.gerente) {
+      const equipe = await this.prisma.equipe.findFirst({
+        where: { gerenteId: requester.id, tenantId, status: UserStatus.ativo },
+        select: {
+          id: true,
+          name: true,
+          membros: {
+            where: { role: Role.corretor, status: UserStatus.ativo },
+            select: { id: true, name: true },
+            orderBy: { name: 'asc' },
+          },
+        },
+      });
+      if (!equipe) {
+        throw new ForbiddenException('Você não lidera uma equipe ativa.');
+      }
+      const disponiveis = await this.prisma.lead.count({
+        where: {
+          tenantId,
+          tipo: ContatoTipo.lead,
+          perdidoAt: null,
+          equipeId: equipe.id,
+          corretorId: null,
+        },
+      });
+      return {
+        modo: 'corretores' as const,
+        disponiveis,
+        equipeId: equipe.id,
+        equipeNome: equipe.name,
+        corretores: equipe.membros.map((m) => ({
+          id: m.id,
+          nome: m.name,
+        })),
+      };
+    }
+
+    throw new ForbiddenException(
+      'Somente admin e gerente podem distribuir leads.',
+    );
+  }
+
+  /** Admin: aloca leads sem dono para o pool das equipes. */
+  async distribuirEquipes(
+    dto: DistribuirEquipesDto,
+    requester: AuthenticatedUser,
+  ) {
+    if (requester.role !== Role.admin) {
+      throw new ForbiddenException('Somente admin distribui entre equipes.');
+    }
+    const tenantId = requireTenantId(requester);
+    const totalPedido = dto.alocacoes.reduce((s, a) => s + a.quantidade, 0);
+    if (totalPedido <= 0) {
+      throw new BadRequestException('Informe ao menos 1 lead para distribuir.');
+    }
+
+    const equipeIds = dto.alocacoes.map((a) => a.equipeId);
+    const equipes = await this.prisma.equipe.findMany({
+      where: {
+        tenantId,
+        status: UserStatus.ativo,
+        id: { in: equipeIds },
+      },
+      select: { id: true, name: true },
+    });
+    if (equipes.length !== new Set(equipeIds).size) {
+      throw new BadRequestException('Uma ou mais equipes são inválidas.');
+    }
+
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        tenantId,
+        tipo: ContatoTipo.lead,
+        perdidoAt: null,
+        corretorId: null,
+        equipeId: null,
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: totalPedido,
+    });
+
+    if (leads.length < totalPedido) {
+      throw new BadRequestException(
+        `Há apenas ${leads.length} lead(s) disponíveis para distribuir (pedido: ${totalPedido}).`,
+      );
+    }
+
+    let offset = 0;
+    const resultado: Array<{
+      equipeId: string;
+      nome: string;
+      quantidade: number;
+    }> = [];
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const aloc of dto.alocacoes) {
+        if (aloc.quantidade <= 0) continue;
+        const slice = leads.slice(offset, offset + aloc.quantidade);
+        offset += aloc.quantidade;
+        await tx.lead.updateMany({
+          where: { id: { in: slice.map((l) => l.id) } },
+          data: { equipeId: aloc.equipeId },
+        });
+        const eq = equipes.find((e) => e.id === aloc.equipeId)!;
+        resultado.push({
+          equipeId: eq.id,
+          nome: eq.name,
+          quantidade: slice.length,
+        });
+      }
+    });
+
+    return { ok: true, total: totalPedido, alocacoes: resultado };
+  }
+
+  /**
+   * Gerente: fila round-robin — cada corretor recebe `porCorretor` leads
+   * por rodada, até acabar o pool da equipe.
+   */
+  async distribuirCorretores(
+    dto: DistribuirCorretoresDto,
+    requester: AuthenticatedUser,
+  ) {
+    if (requester.role !== Role.gerente) {
+      throw new ForbiddenException(
+        'Somente o gerente distribui leads aos corretores da equipe.',
+      );
+    }
+    const tenantId = requireTenantId(requester);
+    const equipe = await this.prisma.equipe.findFirst({
+      where: { gerenteId: requester.id, tenantId, status: UserStatus.ativo },
+      select: {
+        id: true,
+        membros: {
+          where: { role: Role.corretor, status: UserStatus.ativo },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        },
+      },
+    });
+    if (!equipe || equipe.membros.length === 0) {
+      throw new BadRequestException(
+        'Sua equipe não tem corretores ativos para receber leads.',
+      );
+    }
+
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        tenantId,
+        tipo: ContatoTipo.lead,
+        perdidoAt: null,
+        equipeId: equipe.id,
+        corretorId: null,
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (leads.length === 0) {
+      throw new BadRequestException(
+        'Não há leads no pool da sua equipe para distribuir.',
+      );
+    }
+
+    const porCorretor = dto.porCorretor;
+    const corretores = equipe.membros;
+    const counts = new Map(corretores.map((c) => [c.id, 0]));
+    const assignments: Array<{ leadId: string; corretorId: string }> = [];
+
+    let leadIdx = 0;
+    let corretorIdx = 0;
+    while (leadIdx < leads.length) {
+      const corretor = corretores[corretorIdx % corretores.length]!;
+      const take = Math.min(porCorretor, leads.length - leadIdx);
+      for (let i = 0; i < take; i++) {
+        const lead = leads[leadIdx++]!;
+        assignments.push({ leadId: lead.id, corretorId: corretor.id });
+        counts.set(corretor.id, (counts.get(corretor.id) ?? 0) + 1);
+      }
+      corretorIdx += 1;
+    }
+
+    await this.prisma.$transaction(
+      assignments.map((a) =>
+        this.prisma.lead.update({
+          where: { id: a.leadId },
+          data: { corretorId: a.corretorId },
+        }),
+      ),
+    );
+
+    return {
+      ok: true,
+      total: assignments.length,
+      porCorretor,
+      distribuicao: corretores.map((c) => ({
+        corretorId: c.id,
+        nome: c.name,
+        quantidade: counts.get(c.id) ?? 0,
+      })),
     };
   }
 
@@ -538,12 +785,13 @@ export class LeadsService {
   }
 
   private async ensureCanAccess(
-    lead: { corretorId: string | null },
+    lead: { corretorId: string | null; equipeId?: string | null },
     requester: AuthenticatedUser,
   ): Promise<void> {
     const allowed = await this.teamScope.canAccessCorretor(
       requester,
       lead.corretorId,
+      lead.equipeId,
     );
     if (!allowed) {
       throw new NotFoundException('Lead não encontrado.');

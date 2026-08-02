@@ -231,6 +231,9 @@ model Equipe {
 
   membros User[] @relation("EquipeMembros")
 
+  /// Leads no pool da equipe (aguardando distribuição aos corretores).
+  leads Lead[]
+
   /// Eventos de admin direcionados a esta equipe.
   agendamentosAlvo Agendamento[] @relation("AgendamentoAlvoEquipe")
 
@@ -269,6 +272,10 @@ model Lead {
   corretor   User?   @relation("LeadCorretor", fields: [corretorId], references: [id], onDelete: SetNull)
   corretorId String?
 
+  /// Pool da equipe (admin distribuiu à equipe; gerente ainda não atribuiu corretor).
+  equipeId String?
+  equipe   Equipe? @relation(fields: [equipeId], references: [id], onDelete: SetNull)
+
   /// Imóvel de interesse (preenchido ao enviar para análise).
   construtoraId String?
   construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
@@ -300,6 +307,7 @@ model Lead {
   @@index([tipo])
   @@index([stage])
   @@index([corretorId])
+  @@index([equipeId])
   @@index([construtoraId])
   @@index([empreendimentoId])
   @@index([createdAt])

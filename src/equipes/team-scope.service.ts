@@ -49,6 +49,23 @@ export class TeamScopeService {
     const tenantId = requireTenantId(requester);
     const ids = await this.getVisibleCorretorIds(requester);
     if (ids === null) return { tenantId };
+
+    if (requester.role === Role.gerente) {
+      const equipe = await this.prisma.equipe.findFirst({
+        where: { gerenteId: requester.id, tenantId },
+        select: { id: true },
+      });
+      return {
+        tenantId,
+        OR: [
+          { corretorId: { in: ids } },
+          ...(equipe
+            ? [{ equipeId: equipe.id, corretorId: null as null }]
+            : []),
+        ],
+      };
+    }
+
     return { tenantId, corretorId: { in: ids } };
   }
 
@@ -56,13 +73,26 @@ export class TeamScopeService {
   async canAccessCorretor(
     requester: AuthenticatedUser,
     corretorId: string | null | undefined,
+    equipeId?: string | null,
   ): Promise<boolean> {
     requireTenantId(requester);
     if (!corretorId) {
-      // Lead sem dono: admin e analista do tenant veem.
-      return (
-        requester.role === Role.admin || requester.role === Role.analista
-      );
+      if (requester.role === Role.admin || requester.role === Role.analista) {
+        return true;
+      }
+      // Gerente vê pool da própria equipe (sem corretor ainda).
+      if (requester.role === Role.gerente && equipeId) {
+        const equipe = await this.prisma.equipe.findFirst({
+          where: {
+            id: equipeId,
+            gerenteId: requester.id,
+            tenantId: requireTenantId(requester),
+          },
+          select: { id: true },
+        });
+        return Boolean(equipe);
+      }
+      return false;
     }
     const ids = await this.getVisibleCorretorIds(requester);
     if (ids === null) return true;
