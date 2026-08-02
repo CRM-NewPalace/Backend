@@ -163,10 +163,11 @@ export class LeadsService {
         },
       });
       const equipes = await this.prisma.equipe.findMany({
-        where: { tenantId, status: UserStatus.ativo },
+        where: { tenantId },
         select: {
           id: true,
           name: true,
+          status: true,
           gerente: { select: { id: true, name: true } },
           membros: {
             where: { role: Role.corretor, status: UserStatus.ativo },
@@ -175,21 +176,44 @@ export class LeadsService {
         },
         orderBy: { name: 'asc' },
       });
+
+      // Com equipes: admin divide o pool entre elas.
+      if (equipes.length > 0) {
+        return {
+          modo: 'equipes' as const,
+          disponiveis,
+          equipes: equipes.map((e) => ({
+            equipeId: e.id,
+            nome: e.name,
+            gerente: e.gerente.name,
+            corretores: e.membros.length,
+            status: e.status,
+          })),
+        };
+      }
+
+      // Sem equipes: admin pode distribuir direto aos corretores (fila).
+      const corretores = await this.prisma.user.findMany({
+        where: {
+          tenantId,
+          role: Role.corretor,
+          status: UserStatus.ativo,
+        },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
       return {
-        modo: 'equipes' as const,
+        modo: 'corretores' as const,
         disponiveis,
-        equipes: equipes.map((e) => ({
-          equipeId: e.id,
-          nome: e.name,
-          gerente: e.gerente.name,
-          corretores: e.membros.length,
-        })),
+        equipeId: null,
+        equipeNome: 'Todos os corretores',
+        corretores: corretores.map((c) => ({ id: c.id, nome: c.name })),
       };
     }
 
     if (requester.role === Role.gerente) {
       const equipe = await this.prisma.equipe.findFirst({
-        where: { gerenteId: requester.id, tenantId, status: UserStatus.ativo },
+        where: { gerenteId: requester.id, tenantId },
         select: {
           id: true,
           name: true,
@@ -201,7 +225,7 @@ export class LeadsService {
         },
       });
       if (!equipe) {
-        throw new ForbiddenException('Você não lidera uma equipe ativa.');
+        throw new ForbiddenException('Você não lidera uma equipe.');
       }
       const disponiveis = await this.prisma.lead.count({
         where: {
@@ -247,7 +271,6 @@ export class LeadsService {
     const equipes = await this.prisma.equipe.findMany({
       where: {
         tenantId,
-        status: UserStatus.ativo,
         id: { in: equipeIds },
       },
       select: { id: true, name: true },
@@ -304,56 +327,91 @@ export class LeadsService {
   }
 
   /**
-   * Gerente: fila round-robin — cada corretor recebe `porCorretor` leads
-   * por rodada, até acabar o pool da equipe.
+   * Fila round-robin — cada corretor recebe `porCorretor` leads por rodada.
+   * Gerente: pool da equipe. Admin (sem equipes): leads sem dono do tenant.
    */
   async distribuirCorretores(
     dto: DistribuirCorretoresDto,
     requester: AuthenticatedUser,
   ) {
-    if (requester.role !== Role.gerente) {
+    if (
+      requester.role !== Role.gerente &&
+      requester.role !== Role.admin
+    ) {
       throw new ForbiddenException(
-        'Somente o gerente distribui leads aos corretores da equipe.',
+        'Somente admin ou gerente podem distribuir leads aos corretores.',
       );
     }
     const tenantId = requireTenantId(requester);
-    const equipe = await this.prisma.equipe.findFirst({
-      where: { gerenteId: requester.id, tenantId, status: UserStatus.ativo },
-      select: {
-        id: true,
-        membros: {
-          where: { role: Role.corretor, status: UserStatus.ativo },
-          select: { id: true, name: true },
-          orderBy: { name: 'asc' },
-        },
-      },
-    });
-    if (!equipe || equipe.membros.length === 0) {
-      throw new BadRequestException(
-        'Sua equipe não tem corretores ativos para receber leads.',
-      );
-    }
 
-    const leads = await this.prisma.lead.findMany({
-      where: {
+    let corretores: Array<{ id: string; name: string }>;
+    let leadWhere: Prisma.LeadWhereInput;
+
+    if (requester.role === Role.admin) {
+      corretores = await this.prisma.user.findMany({
+        where: {
+          tenantId,
+          role: Role.corretor,
+          status: UserStatus.ativo,
+        },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+      leadWhere = {
+        tenantId,
+        tipo: ContatoTipo.lead,
+        perdidoAt: null,
+        corretorId: null,
+        equipeId: null,
+      };
+    } else {
+      const equipe = await this.prisma.equipe.findFirst({
+        where: { gerenteId: requester.id, tenantId },
+        select: {
+          id: true,
+          membros: {
+            where: { role: Role.corretor, status: UserStatus.ativo },
+            select: { id: true, name: true },
+            orderBy: { name: 'asc' },
+          },
+        },
+      });
+      if (!equipe || equipe.membros.length === 0) {
+        throw new BadRequestException(
+          'Sua equipe não tem corretores ativos para receber leads.',
+        );
+      }
+      corretores = equipe.membros;
+      leadWhere = {
         tenantId,
         tipo: ContatoTipo.lead,
         perdidoAt: null,
         equipeId: equipe.id,
         corretorId: null,
-      },
+      };
+    }
+
+    if (corretores.length === 0) {
+      throw new BadRequestException(
+        'Não há corretores ativos para receber leads.',
+      );
+    }
+
+    const leads = await this.prisma.lead.findMany({
+      where: leadWhere,
       select: { id: true },
       orderBy: { createdAt: 'asc' },
     });
 
     if (leads.length === 0) {
       throw new BadRequestException(
-        'Não há leads no pool da sua equipe para distribuir.',
+        requester.role === Role.admin
+          ? 'Não há leads sem dono para distribuir.'
+          : 'Não há leads no pool da sua equipe para distribuir.',
       );
     }
 
     const porCorretor = dto.porCorretor;
-    const corretores = equipe.membros;
     const counts = new Map(corretores.map((c) => [c.id, 0]));
     const assignments: Array<{ leadId: string; corretorId: string }> = [];
 

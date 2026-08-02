@@ -72,7 +72,7 @@ export class LeadsController {
 
   @Post('distribuir/corretores')
   @UseGuards(RolesGuard)
-  @Roles(Role.gerente)
+  @Roles(Role.admin, Role.gerente)
   distribuirCorretores(
     @Body() dto: DistribuirCorretoresDto,
     @CurrentUser() requester: AuthenticatedUser,
