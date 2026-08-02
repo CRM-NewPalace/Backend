@@ -48,8 +48,9 @@ export function modulesPresetForPlano(
   const enabled = new Set<string>();
 
   for (const k of OPERACIONAL) enabled.add(k);
-  // Admin da imobiliária precisa criar usuários em qualquer plano.
+  // Admin da imobiliária precisa criar usuários e configurar o funil em qualquer plano.
   enabled.add('usuarios');
+  enabled.add('configuracoes');
 
   if (plano === TenantPlano.prata || plano === TenantPlano.ouro) {
     for (const k of ADMINISTRATIVO) enabled.add(k);
