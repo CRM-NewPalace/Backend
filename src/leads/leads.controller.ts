@@ -23,6 +23,7 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { UpdateLeadStageDto } from './dto/update-lead-stage.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { MarkLeadLostDto } from './dto/mark-lead-lost.dto';
+import { ImportLeadsDto } from './dto/import-leads.dto';
 
 /**
  * Leads / clientes. Acessível a qualquer usuário autenticado; a visibilidade é
@@ -38,6 +39,14 @@ export class LeadsController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.leadsService.create(dto, requester);
+  }
+
+  @Post('import')
+  importMany(
+    @Body() dto: ImportLeadsDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.importMany(dto, requester);
   }
 
   @Get()

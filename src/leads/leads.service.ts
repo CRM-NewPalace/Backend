@@ -15,6 +15,7 @@ import { leadSelect, LeadEntity } from './lead-select';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
+import { ImportLeadsDto } from './dto/import-leads.dto';
 
 export interface PaginatedLeads {
   data: LeadEntity[];
@@ -71,6 +72,72 @@ export class LeadsService {
       },
       select: leadSelect,
     });
+  }
+
+  async importMany(dto: ImportLeadsDto, requester: AuthenticatedUser) {
+    if (requester.role === Role.analista) {
+      throw new ForbiddenException('Analistas não podem importar leads.');
+    }
+
+    const tenantId = requireTenantId(requester);
+    const defaultStage = await this.catalog.getDefaultStageSlug(tenantId);
+    await this.ensureStageIsValid(tenantId, defaultStage);
+
+    const created: LeadEntity[] = [];
+    const errors: Array<{ index: number; nome: string; message: string }> = [];
+
+    for (let index = 0; index < dto.leads.length; index++) {
+      const item = dto.leads[index];
+      try {
+        const corretorId = this.isCorretor(requester)
+          ? requester.id
+          : (item.corretorId ?? requester.id);
+        await this.ensureCorretorAssignable(corretorId, requester);
+
+        const digits = item.telefone.replace(/\D/g, '');
+        const email =
+          item.email?.trim().toLowerCase() ||
+          `import.${digits || index}@sem-email.local`;
+
+        const lead = await this.prisma.lead.create({
+          data: {
+            tenantId,
+            tipo: ContatoTipo.lead,
+            nome: item.nome.trim(),
+            telefone: item.telefone.trim(),
+            email,
+            origem: (item.origem?.trim() || 'Importação').slice(0, 60),
+            interesse: item.interesse ?? 'Comprar',
+            cidade: (item.cidade?.trim() || 'Não informado').slice(0, 80),
+            bairro: (item.bairro?.trim() || 'Não informado').slice(0, 80),
+            stage: defaultStage,
+            prioridade: item.prioridade ?? 'Média',
+            renda: item.renda ?? null,
+            tags: ['Importação'],
+            corretorId,
+          },
+          select: leadSelect,
+        });
+        created.push(lead);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Falha ao importar este lead.';
+        errors.push({
+          index,
+          nome: item.nome,
+          message,
+        });
+      }
+    }
+
+    return {
+      ok: true,
+      total: dto.leads.length,
+      created: created.length,
+      failed: errors.length,
+      leads: created,
+      errors,
+    };
   }
 
   async findAll(
