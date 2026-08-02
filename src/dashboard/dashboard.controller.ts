@@ -16,4 +16,10 @@ export class DashboardController {
   resumoCorretor(@CurrentUser() requester: AuthenticatedUser) {
     return this.dashboardService.resumoCorretor(requester);
   }
+
+  @Get('admin')
+  @Roles(Role.admin, Role.gerente)
+  resumoAdmin(@CurrentUser() requester: AuthenticatedUser) {
+    return this.dashboardService.resumoAdmin(requester);
+  }
 }

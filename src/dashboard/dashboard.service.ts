@@ -1,21 +1,78 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import {
   AgendamentoAlvo,
   AgendamentoEscopo,
+  AgendamentoStatus,
+  AgendamentoTipo,
   AnaliseStatus,
   ContatoTipo,
   DocumentacaoStatus2,
+  MetaPeriodo,
+  MetaTipo,
+  Role,
+  UserStatus,
 } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { AgendaService } from '../agenda/agenda.service';
+import { TeamScopeService } from '../equipes/team-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
+
+const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
+const DIAS_PARADO_DEFAULT = 7;
+
+type Periodo = { inicio: Date; fim: Date };
+
+function evolucaoPct(atual: number, anterior: number): number | null {
+  if (anterior === 0) return atual === 0 ? 0 : null;
+  return Number((((atual - anterior) / anterior) * 100).toFixed(1));
+}
+
+function metric(atual: number, anterior: number) {
+  return {
+    valor: atual,
+    valorMesAnterior: anterior,
+    evolucaoPct: evolucaoPct(atual, anterior),
+  };
+}
+
+function janelasBrasil(now = new Date()) {
+  const brasil = new Date(now.getTime() - BRASIL_UTC_OFFSET_MS);
+  const y = brasil.getUTCFullYear();
+  const m = brasil.getUTCMonth();
+  const d = brasil.getUTCDate();
+  const dow = brasil.getUTCDay();
+  const mondayOffset = (dow + 6) % 7;
+
+  const toInstant = (yy: number, mm: number, dd: number) =>
+    new Date(Date.UTC(yy, mm, dd) + BRASIL_UTC_OFFSET_MS);
+
+  const inicioHoje = toInstant(y, m, d);
+  const inicioAmanha = toInstant(y, m, d + 1);
+  const inicioSemana = toInstant(y, m, d - mondayOffset);
+  const inicioMesAtual = toInstant(y, m, 1);
+  const inicioProximoMes = toInstant(y, m + 1, 1);
+  const inicioMesAnterior = toInstant(y, m - 1, 1);
+
+  return {
+    agora: now,
+    inicioHoje,
+    inicioAmanha,
+    inicioSemana,
+    mesAtual: { inicio: inicioMesAtual, fim: inicioProximoMes } satisfies Periodo,
+    mesAnterior: {
+      inicio: inicioMesAnterior,
+      fim: inicioMesAtual,
+    } satisfies Periodo,
+  };
+}
 
 @Injectable()
 export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly agendaService: AgendaService,
+    private readonly teamScope: TeamScopeService,
   ) {}
 
   async resumoCorretor(requester: AuthenticatedUser) {
@@ -27,8 +84,7 @@ export class DashboardService {
     const inicioProximoMes = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
     );
-    // Recife não usa horário de verão; a agenda deve respeitar o dia local do corretor.
-    const recifeAgora = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+    const recifeAgora = new Date(now.getTime() - BRASIL_UTC_OFFSET_MS);
     const inicioHoje = new Date(
       Date.UTC(
         recifeAgora.getUTCFullYear(),
@@ -163,6 +219,610 @@ export class DashboardService {
               ? 'compartilhada'
               : 'pessoal',
         })),
+      },
+    };
+  }
+
+  async resumoAdmin(requester: AuthenticatedUser) {
+    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+      throw new ForbiddenException(
+        'Dashboard gerencial disponível para admin e gerente.',
+      );
+    }
+
+    const tenantId = requireTenantId(requester);
+    const windows = janelasBrasil();
+    const { mesAtual, mesAnterior, inicioHoje, inicioAmanha, inicioSemana } =
+      windows;
+    const diasParado = DIAS_PARADO_DEFAULT;
+    const paradoAntes = new Date(
+      windows.agora.getTime() - diasParado * 24 * 60 * 60 * 1000,
+    );
+
+    const corretorIds = await this.teamScope.getVisibleCorretorIds(requester);
+    const leadAtivoWhere = {
+      tenantId,
+      perdidoAt: null as null,
+      ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+    };
+    const leadCriadoWhere = (periodo: Periodo) => ({
+      tenantId,
+      createdAt: { gte: periodo.inicio, lt: periodo.fim },
+      ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+    });
+    /** Leads que entraram no período e já viraram venda (coorte). */
+    const leadVendidoDaEntradaWhere = (periodo: Periodo) => ({
+      ...leadCriadoWhere(periodo),
+      OR: [
+        { stage: 'ganho-venda' },
+        {
+          documentacoes: {
+            some: { status2: DocumentacaoStatus2.vendido },
+          },
+        },
+      ],
+    });
+    const docVendaWhere = (periodo: Periodo) => ({
+      tenantId,
+      status2: DocumentacaoStatus2.vendido,
+      dataVenda: { gte: periodo.inicio, lt: periodo.fim },
+      ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+    });
+
+    const [
+      funil,
+      entradasHoje,
+      entradasSemana,
+      entradasMes,
+      entradasMesAnt,
+      semDono,
+      parados,
+      perdidosMes,
+      perdidosMesAnt,
+      perdidosMotivos,
+      perdidosMotivosAnt,
+      vendasDaEntradaMes,
+      vendasDaEntradaMesAnt,
+      vgvMes,
+      vgvMesAnt,
+      agendaHoje,
+      agendaAtrasados,
+      corretores,
+      equipes,
+      metasAtivas,
+    ] = await Promise.all([
+      this.prisma.lead.groupBy({
+        by: ['stage'],
+        where: leadAtivoWhere,
+        _count: { _all: true },
+      }),
+      this.prisma.lead.count({
+        where: leadCriadoWhere({ inicio: inicioHoje, fim: inicioAmanha }),
+      }),
+      this.prisma.lead.count({
+        where: leadCriadoWhere({ inicio: inicioSemana, fim: inicioAmanha }),
+      }),
+      this.prisma.lead.count({ where: leadCriadoWhere(mesAtual) }),
+      this.prisma.lead.count({ where: leadCriadoWhere(mesAnterior) }),
+      this.prisma.lead.count({
+        where: { tenantId, perdidoAt: null, corretorId: null },
+      }),
+      this.prisma.lead.count({
+        where: {
+          ...leadAtivoWhere,
+          updatedAt: { lt: paradoAntes },
+        },
+      }),
+      this.prisma.lead.count({
+        where: {
+          tenantId,
+          perdidoAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+        },
+      }),
+      this.prisma.lead.count({
+        where: {
+          tenantId,
+          perdidoAt: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+        },
+      }),
+      this.prisma.lead.groupBy({
+        by: ['motivoPerda'],
+        where: {
+          tenantId,
+          perdidoAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+          motivoPerda: { not: null },
+          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+        },
+        _count: { _all: true },
+        orderBy: { _count: { motivoPerda: 'desc' } },
+        take: 5,
+      }),
+      this.prisma.lead.groupBy({
+        by: ['motivoPerda'],
+        where: {
+          tenantId,
+          perdidoAt: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+          motivoPerda: { not: null },
+          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.lead.count({
+        where: leadVendidoDaEntradaWhere(mesAtual),
+      }),
+      this.prisma.lead.count({
+        where: leadVendidoDaEntradaWhere(mesAnterior),
+      }),
+      this.prisma.documentacao.aggregate({
+        where: docVendaWhere(mesAtual),
+        _sum: { vgv: true },
+      }),
+      this.prisma.documentacao.aggregate({
+        where: docVendaWhere(mesAnterior),
+        _sum: { vgv: true },
+      }),
+      this.prisma.agendamento.findMany({
+        where: {
+          tenantId,
+          startsAt: { gte: inicioHoje, lt: inicioAmanha },
+          status: { not: AgendamentoStatus.cancelado },
+          ...(corretorIds ? { autorId: { in: corretorIds } } : {}),
+        },
+        select: {
+          id: true,
+          titulo: true,
+          tipo: true,
+          status: true,
+          startsAt: true,
+          lead: { select: { nome: true } },
+        },
+        orderBy: { startsAt: 'asc' },
+        take: 20,
+      }),
+      this.prisma.agendamento.count({
+        where: {
+          tenantId,
+          status: AgendamentoStatus.agendado,
+          startsAt: { lt: windows.agora },
+          ...(corretorIds ? { autorId: { in: corretorIds } } : {}),
+        },
+      }),
+      this.prisma.user.findMany({
+        where: {
+          tenantId,
+          role: Role.corretor,
+          status: UserStatus.ativo,
+          ...(corretorIds ? { id: { in: corretorIds } } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          equipeId: true,
+          equipe: { select: { id: true, name: true } },
+        },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.equipe.findMany({
+        where: {
+          tenantId,
+          status: UserStatus.ativo,
+          ...(corretorIds
+            ? { membros: { some: { id: { in: corretorIds } } } }
+            : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          membros: {
+            where: { role: Role.corretor, status: UserStatus.ativo },
+            select: { id: true },
+          },
+        },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.meta.findMany({
+        where: {
+          tenantId,
+          inicio: { lte: windows.agora },
+          fim: { gt: windows.agora },
+          periodo: MetaPeriodo.mensal,
+          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+        },
+        include: {
+          corretor: {
+            select: {
+              id: true,
+              name: true,
+              equipeId: true,
+              equipe: { select: { id: true, name: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const motivosAntMap = new Map(
+      perdidosMotivosAnt.map((item) => [
+        item.motivoPerda ?? 'Sem motivo',
+        item._count._all,
+      ]),
+    );
+
+    const ranking = await this.buildRanking(
+      tenantId,
+      corretores,
+      mesAtual,
+      mesAnterior,
+    );
+    const distribuicaoEquipes = await this.buildDistribuicaoEquipes(
+      tenantId,
+      equipes,
+      corretores.map((c) => c.id),
+    );
+    const metas = await this.buildMetasProgress(tenantId, metasAtivas);
+
+    const taxaConversao = (vendas: number, entradas: number) =>
+      entradas === 0 ? 0 : Number(((vendas / entradas) * 100).toFixed(1));
+
+    const taxaMes = taxaConversao(vendasDaEntradaMes, entradasMes);
+    const taxaMesAnt = taxaConversao(
+      vendasDaEntradaMesAnt,
+      entradasMesAnt,
+    );
+
+    return {
+      periodo: {
+        mesAtual: {
+          inicio: mesAtual.inicio.toISOString(),
+          fim: mesAtual.fim.toISOString(),
+        },
+        mesAnterior: {
+          inicio: mesAnterior.inicio.toISOString(),
+          fim: mesAnterior.fim.toISOString(),
+        },
+      },
+      entradas: {
+        hoje: entradasHoje,
+        semana: entradasSemana,
+        mes: metric(entradasMes, entradasMesAnt),
+      },
+      funil: funil.map((item) => ({
+        etapa: item.stage,
+        total: item._count._all,
+      })),
+      /**
+       * Regra de negócio: % dos leads que entraram no período e viraram venda.
+       * Coorte = createdAt no mês; venda = stage ganho-venda ou documentação vendida.
+       */
+      conversao: {
+        entradas: metric(entradasMes, entradasMesAnt),
+        vendas: metric(vendasDaEntradaMes, vendasDaEntradaMesAnt),
+        taxa: metric(taxaMes, taxaMesAnt),
+        vgv: metric(vgvMes._sum.vgv ?? 0, vgvMesAnt._sum.vgv ?? 0),
+      },
+      atencao: {
+        semDono,
+        parados,
+        diasParado,
+      },
+      perdidos: {
+        mes: metric(perdidosMes, perdidosMesAnt),
+        motivos: perdidosMotivos.map((item) => {
+          const motivo = item.motivoPerda ?? 'Sem motivo';
+          return {
+            motivo,
+            ...metric(item._count._all, motivosAntMap.get(motivo) ?? 0),
+          };
+        }),
+      },
+      agenda: {
+        totalHoje: agendaHoje.length,
+        pendentesHoje: agendaHoje.filter(
+          (a) => a.status === AgendamentoStatus.agendado,
+        ).length,
+        concluidosHoje: agendaHoje.filter(
+          (a) => a.status === AgendamentoStatus.concluido,
+        ).length,
+        atrasados: agendaAtrasados,
+        itens: agendaHoje.slice(0, 8).map((item) => ({
+          id: item.id,
+          titulo: item.titulo,
+          tipo: item.tipo,
+          status: item.status,
+          startsAt: item.startsAt.toISOString(),
+          contato: item.lead?.nome ?? null,
+        })),
+      },
+      ranking,
+      equipes: distribuicaoEquipes,
+      metas,
+    };
+  }
+
+  private async buildRanking(
+    tenantId: string,
+    corretores: {
+      id: string;
+      name: string;
+      equipe: { id: string; name: string } | null;
+    }[],
+    mesAtual: Periodo,
+    mesAnterior: Periodo,
+  ) {
+    if (corretores.length === 0) return [];
+    const ids = corretores.map((c) => c.id);
+
+    const [
+      leadsAtivos,
+      visitasMes,
+      vendasMes,
+      vendasMesAnt,
+      vgvMes,
+      vgvMesAnt,
+    ] = await Promise.all([
+      this.prisma.lead.groupBy({
+        by: ['corretorId'],
+        where: { tenantId, perdidoAt: null, corretorId: { in: ids } },
+        _count: { _all: true },
+      }),
+      this.prisma.agendamento.groupBy({
+        by: ['autorId'],
+        where: {
+          tenantId,
+          autorId: { in: ids },
+          tipo: AgendamentoTipo.visita,
+          status: AgendamentoStatus.concluido,
+          startsAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.documentacao.groupBy({
+        by: ['corretorId'],
+        where: {
+          tenantId,
+          corretorId: { in: ids },
+          status2: DocumentacaoStatus2.vendido,
+          dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.documentacao.groupBy({
+        by: ['corretorId'],
+        where: {
+          tenantId,
+          corretorId: { in: ids },
+          status2: DocumentacaoStatus2.vendido,
+          dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.documentacao.groupBy({
+        by: ['corretorId'],
+        where: {
+          tenantId,
+          corretorId: { in: ids },
+          status2: DocumentacaoStatus2.vendido,
+          dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
+        },
+        _sum: { vgv: true },
+      }),
+      this.prisma.documentacao.groupBy({
+        by: ['corretorId'],
+        where: {
+          tenantId,
+          corretorId: { in: ids },
+          status2: DocumentacaoStatus2.vendido,
+          dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+        },
+        _sum: { vgv: true },
+      }),
+    ]);
+
+    const leadsMap = new Map(
+      leadsAtivos.map((r) => [r.corretorId!, r._count._all]),
+    );
+    const visitasMap = new Map(
+      visitasMes.map((r) => [r.autorId, r._count._all]),
+    );
+    const vendasMap = new Map(
+      vendasMes.map((r) => [r.corretorId!, r._count._all]),
+    );
+    const vendasAntMap = new Map(
+      vendasMesAnt.map((r) => [r.corretorId!, r._count._all]),
+    );
+    const vgvMap = new Map(
+      vgvMes.map((r) => [r.corretorId!, r._sum.vgv ?? 0]),
+    );
+    const vgvAntMap = new Map(
+      vgvMesAnt.map((r) => [r.corretorId!, r._sum.vgv ?? 0]),
+    );
+
+    return corretores
+      .map((c) => ({
+        corretorId: c.id,
+        nome: c.name,
+        equipe: c.equipe?.name ?? null,
+        leads: leadsMap.get(c.id) ?? 0,
+        visitas: visitasMap.get(c.id) ?? 0,
+        vendas: metric(vendasMap.get(c.id) ?? 0, vendasAntMap.get(c.id) ?? 0),
+        vgv: metric(vgvMap.get(c.id) ?? 0, vgvAntMap.get(c.id) ?? 0),
+      }))
+      .sort(
+        (a, b) =>
+          b.vgv.valor - a.vgv.valor ||
+          b.vendas.valor - a.vendas.valor ||
+          b.leads - a.leads,
+      );
+  }
+
+  private async buildDistribuicaoEquipes(
+    tenantId: string,
+    equipes: {
+      id: string;
+      name: string;
+      membros: { id: string }[];
+    }[],
+    corretorIds: string[],
+  ) {
+    if (corretorIds.length === 0) return [];
+
+    const leads = await this.prisma.lead.groupBy({
+      by: ['corretorId', 'tipo'],
+      where: {
+        tenantId,
+        perdidoAt: null,
+        corretorId: { in: corretorIds },
+      },
+      _count: { _all: true },
+    });
+
+    const byCorretor = new Map<string, { leads: number; clientes: number }>();
+    for (const row of leads) {
+      if (!row.corretorId) continue;
+      const cur = byCorretor.get(row.corretorId) ?? { leads: 0, clientes: 0 };
+      if (row.tipo === ContatoTipo.cliente) cur.clientes += row._count._all;
+      else cur.leads += row._count._all;
+      byCorretor.set(row.corretorId, cur);
+    }
+
+    const semEquipeIds = new Set(corretorIds);
+    const result = equipes.map((eq) => {
+      let leadsTotal = 0;
+      let clientesTotal = 0;
+      for (const m of eq.membros) {
+        semEquipeIds.delete(m.id);
+        const cur = byCorretor.get(m.id);
+        if (!cur) continue;
+        leadsTotal += cur.leads;
+        clientesTotal += cur.clientes;
+      }
+      return {
+        equipeId: eq.id,
+        nome: eq.name,
+        corretores: eq.membros.length,
+        leads: leadsTotal,
+        clientes: clientesTotal,
+        total: leadsTotal + clientesTotal,
+      };
+    });
+
+    if (semEquipeIds.size > 0) {
+      let leadsTotal = 0;
+      let clientesTotal = 0;
+      for (const id of semEquipeIds) {
+        const cur = byCorretor.get(id);
+        if (!cur) continue;
+        leadsTotal += cur.leads;
+        clientesTotal += cur.clientes;
+      }
+      result.push({
+        equipeId: 'sem-equipe',
+        nome: 'Sem equipe',
+        corretores: semEquipeIds.size,
+        leads: leadsTotal,
+        clientes: clientesTotal,
+        total: leadsTotal + clientesTotal,
+      });
+    }
+
+    return result.sort((a, b) => b.total - a.total);
+  }
+
+  private async buildMetasProgress(
+    tenantId: string,
+    metas: Array<{
+      id: string;
+      tipo: MetaTipo;
+      valor: number;
+      inicio: Date;
+      fim: Date;
+      corretorId: string;
+      corretor: {
+        id: string;
+        name: string;
+        equipeId: string | null;
+        equipe: { id: string; name: string } | null;
+      };
+    }>,
+  ) {
+    const items = await Promise.all(
+      metas.map(async (meta) => {
+        const whereVenda = {
+          tenantId,
+          corretorId: meta.corretorId,
+          dataVenda: { gte: meta.inicio, lt: meta.fim },
+          status2: DocumentacaoStatus2.vendido,
+        };
+        let atual = 0;
+        if (meta.tipo === MetaTipo.documentacoes) {
+          atual = await this.prisma.documentacao.count({
+            where: {
+              tenantId,
+              corretorId: meta.corretorId,
+              createdAt: { gte: meta.inicio, lt: meta.fim },
+            },
+          });
+        } else if (meta.tipo === MetaTipo.vendas) {
+          atual = await this.prisma.documentacao.count({ where: whereVenda });
+        } else {
+          const agg = await this.prisma.documentacao.aggregate({
+            where: whereVenda,
+            _sum: { vgv: true },
+          });
+          atual = agg._sum.vgv ?? 0;
+        }
+        return {
+          id: meta.id,
+          tipo: meta.tipo,
+          valor: meta.valor,
+          atual,
+          percentual: Math.min(100, Math.round((atual / meta.valor) * 100)),
+          corretorId: meta.corretorId,
+          corretorNome: meta.corretor.name,
+          equipeId: meta.corretor.equipeId,
+          equipeNome: meta.corretor.equipe?.name ?? null,
+        };
+      }),
+    );
+
+    const porEquipe = new Map<
+      string,
+      { equipeId: string; nome: string; meta: number; atual: number }
+    >();
+    let metaImob = 0;
+    let atualImob = 0;
+    for (const item of items) {
+      metaImob += item.valor;
+      atualImob += item.atual;
+      const key = item.equipeId ?? 'sem-equipe';
+      const nome = item.equipeNome ?? 'Sem equipe';
+      const cur = porEquipe.get(key) ?? {
+        equipeId: key,
+        nome,
+        meta: 0,
+        atual: 0,
+      };
+      cur.meta += item.valor;
+      cur.atual += item.atual;
+      porEquipe.set(key, cur);
+    }
+
+    return {
+      corretores: items,
+      equipes: [...porEquipe.values()].map((e) => ({
+        ...e,
+        percentual:
+          e.meta === 0 ? 0 : Math.min(100, Math.round((e.atual / e.meta) * 100)),
+      })),
+      imobiliaria: {
+        meta: metaImob,
+        atual: atualImob,
+        percentual:
+          metaImob === 0
+            ? 0
+            : Math.min(100, Math.round((atualImob / metaImob) * 100)),
       },
     };
   }
