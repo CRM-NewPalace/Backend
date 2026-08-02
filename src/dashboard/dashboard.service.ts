@@ -826,4 +826,386 @@ export class DashboardService {
       },
     };
   }
+
+  /**
+   * Ranking mensal completo: corretores individuais + gerentes (agregado da equipe).
+   */
+  async rankingCompleto(requester: AuthenticatedUser) {
+    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+      throw new ForbiddenException(
+        'Ranking disponível para admin e gerente.',
+      );
+    }
+
+    const tenantId = requireTenantId(requester);
+    const { mesAtual, mesAnterior, agora } = janelasBrasil();
+    const corretorIds = await this.teamScope.getVisibleCorretorIds(requester);
+    const taxaConversao = (vendas: number, entradas: number) =>
+      entradas === 0 ? 0 : Number(((vendas / entradas) * 100).toFixed(1));
+
+    const [corretores, equipes, metasAtivas] = await Promise.all([
+      this.prisma.user.findMany({
+        where: {
+          tenantId,
+          role: Role.corretor,
+          status: UserStatus.ativo,
+          ...(corretorIds ? { id: { in: corretorIds } } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          equipeId: true,
+          equipe: {
+            select: {
+              id: true,
+              name: true,
+              gerenteId: true,
+              gerente: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.equipe.findMany({
+        where: {
+          tenantId,
+          status: UserStatus.ativo,
+          ...(corretorIds
+            ? { membros: { some: { id: { in: corretorIds } } } }
+            : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          gerenteId: true,
+          gerente: { select: { id: true, name: true } },
+          membros: {
+            where: { role: Role.corretor, status: UserStatus.ativo },
+            select: { id: true },
+          },
+        },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.meta.findMany({
+        where: {
+          tenantId,
+          inicio: { lte: agora },
+          fim: { gt: agora },
+          periodo: MetaPeriodo.mensal,
+          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+        },
+        include: {
+          corretor: {
+            select: {
+              id: true,
+              name: true,
+              equipeId: true,
+              equipe: { select: { id: true, name: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const ids = corretores.map((c) => c.id);
+    const emptyGroup = Promise.resolve(
+      [] as Array<{
+        corretorId?: string | null;
+        autorId?: string;
+        _count: { _all: number };
+        _sum?: { vgv: number | null };
+      }>,
+    );
+
+    const [
+      leadsAtivos,
+      entradasMes,
+      entradasMesAnt,
+      visitasMes,
+      docsMes,
+      vendasMes,
+      vendasMesAnt,
+      vgvMes,
+      vgvMesAnt,
+      perdidosMes,
+      metas,
+    ] = await Promise.all([
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.lead.groupBy({
+            by: ['corretorId'],
+            where: { tenantId, perdidoAt: null, corretorId: { in: ids } },
+            _count: { _all: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.lead.groupBy({
+            by: ['corretorId'],
+            where: {
+              tenantId,
+              corretorId: { in: ids },
+              createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+            },
+            _count: { _all: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.lead.groupBy({
+            by: ['corretorId'],
+            where: {
+              tenantId,
+              corretorId: { in: ids },
+              createdAt: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+            },
+            _count: { _all: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.agendamento.groupBy({
+            by: ['autorId'],
+            where: {
+              tenantId,
+              autorId: { in: ids },
+              tipo: AgendamentoTipo.visita,
+              status: AgendamentoStatus.concluido,
+              startsAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+            },
+            _count: { _all: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.documentacao.groupBy({
+            by: ['corretorId'],
+            where: {
+              tenantId,
+              corretorId: { in: ids },
+              createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+            },
+            _count: { _all: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.documentacao.groupBy({
+            by: ['corretorId'],
+            where: {
+              tenantId,
+              corretorId: { in: ids },
+              status2: DocumentacaoStatus2.vendido,
+              dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
+            },
+            _count: { _all: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.documentacao.groupBy({
+            by: ['corretorId'],
+            where: {
+              tenantId,
+              corretorId: { in: ids },
+              status2: DocumentacaoStatus2.vendido,
+              dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+            },
+            _count: { _all: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.documentacao.groupBy({
+            by: ['corretorId'],
+            where: {
+              tenantId,
+              corretorId: { in: ids },
+              status2: DocumentacaoStatus2.vendido,
+              dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
+            },
+            _sum: { vgv: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.documentacao.groupBy({
+            by: ['corretorId'],
+            where: {
+              tenantId,
+              corretorId: { in: ids },
+              status2: DocumentacaoStatus2.vendido,
+              dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+            },
+            _sum: { vgv: true },
+          }),
+      ids.length === 0
+        ? emptyGroup
+        : this.prisma.lead.groupBy({
+            by: ['corretorId'],
+            where: {
+              tenantId,
+              corretorId: { in: ids },
+              perdidoAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+            },
+            _count: { _all: true },
+          }),
+      this.buildMetasProgress(tenantId, metasAtivas),
+    ]);
+
+    const toMap = (
+      rows: Array<{ corretorId?: string | null; _count: { _all: number } }>,
+    ) =>
+      new Map(
+        rows
+          .filter((r) => r.corretorId)
+          .map((r) => [r.corretorId!, r._count._all]),
+      );
+
+    const leadsMap = toMap(leadsAtivos);
+    const entradasMap = toMap(entradasMes);
+    const entradasAntMap = toMap(entradasMesAnt);
+    const visitasMap = new Map(
+      visitasMes.map((r) => [r.autorId!, r._count._all]),
+    );
+    const docsMap = toMap(docsMes);
+    const vendasMap = toMap(vendasMes);
+    const vendasAntMap = toMap(vendasMesAnt);
+    const vgvMap = new Map(
+      vgvMes
+        .filter((r) => r.corretorId)
+        .map((r) => [r.corretorId!, r._sum?.vgv ?? 0]),
+    );
+    const vgvAntMap = new Map(
+      vgvMesAnt
+        .filter((r) => r.corretorId)
+        .map((r) => [r.corretorId!, r._sum?.vgv ?? 0]),
+    );
+    const perdidosMap = toMap(perdidosMes);
+
+    const metaByCorretor = new Map(
+      metas.corretores.map((m) => [
+        m.corretorId,
+        {
+          tipo: m.tipo,
+          valor: m.valor,
+          atual: m.atual,
+          percentual: m.percentual,
+        },
+      ]),
+    );
+
+    const rankingCorretores = corretores
+      .map((c) => {
+        const entradas = entradasMap.get(c.id) ?? 0;
+        const vendas = vendasMap.get(c.id) ?? 0;
+        const vendasAnt = vendasAntMap.get(c.id) ?? 0;
+        const entradasAnt = entradasAntMap.get(c.id) ?? 0;
+        const taxa = taxaConversao(vendas, entradas);
+        const taxaAnt = taxaConversao(vendasAnt, entradasAnt);
+        return {
+          corretorId: c.id,
+          nome: c.name,
+          equipeId: c.equipe?.id ?? null,
+          equipe: c.equipe?.name ?? null,
+          gerenteId: c.equipe?.gerente?.id ?? null,
+          gerente: c.equipe?.gerente?.name ?? null,
+          leads: leadsMap.get(c.id) ?? 0,
+          entradas: metric(entradas, entradasAnt),
+          visitas: visitasMap.get(c.id) ?? 0,
+          documentacoes: docsMap.get(c.id) ?? 0,
+          vendas: metric(vendas, vendasAnt),
+          vgv: metric(vgvMap.get(c.id) ?? 0, vgvAntMap.get(c.id) ?? 0),
+          taxaConversao: metric(taxa, taxaAnt),
+          perdidos: perdidosMap.get(c.id) ?? 0,
+          meta: metaByCorretor.get(c.id) ?? null,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.vgv.valor - a.vgv.valor ||
+          b.vendas.valor - a.vendas.valor ||
+          b.entradas.valor - a.entradas.valor ||
+          b.leads - a.leads,
+      )
+      .map((row, index) => ({ posicao: index + 1, ...row }));
+
+    const byCorretorMetrics = new Map(
+      rankingCorretores.map((r) => [r.corretorId, r]),
+    );
+
+    const rankingGerentes = equipes
+      .map((eq) => {
+        let leads = 0;
+        let entradas = 0;
+        let entradasAnt = 0;
+        let visitas = 0;
+        let vendas = 0;
+        let vendasAnt = 0;
+        let vgv = 0;
+        let vgvAnt = 0;
+        let perdidos = 0;
+        for (const m of eq.membros) {
+          const row = byCorretorMetrics.get(m.id);
+          if (!row) continue;
+          leads += row.leads;
+          entradas += row.entradas.valor;
+          entradasAnt += row.entradas.valorMesAnterior;
+          visitas += row.visitas;
+          vendas += row.vendas.valor;
+          vendasAnt += row.vendas.valorMesAnterior;
+          vgv += row.vgv.valor;
+          vgvAnt += row.vgv.valorMesAnterior;
+          perdidos += row.perdidos;
+        }
+        const taxa = taxaConversao(vendas, entradas);
+        const taxaAnt = taxaConversao(vendasAnt, entradasAnt);
+        return {
+          gerenteId: eq.gerente.id,
+          nome: eq.gerente.name,
+          equipeId: eq.id,
+          equipe: eq.name,
+          corretores: eq.membros.length,
+          leads,
+          entradas: metric(entradas, entradasAnt),
+          visitas,
+          vendas: metric(vendas, vendasAnt),
+          vgv: metric(vgv, vgvAnt),
+          taxaConversao: metric(taxa, taxaAnt),
+          perdidos,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.vgv.valor - a.vgv.valor ||
+          b.vendas.valor - a.vendas.valor ||
+          b.entradas.valor - a.entradas.valor,
+      )
+      .map((row, index) => ({ posicao: index + 1, ...row }));
+
+    const totais = rankingCorretores.reduce(
+      (acc, r) => {
+        acc.entradas += r.entradas.valor;
+        acc.vendas += r.vendas.valor;
+        acc.vgv += r.vgv.valor;
+        acc.visitas += r.visitas;
+        acc.perdidos += r.perdidos;
+        return acc;
+      },
+      { entradas: 0, vendas: 0, vgv: 0, visitas: 0, perdidos: 0 },
+    );
+
+    return {
+      periodo: {
+        mesAtual: {
+          inicio: mesAtual.inicio.toISOString(),
+          fim: mesAtual.fim.toISOString(),
+        },
+        mesAnterior: {
+          inicio: mesAnterior.inicio.toISOString(),
+          fim: mesAnterior.fim.toISOString(),
+        },
+      },
+      totais: {
+        ...totais,
+        taxaConversao: taxaConversao(totais.vendas, totais.entradas),
+        corretores: rankingCorretores.length,
+        gerentes: rankingGerentes.length,
+      },
+      corretores: rankingCorretores,
+      gerentes: rankingGerentes,
+    };
+  }
 }

@@ -22,4 +22,10 @@ export class DashboardController {
   resumoAdmin(@CurrentUser() requester: AuthenticatedUser) {
     return this.dashboardService.resumoAdmin(requester);
   }
+
+  @Get('ranking')
+  @Roles(Role.admin, Role.gerente)
+  ranking(@CurrentUser() requester: AuthenticatedUser) {
+    return this.dashboardService.rankingCompleto(requester);
+  }
 }
