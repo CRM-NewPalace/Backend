@@ -83,27 +83,19 @@ export class LeadsService {
     const defaultStage = await this.catalog.getDefaultStageSlug(tenantId);
     await this.ensureStageIsValid(tenantId, defaultStage);
 
-    /** Admin/gerente: 1º corretor disponível do escopo (não usar o próprio id). */
-    let fallbackCorretorId: string | null = null;
-    if (!this.isCorretor(requester)) {
-      const assignees = await this.listAssignees(requester);
-      fallbackCorretorId = assignees[0]?.id ?? null;
-    }
-
     const created: LeadEntity[] = [];
     const errors: Array<{ index: number; nome: string; message: string }> = [];
 
     for (let index = 0; index < dto.leads.length; index++) {
       const item = dto.leads[index];
       try {
-        let corretorId: string | null;
-        if (this.isCorretor(requester)) {
-          corretorId = requester.id;
-        } else if (item.corretorId) {
+        /** Importação começa sem dono; só atribui se vier corretorId explícito. */
+        let corretorId: string | null = null;
+        if (item.corretorId) {
           await this.ensureCorretorAssignable(item.corretorId, requester);
           corretorId = item.corretorId;
-        } else {
-          corretorId = fallbackCorretorId;
+        } else if (this.isCorretor(requester)) {
+          corretorId = requester.id;
         }
 
         const digits = item.telefone.replace(/\D/g, '');
