@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CatalogType, Prisma, Role, UserStatus } from '@prisma/client';
+import { CatalogType, Prisma, Role, TenantPlano, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,6 +19,11 @@ import { tenantAdminSelect } from '../common/utils/tenant-branding';
 import { publicUserSelect } from '../common/utils/user-select';
 import { SALT_ROUNDS } from '../config/security.constants';
 import { DEFAULT_FUNNEL_STAGES } from '../catalog/catalog.defaults';
+import {
+  PLANO_MAX_USUARIOS,
+  resolvePlanoFields,
+} from './tenant-plan';
+import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
 
 const tenantSelect = tenantAdminSelect;
 
@@ -103,7 +108,17 @@ export class TenantsService {
     const adminEmail = this.buildAdminEmail(slug);
     const temporaryPassword = this.generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
-    const extras = this.sanitizeTenantExtras(dto);
+    const planFields = resolvePlanoFields({
+      plano: dto.plano ?? TenantPlano.bronze,
+      maxUsuarios: dto.maxUsuarios,
+      usuariosExtras: dto.usuariosExtras,
+      iaBotEnabled: dto.iaBotEnabled,
+      modules: dto.modules,
+    });
+    const extras = this.sanitizeTenantExtras({
+      logoUrl: dto.logoUrl,
+      modules: planFields.modules,
+    });
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -116,6 +131,10 @@ export class TenantsService {
             sidebarStyle: 'default',
             density: 'comfortable',
             homePath: '/dashboard',
+            plano: planFields.plano,
+            maxUsuarios: planFields.maxUsuarios,
+            usuariosExtras: planFields.usuariosExtras,
+            iaBotEnabled: planFields.iaBotEnabled,
             ...extras,
           },
           select: tenantSelect,
@@ -298,10 +317,114 @@ export class TenantsService {
     return { id: tenant.id, name: tenant.name, slug: tenant.slug };
   }
 
+  /**
+   * Super admin cria usuário no tenant. Se a cota estiver cheia,
+   * incrementa `usuariosExtras` automaticamente.
+   */
+  async createUserForTenant(tenantId: string, dto: CreateTenantUserDto) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        maxUsuarios: true,
+        usuariosExtras: true,
+      },
+    });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+
+    const email = dto.email.toLowerCase().trim();
+    const existing = await this.prisma.user.findFirst({
+      where: { tenantId, email },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'Já existe um usuário com este e-mail neste tenant.',
+      );
+    }
+
+    const temporaryPassword =
+      dto.password?.trim() || this.generateTemporaryPassword();
+    const passwordHash = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
+
+    const userCount = await this.prisma.user.count({ where: { tenantId } });
+    const limit = tenant.maxUsuarios + tenant.usuariosExtras;
+    const needExtra = userCount >= limit;
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      if (needExtra) {
+        await tx.tenant.update({
+          where: { id: tenantId },
+          data: { usuariosExtras: { increment: 1 } },
+        });
+      }
+      return tx.user.create({
+        data: {
+          tenantId,
+          name: dto.name.trim(),
+          email,
+          password: passwordHash,
+          phone: dto.phone,
+          whatsapp: dto.whatsapp,
+          cargo: dto.cargo,
+          role: dto.role,
+          status: dto.status ?? UserStatus.ativo,
+        },
+        select: publicUserSelect,
+      });
+    });
+
+    return {
+      user,
+      temporaryPassword: dto.password?.trim() ? undefined : temporaryPassword,
+      usuariosExtrasIncremented: needExtra,
+    };
+  }
+
   async update(id: string, dto: UpdateTenantDto) {
     await this.ensureExists(id);
 
-    const extras = this.sanitizeTenantExtras(dto);
+    const current = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: {
+        plano: true,
+        maxUsuarios: true,
+        usuariosExtras: true,
+        iaBotEnabled: true,
+        modules: true,
+      },
+    });
+    if (!current) throw new NotFoundException('Tenant não encontrado.');
+
+    const plano = dto.plano ?? current.plano;
+    const planChanged = dto.plano !== undefined && dto.plano !== current.plano;
+
+    const planFields = resolvePlanoFields({
+      plano,
+      maxUsuarios:
+        dto.maxUsuarios ?? (planChanged ? undefined : current.maxUsuarios),
+      usuariosExtras: dto.usuariosExtras ?? current.usuariosExtras,
+      iaBotEnabled:
+        dto.iaBotEnabled ??
+        (planChanged ? undefined : current.iaBotEnabled),
+      modules:
+        dto.modules ??
+        (planChanged
+          ? undefined
+          : (current.modules as Record<string, boolean> | null)),
+    });
+
+    const modulesToSave =
+      dto.modules !== undefined
+        ? dto.modules
+        : planChanged
+          ? planFields.modules
+          : undefined;
+
+    const extras = this.sanitizeTenantExtras({
+      logoUrl: dto.logoUrl,
+      modules: modulesToSave,
+    });
 
     try {
       return await this.prisma.tenant.update({
@@ -309,7 +432,14 @@ export class TenantsService {
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
           ...(dto.status !== undefined ? { status: dto.status } : {}),
-          // Mantém só logo + módulos; limpa cor/layout antigos.
+          plano: planFields.plano,
+          maxUsuarios:
+            dto.maxUsuarios ??
+            (planChanged
+              ? PLANO_MAX_USUARIOS[planFields.plano]
+              : current.maxUsuarios),
+          usuariosExtras: planFields.usuariosExtras,
+          iaBotEnabled: planFields.iaBotEnabled,
           primaryColor: null,
           sidebarStyle: 'default',
           density: 'comfortable',

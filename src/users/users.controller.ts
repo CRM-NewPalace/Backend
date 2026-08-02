@@ -43,6 +43,12 @@ export class UsersController {
     return this.usersService.create(dto, requester);
   }
 
+  @Get('quota')
+  @Roles(Role.admin, Role.gerente)
+  getQuota(@CurrentUser() requester: AuthenticatedUser) {
+    return this.usersService.getQuota(requester);
+  }
+
   @Get()
   @Roles(Role.admin, Role.gerente)
   findAll(

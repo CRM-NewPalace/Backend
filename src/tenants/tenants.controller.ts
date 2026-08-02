@@ -15,6 +15,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantsService } from './tenants.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateTenantAdminDto } from './dto/create-tenant-admin.dto';
+import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
@@ -52,6 +53,14 @@ export class TenantsController {
     @Body() dto: CreateTenantAdminDto,
   ) {
     return this.tenantsService.createInitialAdmin(id, dto ?? {});
+  }
+
+  @Post(':id/users')
+  createUserForTenant(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateTenantUserDto,
+  ) {
+    return this.tenantsService.createUserForTenant(id, dto);
   }
 
   @Post(':id/admin/reset-password')

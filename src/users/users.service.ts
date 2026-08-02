@@ -41,6 +41,8 @@ export class UsersService {
       );
     }
 
+    await this.assertCanCreateUser(tenantId);
+
     const email = dto.email.toLowerCase().trim();
     await this.ensureEmailIsAvailable(tenantId, email);
 
@@ -59,6 +61,51 @@ export class UsersService {
       },
       select: publicUserSelect,
     });
+  }
+
+  /** Cota de usuários do tenant do requester. */
+  async getQuota(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        plano: true,
+        maxUsuarios: true,
+        usuariosExtras: true,
+        iaBotEnabled: true,
+      },
+    });
+    if (!tenant) {
+      throw new NotFoundException('Tenant não encontrado.');
+    }
+    const used = await this.prisma.user.count({ where: { tenantId } });
+    const limit = tenant.maxUsuarios + tenant.usuariosExtras;
+    return {
+      plano: tenant.plano,
+      maxUsuarios: tenant.maxUsuarios,
+      usuariosExtras: tenant.usuariosExtras,
+      limite: limit,
+      usados: used,
+      restantes: Math.max(0, limit - used),
+      iaBotEnabled: tenant.iaBotEnabled,
+    };
+  }
+
+  private async assertCanCreateUser(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { maxUsuarios: true, usuariosExtras: true, plano: true },
+    });
+    if (!tenant) {
+      throw new NotFoundException('Tenant não encontrado.');
+    }
+    const used = await this.prisma.user.count({ where: { tenantId } });
+    const limit = tenant.maxUsuarios + tenant.usuariosExtras;
+    if (used >= limit) {
+      throw new ForbiddenException(
+        `Limite de usuários do plano atingido (${used}/${limit}). Peça ao administrador da plataforma para liberar usuários extras.`,
+      );
+    }
   }
 
   async findAll(

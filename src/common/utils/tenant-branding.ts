@@ -11,6 +11,10 @@ export const tenantBrandingSelect = {
   density: true,
   homePath: true,
   modules: true,
+  plano: true,
+  maxUsuarios: true,
+  usuariosExtras: true,
+  iaBotEnabled: true,
 } satisfies Prisma.TenantSelect;
 
 export type TenantBranding = Prisma.TenantGetPayload<{

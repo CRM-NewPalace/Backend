@@ -1,12 +1,17 @@
 import {
   Allow,
+  IsBoolean,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { TenantPlano } from '@prisma/client';
 
 function emptyToNull({ value }: { value: unknown }) {
   if (value === '' || value === undefined) return null;
@@ -14,8 +19,7 @@ function emptyToNull({ value }: { value: unknown }) {
 }
 
 /**
- * Update de tenant: dados, logo e módulos.
- * Cor/layout por tenant foram descontinuados.
+ * Update de tenant: dados, plano, cota, logo e módulos.
  */
 export class UpdateTenantDto {
   @IsOptional()
@@ -27,6 +31,30 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsIn(['ativo', 'inativo'], { message: 'Status inválido.' })
   status?: 'ativo' | 'inativo';
+
+  @IsOptional()
+  @IsIn([TenantPlano.bronze, TenantPlano.prata, TenantPlano.ouro], {
+    message: 'Plano inválido. Use bronze, prata ou ouro.',
+  })
+  plano?: TenantPlano;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  maxUsuarios?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  usuariosExtras?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  iaBotEnabled?: boolean;
 
   @IsOptional()
   @Transform(emptyToNull)

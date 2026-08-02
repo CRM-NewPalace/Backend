@@ -26,6 +26,13 @@ enum UserStatus {
   inativo
 }
 
+/// Plano comercial do tenant (define módulos base e cota de usuários).
+enum TenantPlano {
+  bronze
+  prata
+  ouro
+}
+
 /// Origem da meta: criada pelo corretor ou atribuída pelo gerente.
 enum MetaOrigem {
   pessoal
@@ -74,6 +81,15 @@ model Tenant {
   homePath     String @default("/dashboard")
   /// Módulos ligados/desligados: { "metas": true, "financeiro": false, ... }
   modules      Json?
+
+  /// Plano: bronze (CRM), prata (CRM+admin), ouro (tudo).
+  plano TenantPlano @default(bronze)
+  /// Cota base de usuários do plano (5 / 15 / 30).
+  maxUsuarios Int @default(5)
+  /// Usuários extras liberados pelo super_admin além da cota base.
+  usuariosExtras Int @default(0)
+  /// Tenant pode conectar bot de IA (WhatsApp/OZap IA).
+  iaBotEnabled Boolean @default(false)
 
   users             User[]
   equipes           Equipe[]
