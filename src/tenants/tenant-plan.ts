@@ -28,7 +28,6 @@ const ADMINISTRATIVO = [
   'metas',
   'propostas',
   'taxaConversao',
-  'relatorios',
   'configuracoes',
 ] as const;
 
