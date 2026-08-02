@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { LeadsModule } from './leads/leads.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { FunisModule } from './funis/funis.module';
 import { TriagemModule } from './triagem/triagem.module';
 import { DocumentacaoModule } from './documentacao/documentacao.module';
 import { EquipesModule } from './equipes/equipes.module';
@@ -37,6 +38,7 @@ import { THROTTLE } from './config/security.constants';
     UsersModule,
     LeadsModule,
     CatalogModule,
+    FunisModule,
     TriagemModule,
     DocumentacaoModule,
     ConstrutorasModule,

@@ -1,0 +1,138 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { FunisService } from './funis.service';
+import {
+  CreateFunilDto,
+  CreateFunilEtapaDto,
+  ReorderFunilEtapasDto,
+  UpdateFunilDto,
+  UpdateFunilEtapaDto,
+} from './dto/funil.dto';
+
+@Controller('funis')
+@UseGuards(RolesGuard)
+export class FunisController {
+  constructor(private readonly funisService: FunisService) {}
+
+  @Get()
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  list(@CurrentUser() requester: AuthenticatedUser) {
+    return this.funisService.list(requester);
+  }
+
+  @Get('ativo')
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  getAtivo(@CurrentUser() requester: AuthenticatedUser) {
+    return this.funisService.getAtivo(requester);
+  }
+
+  @Get(':id')
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.findOne(id, requester);
+  }
+
+  @Post()
+  @Roles(Role.admin, Role.gerente)
+  create(
+    @Body() dto: CreateFunilDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.create(dto, requester);
+  }
+
+  @Patch(':id')
+  @Roles(Role.admin, Role.gerente)
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateFunilDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.update(id, dto, requester);
+  }
+
+  @Post(':id/ativar')
+  @Roles(Role.admin, Role.gerente)
+  ativar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.ativar(id, requester);
+  }
+
+  @Delete(':id')
+  @Roles(Role.admin, Role.gerente)
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.remove(id, requester);
+  }
+
+  @Post(':id/etapas')
+  @Roles(Role.admin, Role.gerente)
+  addEtapa(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateFunilEtapaDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.addEtapa(id, dto, requester);
+  }
+
+  @Patch(':id/etapas/reorder')
+  @Roles(Role.admin, Role.gerente)
+  reorderEtapas(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReorderFunilEtapasDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.reorderEtapas(id, dto, requester);
+  }
+
+  @Patch(':funilId/etapas/:etapaId')
+  @Roles(Role.admin, Role.gerente)
+  updateEtapa(
+    @Param('funilId', ParseUUIDPipe) funilId: string,
+    @Param('etapaId', ParseUUIDPipe) etapaId: string,
+    @Body() dto: UpdateFunilEtapaDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.updateEtapa(funilId, etapaId, dto, requester);
+  }
+
+  @Delete(':funilId/etapas/:etapaId')
+  @Roles(Role.admin, Role.gerente)
+  removeEtapa(
+    @Param('funilId', ParseUUIDPipe) funilId: string,
+    @Param('etapaId', ParseUUIDPipe) etapaId: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.removeEtapa(funilId, etapaId, requester);
+  }
+
+  @Post(':id/etapas-padrao')
+  @Roles(Role.admin, Role.gerente)
+  installDefaults(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.installDefaults(id, requester);
+  }
+}

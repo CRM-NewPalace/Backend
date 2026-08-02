@@ -479,6 +479,29 @@ export class TenantsService {
       })),
       skipDuplicates: true,
     });
+
+    const existingFunil = await tx.funil.findFirst({
+      where: { tenantId },
+      select: { id: true },
+    });
+    if (!existingFunil) {
+      await tx.funil.create({
+        data: {
+          tenantId,
+          name: 'Funil padrão',
+          ativo: true,
+          etapas: {
+            create: DEFAULT_FUNNEL_STAGES.map((stage) => ({
+              label: stage.label,
+              slug: stage.slug,
+              color: stage.color,
+              sortOrder: stage.sortOrder,
+              active: true,
+            })),
+          },
+        },
+      });
+    }
   }
 
   /** Normaliza logoUrl e modules (create/update). */

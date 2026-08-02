@@ -81,6 +81,7 @@ model Tenant {
   construtoras      Construtora[]
   empreendimentos   Empreendimento[]
   catalogItems      CatalogItem[]
+  funis             Funil[]
   documentacoes     Documentacao[]
   analises          Analise[]
   agendamentos      Agendamento[]
@@ -741,6 +742,45 @@ enum CatalogType {
   origem
   motivo_perda
   tag
+}
+
+/// Funil comercial nomeado do tenant. Apenas um pode estar `ativo` por vez.
+model Funil {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name     String
+  /// Funil em uso no kanban, dashboard e novos leads.
+  ativo    Boolean @default(false)
+
+  etapas FunilEtapa[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, ativo])
+  @@map("funis")
+}
+
+/// Etapa pertencente a um funil. Lead.stage guarda o `slug`.
+model FunilEtapa {
+  id        String  @id @default(uuid())
+  funilId   String
+  funil     Funil   @relation(fields: [funilId], references: [id], onDelete: Cascade)
+  label     String
+  slug      String
+  color     String  @default("bg-slate-200 text-slate-700")
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([funilId, slug])
+  @@unique([funilId, label])
+  @@index([funilId, sortOrder])
+  @@map("funil_etapas")
 }
 
 /// Item de catálogo (etapa do funil, origem, motivo de perda, tag).

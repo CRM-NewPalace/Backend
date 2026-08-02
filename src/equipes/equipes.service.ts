@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role, UserStatus } from '@prisma/client';
+import { Prisma, Role, UserStatus, ContatoTipo } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
@@ -41,20 +41,52 @@ export class EquipesService {
   async list(requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
 
-    if (requester.role === Role.admin) {
-      return this.prisma.equipe.findMany({
-        where: { tenantId },
-        select: equipeSelect,
-        orderBy: { name: 'asc' },
-      });
-    }
+    const where: Prisma.EquipeWhereInput =
+      requester.role === Role.admin
+        ? { tenantId }
+        : { tenantId, gerenteId: requester.id };
 
-    // Gerente: só a equipe que lidera.
-    return this.prisma.equipe.findMany({
-      where: { tenantId, gerenteId: requester.id },
+    const equipes = await this.prisma.equipe.findMany({
+      where,
       select: equipeSelect,
       orderBy: { name: 'asc' },
     });
+
+    if (equipes.length === 0) return [];
+
+    // Contagem de leads por equipe: pool (equipeId) + atribuídos aos membros.
+    const withCounts = await Promise.all(
+      equipes.map(async (eq) => {
+        const membroIds = eq.membros.map((m) => m.id);
+        const [leadsCount, leadsPool] = await Promise.all([
+          this.prisma.lead.count({
+            where: {
+              tenantId,
+              tipo: ContatoTipo.lead,
+              perdidoAt: null,
+              OR: [
+                { equipeId: eq.id },
+                ...(membroIds.length > 0
+                  ? [{ corretorId: { in: membroIds } }]
+                  : []),
+              ],
+            },
+          }),
+          this.prisma.lead.count({
+            where: {
+              tenantId,
+              tipo: ContatoTipo.lead,
+              perdidoAt: null,
+              equipeId: eq.id,
+              corretorId: null,
+            },
+          }),
+        ]);
+        return { ...eq, leadsCount, leadsPool };
+      }),
+    );
+
+    return withCounts;
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {

@@ -509,6 +509,44 @@ export class LeadsService {
       where.corretorId = query.corretorId;
     }
 
+    if (query.equipeId && !this.isCorretor(requester)) {
+      const equipe = await this.prisma.equipe.findFirst({
+        where: {
+          id: query.equipeId,
+          tenantId: requireTenantId(requester),
+          ...(requester.role === Role.gerente
+            ? { gerenteId: requester.id }
+            : {}),
+        },
+        select: {
+          id: true,
+          membros: { select: { id: true } },
+        },
+      });
+      if (!equipe) {
+        return {
+          data: [],
+          meta: { total: 0, page, limit, totalPages: 1 },
+        };
+      }
+      const membroIds = equipe.membros.map((m) => m.id);
+      where.AND = [
+        ...(Array.isArray(where.AND)
+          ? where.AND
+          : where.AND
+            ? [where.AND]
+            : []),
+        {
+          OR: [
+            { equipeId: equipe.id },
+            ...(membroIds.length > 0
+              ? [{ corretorId: { in: membroIds } }]
+              : []),
+          ],
+        },
+      ];
+    }
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.lead.findMany({
         where,

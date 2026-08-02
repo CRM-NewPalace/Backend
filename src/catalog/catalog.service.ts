@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { CatalogItem, CatalogType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,16 +15,18 @@ import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 import { QueryCatalogDto } from './dto/query-catalog.dto';
 import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
 import { slugify } from './catalog.util';
-import {
-  DEFAULT_FUNNEL_STAGES,
-  DEFAULT_INITIAL_STAGE_SLUG,
-} from './catalog.defaults';
+import { DEFAULT_INITIAL_STAGE_SLUG } from './catalog.defaults';
+import { FunisService } from '../funis/funis.service';
 
 export type GroupedCatalog = Record<CatalogType, CatalogItem[]>;
 
 @Injectable()
 export class CatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => FunisService))
+    private readonly funisService: FunisService,
+  ) {}
 
   /** Lista itens de um tipo específico, ordenados. */
   async findByType(
@@ -31,6 +35,11 @@ export class CatalogService {
     activeOnly = true,
   ): Promise<CatalogItem[]> {
     const tenantId = requireTenantId(requester);
+    if (type === CatalogType.funil_etapa) {
+      const stages =
+        await this.funisService.listActiveAsCatalogItems(tenantId);
+      return activeOnly ? stages.filter((s) => s.active) : stages;
+    }
     return this.prisma.catalogItem.findMany({
       where: { tenantId, type, ...(activeOnly ? { active: true } : {}) },
       orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
@@ -44,16 +53,27 @@ export class CatalogService {
   ): Promise<GroupedCatalog> {
     const tenantId = requireTenantId(requester);
     const items = await this.prisma.catalogItem.findMany({
-      where: { tenantId, ...(activeOnly ? { active: true } : {}) },
+      where: {
+        tenantId,
+        type: { not: CatalogType.funil_etapa },
+        ...(activeOnly ? { active: true } : {}),
+      },
       orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { label: 'asc' }],
     });
 
     const grouped = {
-      [CatalogType.funil_etapa]: [],
+      [CatalogType.funil_etapa]:
+        await this.funisService.listActiveAsCatalogItems(tenantId),
       [CatalogType.origem]: [],
       [CatalogType.motivo_perda]: [],
       [CatalogType.tag]: [],
     } as GroupedCatalog;
+
+    if (activeOnly) {
+      grouped[CatalogType.funil_etapa] = grouped[
+        CatalogType.funil_etapa
+      ].filter((s) => s.active);
+    }
 
     for (const item of items) {
       grouped[item.type].push(item);
@@ -65,6 +85,11 @@ export class CatalogService {
     dto: CreateCatalogItemDto,
     requester: AuthenticatedUser,
   ): Promise<CatalogItem> {
+    if (dto.type === CatalogType.funil_etapa) {
+      throw new BadRequestException(
+        'Etapas do funil são gerenciadas em Configurações → Funis.',
+      );
+    }
     const tenantId = requireTenantId(requester);
     const label = dto.label.trim();
     await this.ensureLabelIsAvailable(tenantId, dto.type, label);
@@ -168,109 +193,26 @@ export class CatalogService {
   }
 
   /**
-   * Instala/restaura o pacote padrão de etapas do funil no banco.
-   * Não apaga etapas customizadas; reativa e atualiza as padrão pelo slug.
+   * Instala/restaura o pacote padrão de etapas no funil ativo.
    */
   async installDefaultFunnelStages(
     requester: AuthenticatedUser,
   ): Promise<CatalogItem[]> {
-    const tenantId = requireTenantId(requester);
-
-    for (const stage of DEFAULT_FUNNEL_STAGES) {
-      const existing = await this.prisma.catalogItem.findFirst({
-        where: { tenantId, type: CatalogType.funil_etapa, slug: stage.slug },
-      });
-
-      if (existing) {
-        await this.prisma.catalogItem.update({
-          where: { id: existing.id },
-          data: {
-            label: stage.label,
-            color: stage.color,
-            sortOrder: stage.sortOrder,
-            active: true,
-          },
-        });
-        continue;
-      }
-
-      // Conflito de label com outro slug: ajusta o label antigo para liberar o unique.
-      const labelClash = await this.prisma.catalogItem.findUnique({
-        where: {
-          tenantId_type_label: {
-            tenantId,
-            type: CatalogType.funil_etapa,
-            label: stage.label,
-          },
-        },
-      });
-      if (labelClash) {
-        await this.prisma.catalogItem.update({
-          where: { id: labelClash.id },
-          data: {
-            label: stage.label,
-            slug: stage.slug,
-            color: stage.color,
-            sortOrder: stage.sortOrder,
-            active: true,
-          },
-        });
-        continue;
-      }
-
-      await this.prisma.catalogItem.create({
-        data: {
-          tenantId,
-          type: CatalogType.funil_etapa,
-          label: stage.label,
-          slug: stage.slug,
-          color: stage.color,
-          sortOrder: stage.sortOrder,
-          active: true,
-        },
-      });
-    }
-
+    const ativo = await this.funisService.getAtivo(requester);
+    await this.funisService.installDefaults(ativo.id, requester);
     return this.findByType(requester, CatalogType.funil_etapa, true);
   }
 
   /** Slugs de etapas de funil ativas — usado para validar o stage do lead. */
   async getActiveStageSlugs(tenantId: string): Promise<string[]> {
-    const stages = await this.prisma.catalogItem.findMany({
-      where: { tenantId, type: CatalogType.funil_etapa, active: true },
-      select: { slug: true },
-    });
-    return stages
-      .map((s) => s.slug)
-      .filter((slug): slug is string => Boolean(slug));
+    return this.funisService.getActiveStageSlugs(tenantId);
   }
 
   /**
    * Etapa inicial para novos leads: slug `novo` se ativo; senão a primeira do funil.
    */
   async getDefaultStageSlug(tenantId: string): Promise<string> {
-    const initial = await this.prisma.catalogItem.findFirst({
-      where: {
-        tenantId,
-        type: CatalogType.funil_etapa,
-        active: true,
-        slug: DEFAULT_INITIAL_STAGE_SLUG,
-      },
-      select: { slug: true },
-    });
-    if (initial?.slug) return initial.slug;
-
-    const first = await this.prisma.catalogItem.findFirst({
-      where: { tenantId, type: CatalogType.funil_etapa, active: true },
-      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
-      select: { slug: true },
-    });
-    if (!first?.slug) {
-      throw new BadRequestException(
-        'Nenhuma etapa do funil cadastrada. Use "Etapas padrão" em Configurações ou cadastre ao menos uma etapa.',
-      );
-    }
-    return first.slug;
+    return this.funisService.getDefaultStageSlug(tenantId);
   }
 
   private async ensureExists(

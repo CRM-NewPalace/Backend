@@ -42,6 +42,11 @@ export class QueryLeadsDto {
   @IsUUID('4', { message: 'Corretor inválido.' })
   corretorId?: string;
 
+  /** Filtra por equipe (pool + leads de corretores da equipe). */
+  @IsOptional()
+  @IsUUID('4', { message: 'Equipe inválida.' })
+  equipeId?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
