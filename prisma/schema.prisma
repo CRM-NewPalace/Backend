@@ -99,6 +99,7 @@ model Tenant {
   catalogItems      CatalogItem[]
   funis             Funil[]
   documentacoes     Documentacao[]
+  propostas         Proposta[]
   analises          Analise[]
   agendamentos      Agendamento[]
   notificacoes      Notificacao[]
@@ -191,6 +192,12 @@ model User {
 
   // Documentações em que este usuário é o gerente responsável.
   documentacoesComoGerente Documentacao[] @relation("DocumentacaoGerente")
+
+  // Propostas comerciais criadas por este usuário.
+  propostasAutor Proposta[] @relation("PropostaAutor")
+
+  // Propostas em que este usuário é o corretor responsável.
+  propostasComoCorretor Proposta[] @relation("PropostaCorretor")
 
   // Análises registradas por este usuário (auto ou edição).
   analises Analise[] @relation("AnaliseAutor")
@@ -309,6 +316,7 @@ model Lead {
 
   triagemEvents TriagemEvent[]
   documentacoes Documentacao[]
+  propostas     Proposta[]
   analise       Analise?
   agendamentos  Agendamento[]
   notificacoes  Notificacao[]
@@ -454,6 +462,7 @@ model Construtora {
 
   empreendimentos Empreendimento[]
   documentacoes   Documentacao[]
+  propostas       Proposta[]
   leads           Lead[]
 
   createdAt DateTime @default(now())
@@ -486,6 +495,7 @@ model Empreendimento {
   ativo       Boolean @default(true)
 
   documentacoes Documentacao[]
+  propostas     Proposta[]
   leads         Lead[]
 
   createdAt DateTime @default(now())
@@ -551,6 +561,68 @@ model Documentacao {
   @@index([gerenteId])
   @@index([createdAt])
   @@map("documentacoes")
+}
+
+/// Status comercial da proposta.
+enum PropostaStatus {
+  rascunho
+  enviada
+  negociacao
+  aceita
+  recusada
+  expirada
+}
+
+/// Proposta comercial enviada a lead/cliente.
+model Proposta {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Código legível (ex.: PROP-2026-0042).
+  codigo String
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  clienteNome     String
+  clienteTelefone String?
+
+  construtoraId String?
+  construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
+
+  empreendimentoId String?
+  empreendimento   Empreendimento? @relation(fields: [empreendimentoId], references: [id], onDelete: SetNull)
+
+  unidade String?
+
+  corretorId String?
+  corretor   User?   @relation("PropostaCorretor", fields: [corretorId], references: [id], onDelete: SetNull)
+
+  autorId String
+  autor   User   @relation("PropostaAutor", fields: [autorId], references: [id], onDelete: Cascade)
+
+  /// Valores em reais (inteiros).
+  valor          Int
+  entrada        Int?
+  financiamento  Int?
+
+  status    PropostaStatus @default(rascunho)
+  validade  DateTime?
+  enviadaEm DateTime?
+  observacao String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, codigo])
+  @@index([tenantId])
+  @@index([leadId])
+  @@index([corretorId])
+  @@index([autorId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("propostas")
 }
 
 /// Status do parecer da análise de crédito/cadastro.
