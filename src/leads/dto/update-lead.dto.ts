@@ -33,9 +33,10 @@ export class UpdateLeadDto {
   telefone?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsEmail({}, { message: 'Informe um e-mail válido.' })
   @MaxLength(255)
-  email?: string;
+  email?: string | null;
 
   @IsOptional()
   @IsString()

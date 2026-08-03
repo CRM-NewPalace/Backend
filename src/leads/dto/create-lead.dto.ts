@@ -34,13 +34,17 @@ export class CreateLeadDto {
   @MaxLength(20)
   telefone!: string;
 
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsEmail({}, { message: 'Informe um e-mail válido.' })
   @MaxLength(255)
-  email!: string;
+  email?: string | null;
 
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsString()
   @MaxLength(60)
-  origem!: string;
+  origem?: string | null;
 
   @IsIn(LEAD_INTERESSES, { message: 'Interesse inválido.' })
   interesse!: string;

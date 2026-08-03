@@ -57,14 +57,21 @@ export class LeadsService {
     const stage = dto.stage ?? (await this.catalog.getDefaultStageSlug(tenantId));
     await this.ensureStageIsValid(tenantId, stage);
 
+    const telefone = dto.telefone.trim();
+    const phoneDigits = telefone.replace(/\D/g, "");
+    const emailRaw = dto.email?.trim().toLowerCase() || "";
+    const email =
+      emailRaw ||
+      `contato.${phoneDigits || Date.now()}@sem-email.local`;
+
     return this.prisma.lead.create({
       data: {
         tenantId,
         tipo: dto.tipo === 'cliente' ? ContatoTipo.cliente : ContatoTipo.lead,
         nome: dto.nome.trim(),
-        telefone: dto.telefone.trim(),
-        email: dto.email.toLowerCase().trim(),
-        origem: dto.origem.trim(),
+        telefone,
+        email,
+        origem: dto.origem?.trim() || 'Não informado',
         interesse: dto.interesse,
         cidade: dto.cidade.trim(),
         bairro: dto.bairro.trim(),
@@ -683,9 +690,15 @@ export class LeadsService {
         ...(dto.nome !== undefined ? { nome: dto.nome.trim() } : {}),
         ...(dto.telefone !== undefined ? { telefone: dto.telefone.trim() } : {}),
         ...(dto.email !== undefined
-          ? { email: dto.email.toLowerCase().trim() }
+          ? {
+              email: dto.email?.trim()
+                ? dto.email.toLowerCase().trim()
+                : `contato.${(dto.telefone ?? '').replace(/\D/g, '') || id.slice(0, 8)}@sem-email.local`,
+            }
           : {}),
-        ...(dto.origem !== undefined ? { origem: dto.origem.trim() } : {}),
+        ...(dto.origem !== undefined
+          ? { origem: dto.origem.trim() || 'Não informado' }
+          : {}),
         ...(dto.interesse !== undefined ? { interesse: dto.interesse } : {}),
         ...(dto.cidade !== undefined ? { cidade: dto.cidade.trim() } : {}),
         ...(dto.bairro !== undefined ? { bairro: dto.bairro.trim() } : {}),
