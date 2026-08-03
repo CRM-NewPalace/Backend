@@ -16,6 +16,7 @@ import { SALT_ROUNDS } from '../config/security.constants';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUsersDto } from './dto/query-users.dto';
+import { isAnalistaAllowed } from '../tenants/tenant-plan';
 
 export interface PaginatedUsers {
   data: PublicUser[];
@@ -42,6 +43,7 @@ export class UsersService {
     }
 
     await this.assertCanCreateUser(tenantId);
+    await this.assertRoleAllowed(tenantId, dto.role);
 
     const email = dto.email.toLowerCase().trim();
     await this.ensureEmailIsAvailable(tenantId, email);
@@ -104,6 +106,31 @@ export class UsersService {
     if (used >= limit) {
       throw new ForbiddenException(
         `Limite de usuários do plano atingido (${used}/${limit}). Peça ao administrador da plataforma para liberar usuários extras.`,
+      );
+    }
+  }
+
+  private async assertRoleAllowed(tenantId: string, role: Role) {
+    if (role !== Role.analista) return;
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plano: true, modules: true },
+    });
+    if (!tenant) {
+      throw new NotFoundException('Tenant não encontrado.');
+    }
+
+    if (
+      !isAnalistaAllowed(
+        tenant.plano,
+        tenant.modules as Record<string, boolean> | null,
+      )
+    ) {
+      throw new ForbiddenException(
+        tenant.plano === 'bronze'
+          ? 'O plano Bronze não inclui o perfil Analista.'
+          : 'O perfil Analista exige o pacote Administrativo ativo no plano.',
       );
     }
   }
@@ -182,6 +209,10 @@ export class UsersService {
     const email = dto.email?.toLowerCase().trim();
     if (email) {
       await this.ensureEmailIsAvailable(tenantId, email, id);
+    }
+
+    if (dto.role !== undefined) {
+      await this.assertRoleAllowed(tenantId, dto.role);
     }
 
     return this.prisma.user.update({

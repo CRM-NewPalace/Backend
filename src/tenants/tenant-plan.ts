@@ -31,14 +31,81 @@ const ADMINISTRATIVO = [
   'configuracoes',
 ] as const;
 
+/** Módulos do administrativo que entram no toggle em massa (exceto Usuários/Config). */
+const ADMINISTRATIVO_TOGGLE = [
+  'equipes',
+  'corretores',
+  'documentacao',
+  'analise',
+  'metas',
+  'propostas',
+  'taxaConversao',
+] as const;
+
 const FINANCEIRO = ['financeiro'] as const;
 
 const ALL = [...OPERACIONAL, ...ADMINISTRATIVO, ...FINANCEIRO] as const;
 
+export function isAdminGroupEnabled(
+  modules: Record<string, boolean> | null | undefined,
+): boolean {
+  if (!modules) return false;
+  return ADMINISTRATIVO_TOGGLE.every((k) => modules[k] !== false);
+}
+
+/**
+ * Analista exige módulo de análise/administrativo.
+ * Bronze: nunca. Prata/Ouro: só com administrativo ativo.
+ */
+export function isAnalistaAllowed(
+  plano: TenantPlano,
+  modules?: Record<string, boolean> | null,
+): boolean {
+  if (plano === TenantPlano.bronze) return false;
+  return isAdminGroupEnabled(modules);
+}
+
+/**
+ * Normaliza módulos conforme regras do plano:
+ * - bronze: só CRM (+ usuários/config); sem financeiro
+ * - prata: administrativo XOR financeiro (se ambos, prioriza administrativo)
+ * - ouro: sem restrição extra
+ */
+export function normalizeModulesForPlano(
+  plano: TenantPlano,
+  modules: Record<string, boolean>,
+): Record<string, boolean> {
+  const next: Record<string, boolean> = { ...modules };
+
+  for (const k of OPERACIONAL) {
+    if (typeof next[k] !== 'boolean') next[k] = true;
+  }
+  next.usuarios = true;
+  next.configuracoes = true;
+
+  if (plano === TenantPlano.bronze) {
+    for (const k of ADMINISTRATIVO_TOGGLE) next[k] = false;
+    next.financeiro = false;
+  } else if (plano === TenantPlano.prata) {
+    const adminOn = ADMINISTRATIVO_TOGGLE.every((k) => next[k] !== false);
+    const financeOn = next.financeiro === true;
+    if (adminOn && financeOn) {
+      next.financeiro = false;
+    } else if (financeOn && !adminOn) {
+      for (const k of ADMINISTRATIVO_TOGGLE) next[k] = false;
+      next.financeiro = true;
+    } else if (adminOn) {
+      next.financeiro = false;
+    }
+  }
+
+  return Object.fromEntries(ALL.map((k) => [k, next[k] === true]));
+}
+
 /**
  * Preset de módulos por plano.
- * - bronze: só operacional (+ usuarios para gerir a equipe)
- * - prata: operacional + administrativo (CRM completo)
+ * - bronze: só operacional (+ usuarios/configurações)
+ * - prata: operacional + administrativo (sem financeiro por padrão)
  * - ouro: todos os módulos
  */
 export function modulesPresetForPlano(
@@ -47,7 +114,6 @@ export function modulesPresetForPlano(
   const enabled = new Set<string>();
 
   for (const k of OPERACIONAL) enabled.add(k);
-  // Admin da imobiliária precisa criar usuários e configurar o funil em qualquer plano.
   enabled.add('usuarios');
   enabled.add('configuracoes');
 
@@ -58,7 +124,10 @@ export function modulesPresetForPlano(
     for (const k of FINANCEIRO) enabled.add(k);
   }
 
-  return Object.fromEntries(ALL.map((k) => [k, enabled.has(k)]));
+  return normalizeModulesForPlano(
+    plano,
+    Object.fromEntries(ALL.map((k) => [k, enabled.has(k)])),
+  );
 }
 
 export function resolvePlanoFields(input: {
@@ -73,8 +142,10 @@ export function resolvePlanoFields(input: {
   const usuariosExtras = Math.max(0, input.usuariosExtras ?? 0);
   const iaBotEnabled =
     input.iaBotEnabled ?? input.plano === TenantPlano.ouro;
-  const modules =
-    input.modules ?? modulesPresetForPlano(input.plano);
+  const modules = normalizeModulesForPlano(
+    input.plano,
+    input.modules ?? modulesPresetForPlano(input.plano),
+  );
 
   return {
     plano: input.plano,

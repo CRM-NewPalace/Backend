@@ -552,6 +552,121 @@ export class DashboardService {
     };
   }
 
+  /**
+   * Vendas/VGV no período alinhadas ao funil personalizado do tenant:
+   * etapa com papel/label de venda ou documentação vendida.
+   * `incluirEstoqueAtual`: conta leads que estão agora na etapa de venda
+   * (espelha o funil; use no mês atual).
+   */
+  private async aggregateVendasPorCorretor(
+    tenantId: string,
+    corretorIds: string[],
+    periodo: Periodo,
+    opts?: { incluirEstoqueAtual?: boolean },
+  ): Promise<{ vendas: Map<string, number>; vgv: Map<string, number> }> {
+    const vendas = new Map<string, number>();
+    const vgv = new Map<string, number>();
+    if (corretorIds.length === 0) return { vendas, vgv };
+
+    const vendaSlugs = await this.funis.getSlugsByPapel(
+      tenantId,
+      FunilEtapaPapel.venda,
+    );
+    const countedLeads = new Set<string>();
+
+    const markSale = (
+      leadId: string,
+      corretorId: string | null | undefined,
+    ): boolean => {
+      if (!corretorId || countedLeads.has(leadId)) return false;
+      countedLeads.add(leadId);
+      vendas.set(corretorId, (vendas.get(corretorId) ?? 0) + 1);
+      return true;
+    };
+
+    const addVgv = (
+      corretorId: string | null | undefined,
+      value: number | null | undefined,
+    ) => {
+      if (!corretorId || value == null || value === 0) return;
+      vgv.set(corretorId, (vgv.get(corretorId) ?? 0) + value);
+    };
+
+    const docs = await this.prisma.documentacao.findMany({
+      where: {
+        tenantId,
+        corretorId: { in: corretorIds },
+        status2: 'Vendido',
+        dataVenda: { gte: periodo.inicio, lt: periodo.fim },
+      },
+      select: { leadId: true, corretorId: true, vgv: true },
+    });
+    for (const doc of docs) {
+      markSale(doc.leadId, doc.corretorId);
+      addVgv(doc.corretorId, doc.vgv);
+    }
+
+    if (vendaSlugs.length > 0) {
+      const events = await this.prisma.triagemEvent.findMany({
+        where: {
+          stageNovo: { in: vendaSlugs },
+          createdAt: { gte: periodo.inicio, lt: periodo.fim },
+          lead: { tenantId, corretorId: { in: corretorIds } },
+        },
+        select: {
+          leadId: true,
+          lead: {
+            select: {
+              corretorId: true,
+              documentacoes: {
+                select: { vgv: true },
+                orderBy: { updatedAt: 'desc' },
+                take: 1,
+              },
+            },
+          },
+        },
+      });
+      for (const event of events) {
+        const isNew = markSale(event.leadId, event.lead.corretorId);
+        if (isNew) {
+          addVgv(event.lead.corretorId, event.lead.documentacoes[0]?.vgv);
+        }
+      }
+
+      const leadsNaVenda = await this.prisma.lead.findMany({
+        where: {
+          tenantId,
+          stage: { in: vendaSlugs },
+          perdidoAt: null,
+          corretorId: { in: corretorIds },
+          ...(opts?.incluirEstoqueAtual
+            ? {}
+            : {
+                updatedAt: { gte: periodo.inicio, lt: periodo.fim },
+              }),
+        },
+        select: {
+          id: true,
+          corretorId: true,
+          documentacoes: {
+            select: { vgv: true },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
+      for (const lead of leadsNaVenda) {
+        const isNew = markSale(lead.id, lead.corretorId);
+        if (isNew) {
+          addVgv(lead.corretorId, lead.documentacoes[0]?.vgv);
+        }
+      }
+    }
+
+    return { vendas, vgv };
+  }
+
   private async buildRanking(
     tenantId: string,
     corretores: {
@@ -565,89 +680,35 @@ export class DashboardService {
     if (corretores.length === 0) return [];
     const ids = corretores.map((c) => c.id);
 
-    const [
-      leadsAtivos,
-      visitasMes,
-      vendasMes,
-      vendasMesAnt,
-      vgvMes,
-      vgvMesAnt,
-    ] = await Promise.all([
-      this.prisma.lead.groupBy({
-        by: ['corretorId'],
-        where: { tenantId, perdidoAt: null, corretorId: { in: ids } },
-        _count: { _all: true },
-      }),
-      this.prisma.agendamento.groupBy({
-        by: ['autorId'],
-        where: {
-          tenantId,
-          autorId: { in: ids },
-          tipo: AgendamentoTipo.visita,
-          status: AgendamentoStatus.concluido,
-          startsAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
-        },
-        _count: { _all: true },
-      }),
-      this.prisma.documentacao.groupBy({
-        by: ['corretorId'],
-        where: {
-          tenantId,
-          corretorId: { in: ids },
-          status2: 'Vendido',
-          dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
-        },
-        _count: { _all: true },
-      }),
-      this.prisma.documentacao.groupBy({
-        by: ['corretorId'],
-        where: {
-          tenantId,
-          corretorId: { in: ids },
-          status2: 'Vendido',
-          dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
-        },
-        _count: { _all: true },
-      }),
-      this.prisma.documentacao.groupBy({
-        by: ['corretorId'],
-        where: {
-          tenantId,
-          corretorId: { in: ids },
-          status2: 'Vendido',
-          dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
-        },
-        _sum: { vgv: true },
-      }),
-      this.prisma.documentacao.groupBy({
-        by: ['corretorId'],
-        where: {
-          tenantId,
-          corretorId: { in: ids },
-          status2: 'Vendido',
-          dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
-        },
-        _sum: { vgv: true },
-      }),
-    ]);
+    const [leadsAtivos, visitasMes, vendasAtual, vendasAnterior] =
+      await Promise.all([
+        this.prisma.lead.groupBy({
+          by: ['corretorId'],
+          where: { tenantId, perdidoAt: null, corretorId: { in: ids } },
+          _count: { _all: true },
+        }),
+        this.prisma.agendamento.groupBy({
+          by: ['autorId'],
+          where: {
+            tenantId,
+            autorId: { in: ids },
+            tipo: AgendamentoTipo.visita,
+            status: AgendamentoStatus.concluido,
+            startsAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+          },
+          _count: { _all: true },
+        }),
+        this.aggregateVendasPorCorretor(tenantId, ids, mesAtual, {
+          incluirEstoqueAtual: true,
+        }),
+        this.aggregateVendasPorCorretor(tenantId, ids, mesAnterior),
+      ]);
 
     const leadsMap = new Map(
       leadsAtivos.map((r) => [r.corretorId!, r._count._all]),
     );
     const visitasMap = new Map(
       visitasMes.map((r) => [r.autorId, r._count._all]),
-    );
-    const vendasMap = new Map(
-      vendasMes.map((r) => [r.corretorId!, r._count._all]),
-    );
-    const vendasAntMap = new Map(
-      vendasMesAnt.map((r) => [r.corretorId!, r._count._all]),
-    );
-    const vgvMap = new Map(
-      vgvMes.map((r) => [r.corretorId!, r._sum.vgv ?? 0]),
-    );
-    const vgvAntMap = new Map(
-      vgvMesAnt.map((r) => [r.corretorId!, r._sum.vgv ?? 0]),
     );
 
     return corretores
@@ -657,8 +718,14 @@ export class DashboardService {
         equipe: c.equipe?.name ?? null,
         leads: leadsMap.get(c.id) ?? 0,
         visitas: visitasMap.get(c.id) ?? 0,
-        vendas: metric(vendasMap.get(c.id) ?? 0, vendasAntMap.get(c.id) ?? 0),
-        vgv: metric(vgvMap.get(c.id) ?? 0, vgvAntMap.get(c.id) ?? 0),
+        vendas: metric(
+          vendasAtual.vendas.get(c.id) ?? 0,
+          vendasAnterior.vendas.get(c.id) ?? 0,
+        ),
+        vgv: metric(
+          vendasAtual.vgv.get(c.id) ?? 0,
+          vendasAnterior.vgv.get(c.id) ?? 0,
+        ),
       }))
       .sort(
         (a, b) =>
@@ -760,12 +827,6 @@ export class DashboardService {
   ) {
     const items = await Promise.all(
       metas.map(async (meta) => {
-        const whereVenda = {
-          tenantId,
-          corretorId: meta.corretorId,
-          dataVenda: { gte: meta.inicio, lt: meta.fim },
-          status2: 'Vendido',
-        };
         let atual = 0;
         if (meta.tipo === MetaTipo.documentacoes) {
           atual = await this.prisma.documentacao.count({
@@ -775,14 +836,21 @@ export class DashboardService {
               createdAt: { gte: meta.inicio, lt: meta.fim },
             },
           });
-        } else if (meta.tipo === MetaTipo.vendas) {
-          atual = await this.prisma.documentacao.count({ where: whereVenda });
         } else {
-          const agg = await this.prisma.documentacao.aggregate({
-            where: whereVenda,
-            _sum: { vgv: true },
-          });
-          atual = agg._sum.vgv ?? 0;
+          const agora = new Date();
+          const agg = await this.aggregateVendasPorCorretor(
+            tenantId,
+            [meta.corretorId],
+            { inicio: meta.inicio, fim: meta.fim },
+            {
+              incluirEstoqueAtual:
+                agora >= meta.inicio && agora < meta.fim,
+            },
+          );
+          atual =
+            meta.tipo === MetaTipo.vendas
+              ? (agg.vendas.get(meta.corretorId) ?? 0)
+              : (agg.vgv.get(meta.corretorId) ?? 0);
         }
         return {
           id: meta.id,
@@ -839,7 +907,7 @@ export class DashboardService {
   }
 
   /**
-   * Ranking mensal completo: corretores individuais + gerentes (agregado da equipe).
+   * Ranking mensal completo: corretores (escopo da equipe) + gerentes (só admin).
    */
   async rankingCompleto(requester: AuthenticatedUser) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
@@ -881,9 +949,11 @@ export class DashboardService {
         where: {
           tenantId,
           status: UserStatus.ativo,
-          ...(corretorIds
-            ? { membros: { some: { id: { in: corretorIds } } } }
-            : {}),
+          ...(requester.role === Role.gerente
+            ? { gerenteId: requester.id }
+            : corretorIds
+              ? { membros: { some: { id: { in: corretorIds } } } }
+              : {}),
         },
         select: {
           id: true,
@@ -934,10 +1004,8 @@ export class DashboardService {
       entradasMesAnt,
       visitasMes,
       docsMes,
-      vendasMes,
-      vendasMesAnt,
-      vgvMes,
-      vgvMesAnt,
+      vendasAtualAgg,
+      vendasAnteriorAgg,
       perdidosMes,
       metas,
     ] = await Promise.all([
@@ -994,54 +1062,10 @@ export class DashboardService {
             },
             _count: { _all: true },
           }),
-      ids.length === 0
-        ? emptyGroup
-        : this.prisma.documentacao.groupBy({
-            by: ['corretorId'],
-            where: {
-              tenantId,
-              corretorId: { in: ids },
-              status2: 'Vendido',
-              dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
-            },
-            _count: { _all: true },
-          }),
-      ids.length === 0
-        ? emptyGroup
-        : this.prisma.documentacao.groupBy({
-            by: ['corretorId'],
-            where: {
-              tenantId,
-              corretorId: { in: ids },
-              status2: 'Vendido',
-              dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
-            },
-            _count: { _all: true },
-          }),
-      ids.length === 0
-        ? emptyGroup
-        : this.prisma.documentacao.groupBy({
-            by: ['corretorId'],
-            where: {
-              tenantId,
-              corretorId: { in: ids },
-              status2: 'Vendido',
-              dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
-            },
-            _sum: { vgv: true },
-          }),
-      ids.length === 0
-        ? emptyGroup
-        : this.prisma.documentacao.groupBy({
-            by: ['corretorId'],
-            where: {
-              tenantId,
-              corretorId: { in: ids },
-              status2: 'Vendido',
-              dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
-            },
-            _sum: { vgv: true },
-          }),
+      this.aggregateVendasPorCorretor(tenantId, ids, mesAtual, {
+        incluirEstoqueAtual: true,
+      }),
+      this.aggregateVendasPorCorretor(tenantId, ids, mesAnterior),
       ids.length === 0
         ? emptyGroup
         : this.prisma.lead.groupBy({
@@ -1072,18 +1096,10 @@ export class DashboardService {
       visitasMes.map((r) => [r.autorId!, r._count._all]),
     );
     const docsMap = toMap(docsMes);
-    const vendasMap = toMap(vendasMes);
-    const vendasAntMap = toMap(vendasMesAnt);
-    const vgvMap = new Map(
-      vgvMes
-        .filter((r) => r.corretorId)
-        .map((r) => [r.corretorId!, r._sum?.vgv ?? 0]),
-    );
-    const vgvAntMap = new Map(
-      vgvMesAnt
-        .filter((r) => r.corretorId)
-        .map((r) => [r.corretorId!, r._sum?.vgv ?? 0]),
-    );
+    const vendasMap = vendasAtualAgg.vendas;
+    const vendasAntMap = vendasAnteriorAgg.vendas;
+    const vgvMap = vendasAtualAgg.vgv;
+    const vgvAntMap = vendasAnteriorAgg.vgv;
     const perdidosMap = toMap(perdidosMes);
 
     const metaByCorretor = new Map(
@@ -1137,54 +1153,58 @@ export class DashboardService {
       rankingCorretores.map((r) => [r.corretorId, r]),
     );
 
-    const rankingGerentes = equipes
-      .map((eq) => {
-        let leads = 0;
-        let entradas = 0;
-        let entradasAnt = 0;
-        let visitas = 0;
-        let vendas = 0;
-        let vendasAnt = 0;
-        let vgv = 0;
-        let vgvAnt = 0;
-        let perdidos = 0;
-        for (const m of eq.membros) {
-          const row = byCorretorMetrics.get(m.id);
-          if (!row) continue;
-          leads += row.leads;
-          entradas += row.entradas.valor;
-          entradasAnt += row.entradas.valorMesAnterior;
-          visitas += row.visitas;
-          vendas += row.vendas.valor;
-          vendasAnt += row.vendas.valorMesAnterior;
-          vgv += row.vgv.valor;
-          vgvAnt += row.vgv.valorMesAnterior;
-          perdidos += row.perdidos;
-        }
-        const taxa = taxaConversao(vendas, entradas);
-        const taxaAnt = taxaConversao(vendasAnt, entradasAnt);
-        return {
-          gerenteId: eq.gerente.id,
-          nome: eq.gerente.name,
-          equipeId: eq.id,
-          equipe: eq.name,
-          corretores: eq.membros.length,
-          leads,
-          entradas: metric(entradas, entradasAnt),
-          visitas,
-          vendas: metric(vendas, vendasAnt),
-          vgv: metric(vgv, vgvAnt),
-          taxaConversao: metric(taxa, taxaAnt),
-          perdidos,
-        };
-      })
-      .sort(
-        (a, b) =>
-          b.vgv.valor - a.vgv.valor ||
-          b.vendas.valor - a.vendas.valor ||
-          b.entradas.valor - a.entradas.valor,
-      )
-      .map((row, index) => ({ posicao: index + 1, ...row }));
+    // Ranking de gerentes é visão administrativa (comparação entre equipes).
+    const rankingGerentes =
+      requester.role === Role.gerente
+        ? []
+        : equipes
+            .map((eq) => {
+              let leads = 0;
+              let entradas = 0;
+              let entradasAnt = 0;
+              let visitas = 0;
+              let vendas = 0;
+              let vendasAnt = 0;
+              let vgv = 0;
+              let vgvAnt = 0;
+              let perdidos = 0;
+              for (const m of eq.membros) {
+                const row = byCorretorMetrics.get(m.id);
+                if (!row) continue;
+                leads += row.leads;
+                entradas += row.entradas.valor;
+                entradasAnt += row.entradas.valorMesAnterior;
+                visitas += row.visitas;
+                vendas += row.vendas.valor;
+                vendasAnt += row.vendas.valorMesAnterior;
+                vgv += row.vgv.valor;
+                vgvAnt += row.vgv.valorMesAnterior;
+                perdidos += row.perdidos;
+              }
+              const taxa = taxaConversao(vendas, entradas);
+              const taxaAnt = taxaConversao(vendasAnt, entradasAnt);
+              return {
+                gerenteId: eq.gerente.id,
+                nome: eq.gerente.name,
+                equipeId: eq.id,
+                equipe: eq.name,
+                corretores: eq.membros.length,
+                leads,
+                entradas: metric(entradas, entradasAnt),
+                visitas,
+                vendas: metric(vendas, vendasAnt),
+                vgv: metric(vgv, vgvAnt),
+                taxaConversao: metric(taxa, taxaAnt),
+                perdidos,
+              };
+            })
+            .sort(
+              (a, b) =>
+                b.vgv.valor - a.vgv.valor ||
+                b.vendas.valor - a.vendas.valor ||
+                b.entradas.valor - a.entradas.valor,
+            )
+            .map((row, index) => ({ posicao: index + 1, ...row }));
 
     const totais = rankingCorretores.reduce(
       (acc, r) => {

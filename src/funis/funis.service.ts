@@ -26,6 +26,7 @@ const LEGACY_PAPEL_BY_SLUG: Record<string, FunilEtapaPapel> = {
   novo: FunilEtapaPapel.inicial,
   'em-analise': FunilEtapaPapel.analise,
   'ganho-venda': FunilEtapaPapel.venda,
+  venda: FunilEtapaPapel.venda,
   perdido: FunilEtapaPapel.perdido,
 };
 
@@ -518,11 +519,63 @@ export class FunisService {
     tenantId: string,
     papel: FunilEtapaPapel,
   ): Promise<string | null> {
+    const slugs = await this.getSlugsByPapel(tenantId, papel);
+    return slugs[0] ?? null;
+  }
+
+  /**
+   * Todos os slugs ativos do papel (funil personalizado).
+   * Fallback por label quando o papel ainda não foi atribuído.
+   */
+  async getSlugsByPapel(
+    tenantId: string,
+    papel: FunilEtapaPapel,
+  ): Promise<string[]> {
     const funil = await this.ensureTenantHasFunil(tenantId);
-    const match = funil.etapas.find(
-      (e) => e.active && this.resolveEtapaPapel(e) === papel,
-    );
-    return match?.slug ?? null;
+    const byPapel = funil.etapas
+      .filter((e) => e.active && this.resolveEtapaPapel(e) === papel)
+      .map((e) => e.slug);
+    if (byPapel.length > 0) return [...new Set(byPapel)];
+
+    if (papel === FunilEtapaPapel.venda) {
+      return [
+        ...new Set(
+          funil.etapas
+            .filter(
+              (e) =>
+                e.active &&
+                /venda/i.test(e.label) &&
+                !/perdid|perda/i.test(e.label),
+            )
+            .map((e) => e.slug),
+        ),
+      ];
+    }
+    if (papel === FunilEtapaPapel.perdido) {
+      return [
+        ...new Set(
+          funil.etapas
+            .filter(
+              (e) => e.active && /perdid|perda/i.test(e.label),
+            )
+            .map((e) => e.slug),
+        ),
+      ];
+    }
+    if (papel === FunilEtapaPapel.analise) {
+      return [
+        ...new Set(
+          funil.etapas
+            .filter(
+              (e) =>
+                e.active &&
+                /an[aá]lise/i.test(e.label),
+            )
+            .map((e) => e.slug),
+        ),
+      ];
+    }
+    return [];
   }
 
   /** Papel efetivo da etapa (campo ou fallback por slug legado). */

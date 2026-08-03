@@ -416,7 +416,7 @@ export class TenantsService {
 
     const modulesToSave =
       dto.modules !== undefined
-        ? dto.modules
+        ? planFields.modules
         : planChanged
           ? planFields.modules
           : undefined;
