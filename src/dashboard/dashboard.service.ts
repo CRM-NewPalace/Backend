@@ -37,20 +37,32 @@ function metric(atual: number, anterior: number) {
   };
 }
 
-function janelasBrasil(now = new Date()) {
+type JanelasOpts = {
+  /** Mês 1–12. Omite = mês corrente (BR). */
+  mes?: number;
+  /** Ano calendário. Omite = ano corrente (BR). */
+  ano?: number;
+  now?: Date;
+};
+
+function janelasBrasil(opts: JanelasOpts = {}) {
+  const now = opts.now ?? new Date();
   const brasil = new Date(now.getTime() - BRASIL_UTC_OFFSET_MS);
-  const y = brasil.getUTCFullYear();
-  const m = brasil.getUTCMonth();
+  const realY = brasil.getUTCFullYear();
+  const realM = brasil.getUTCMonth();
   const d = brasil.getUTCDate();
   const dow = brasil.getUTCDay();
   const mondayOffset = (dow + 6) % 7;
 
+  const y = opts.ano ?? realY;
+  const m = opts.mes != null ? opts.mes - 1 : realM;
+
   const toInstant = (yy: number, mm: number, dd: number) =>
     new Date(Date.UTC(yy, mm, dd) + BRASIL_UTC_OFFSET_MS);
 
-  const inicioHoje = toInstant(y, m, d);
-  const inicioAmanha = toInstant(y, m, d + 1);
-  const inicioSemana = toInstant(y, m, d - mondayOffset);
+  const inicioHoje = toInstant(realY, realM, d);
+  const inicioAmanha = toInstant(realY, realM, d + 1);
+  const inicioSemana = toInstant(realY, realM, d - mondayOffset);
   const inicioMesAtual = toInstant(y, m, 1);
   const inicioProximoMes = toInstant(y, m + 1, 1);
   const inicioMesAnterior = toInstant(y, m - 1, 1);
@@ -230,7 +242,10 @@ export class DashboardService {
     };
   }
 
-  async resumoAdmin(requester: AuthenticatedUser) {
+  async resumoAdmin(
+    requester: AuthenticatedUser,
+    filtros: { mes?: number; ano?: number; origem?: string } = {},
+  ) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
         'Dashboard gerencial disponível para admin e gerente.',
@@ -238,9 +253,11 @@ export class DashboardService {
     }
 
     const tenantId = requireTenantId(requester);
-    const windows = janelasBrasil();
+    const windows = janelasBrasil({ mes: filtros.mes, ano: filtros.ano });
     const { mesAtual, mesAnterior, inicioHoje, inicioAmanha, inicioSemana } =
       windows;
+    const origem = filtros.origem?.trim() || undefined;
+    const origemWhere = origem ? { origem } : {};
     const diasParado = DIAS_PARADO_DEFAULT;
     const paradoAntes = new Date(
       windows.agora.getTime() - diasParado * 24 * 60 * 60 * 1000,
@@ -250,11 +267,13 @@ export class DashboardService {
     const leadAtivoWhere = {
       tenantId,
       perdidoAt: null as null,
+      ...origemWhere,
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
     };
     const leadCriadoWhere = (periodo: Periodo) => ({
       tenantId,
       createdAt: { gte: periodo.inicio, lt: periodo.fim },
+      ...origemWhere,
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
     });
     const vendaSlug = await this.funis.getSlugByPapel(
@@ -277,6 +296,13 @@ export class DashboardService {
       tenantId,
       status2: 'Vendido',
       dataVenda: { gte: periodo.inicio, lt: periodo.fim },
+      ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+      ...(origem ? { lead: { origem } } : {}),
+    });
+    const perdidoWhere = (periodo: Periodo) => ({
+      tenantId,
+      perdidoAt: { gte: periodo.inicio, lt: periodo.fim },
+      ...origemWhere,
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
     });
 
@@ -316,7 +342,12 @@ export class DashboardService {
       this.prisma.lead.count({ where: leadCriadoWhere(mesAtual) }),
       this.prisma.lead.count({ where: leadCriadoWhere(mesAnterior) }),
       this.prisma.lead.count({
-        where: { tenantId, perdidoAt: null, corretorId: null },
+        where: {
+          tenantId,
+          perdidoAt: null,
+          corretorId: null,
+          ...origemWhere,
+        },
       }),
       this.prisma.lead.count({
         where: {
@@ -325,26 +356,16 @@ export class DashboardService {
         },
       }),
       this.prisma.lead.count({
-        where: {
-          tenantId,
-          perdidoAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
-          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
-        },
+        where: perdidoWhere(mesAtual),
       }),
       this.prisma.lead.count({
-        where: {
-          tenantId,
-          perdidoAt: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
-          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
-        },
+        where: perdidoWhere(mesAnterior),
       }),
       this.prisma.lead.groupBy({
         by: ['motivoPerda'],
         where: {
-          tenantId,
-          perdidoAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+          ...perdidoWhere(mesAtual),
           motivoPerda: { not: null },
-          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
         },
         _count: { _all: true },
         orderBy: { _count: { motivoPerda: 'desc' } },
@@ -353,10 +374,8 @@ export class DashboardService {
       this.prisma.lead.groupBy({
         by: ['motivoPerda'],
         where: {
-          tenantId,
-          perdidoAt: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+          ...perdidoWhere(mesAnterior),
           motivoPerda: { not: null },
-          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
         },
         _count: { _all: true },
       }),
@@ -380,6 +399,7 @@ export class DashboardService {
           startsAt: { gte: inicioHoje, lt: inicioAmanha },
           status: { not: AgendamentoStatus.cancelado },
           ...(corretorIds ? { autorId: { in: corretorIds } } : {}),
+          ...(origem ? { lead: { origem } } : {}),
         },
         select: {
           id: true,
@@ -398,6 +418,7 @@ export class DashboardService {
           status: AgendamentoStatus.agendado,
           startsAt: { lt: windows.agora },
           ...(corretorIds ? { autorId: { in: corretorIds } } : {}),
+          ...(origem ? { lead: { origem } } : {}),
         },
       }),
       this.prisma.user.findMany({
@@ -466,11 +487,13 @@ export class DashboardService {
       corretores,
       mesAtual,
       mesAnterior,
+      origem,
     );
     const distribuicaoEquipes = await this.buildDistribuicaoEquipes(
       tenantId,
       equipes,
       corretores.map((c) => c.id),
+      origem,
     );
     const metas = await this.buildMetasProgress(tenantId, metasAtivas);
 
@@ -562,11 +585,14 @@ export class DashboardService {
     tenantId: string,
     corretorIds: string[],
     periodo: Periodo,
-    opts?: { incluirEstoqueAtual?: boolean },
+    opts?: { incluirEstoqueAtual?: boolean; origem?: string },
   ): Promise<{ vendas: Map<string, number>; vgv: Map<string, number> }> {
     const vendas = new Map<string, number>();
     const vgv = new Map<string, number>();
     if (corretorIds.length === 0) return { vendas, vgv };
+
+    const origem = opts?.origem?.trim() || undefined;
+    const origemWhere = origem ? { origem } : {};
 
     const vendaSlugs = await this.funis.getSlugsByPapel(
       tenantId,
@@ -598,6 +624,7 @@ export class DashboardService {
         corretorId: { in: corretorIds },
         status2: 'Vendido',
         dataVenda: { gte: periodo.inicio, lt: periodo.fim },
+        ...(origem ? { lead: { origem } } : {}),
       },
       select: { leadId: true, corretorId: true, vgv: true },
     });
@@ -611,7 +638,7 @@ export class DashboardService {
         where: {
           stageNovo: { in: vendaSlugs },
           createdAt: { gte: periodo.inicio, lt: periodo.fim },
-          lead: { tenantId, corretorId: { in: corretorIds } },
+          lead: { tenantId, corretorId: { in: corretorIds }, ...origemWhere },
         },
         select: {
           leadId: true,
@@ -640,6 +667,7 @@ export class DashboardService {
           stage: { in: vendaSlugs },
           perdidoAt: null,
           corretorId: { in: corretorIds },
+          ...origemWhere,
           ...(opts?.incluirEstoqueAtual
             ? {}
             : {
@@ -676,15 +704,22 @@ export class DashboardService {
     }[],
     mesAtual: Periodo,
     mesAnterior: Periodo,
+    origem?: string,
   ) {
     if (corretores.length === 0) return [];
     const ids = corretores.map((c) => c.id);
+    const origemWhere = origem ? { origem } : {};
 
     const [leadsAtivos, visitasMes, vendasAtual, vendasAnterior] =
       await Promise.all([
         this.prisma.lead.groupBy({
           by: ['corretorId'],
-          where: { tenantId, perdidoAt: null, corretorId: { in: ids } },
+          where: {
+            tenantId,
+            perdidoAt: null,
+            corretorId: { in: ids },
+            ...origemWhere,
+          },
           _count: { _all: true },
         }),
         this.prisma.agendamento.groupBy({
@@ -695,13 +730,17 @@ export class DashboardService {
             tipo: AgendamentoTipo.visita,
             status: AgendamentoStatus.concluido,
             startsAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+            ...(origem ? { lead: { origem } } : {}),
           },
           _count: { _all: true },
         }),
         this.aggregateVendasPorCorretor(tenantId, ids, mesAtual, {
           incluirEstoqueAtual: true,
+          origem,
         }),
-        this.aggregateVendasPorCorretor(tenantId, ids, mesAnterior),
+        this.aggregateVendasPorCorretor(tenantId, ids, mesAnterior, {
+          origem,
+        }),
       ]);
 
     const leadsMap = new Map(
@@ -743,6 +782,7 @@ export class DashboardService {
       membros: { id: string }[];
     }[],
     corretorIds: string[],
+    origem?: string,
   ) {
     if (corretorIds.length === 0) return [];
 
@@ -752,6 +792,7 @@ export class DashboardService {
         tenantId,
         perdidoAt: null,
         corretorId: { in: corretorIds },
+        ...(origem ? { origem } : {}),
       },
       _count: { _all: true },
     });
@@ -909,7 +950,10 @@ export class DashboardService {
   /**
    * Ranking mensal completo: corretores (escopo da equipe) + gerentes (só admin).
    */
-  async rankingCompleto(requester: AuthenticatedUser) {
+  async rankingCompleto(
+    requester: AuthenticatedUser,
+    filtros: { mes?: number; ano?: number; origem?: string } = {},
+  ) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
         'Ranking disponível para admin e gerente.',
@@ -917,7 +961,12 @@ export class DashboardService {
     }
 
     const tenantId = requireTenantId(requester);
-    const { mesAtual, mesAnterior, agora } = janelasBrasil();
+    const { mesAtual, mesAnterior, agora } = janelasBrasil({
+      mes: filtros.mes,
+      ano: filtros.ano,
+    });
+    const origem = filtros.origem?.trim() || undefined;
+    const origemWhere = origem ? { origem } : {};
     const corretorIds = await this.teamScope.getVisibleCorretorIds(requester);
     const taxaConversao = (vendas: number, entradas: number) =>
       entradas === 0 ? 0 : Number(((vendas / entradas) * 100).toFixed(1));
@@ -1013,7 +1062,12 @@ export class DashboardService {
         ? emptyGroup
         : this.prisma.lead.groupBy({
             by: ['corretorId'],
-            where: { tenantId, perdidoAt: null, corretorId: { in: ids } },
+            where: {
+              tenantId,
+              perdidoAt: null,
+              corretorId: { in: ids },
+              ...origemWhere,
+            },
             _count: { _all: true },
           }),
       ids.length === 0
@@ -1024,6 +1078,7 @@ export class DashboardService {
               tenantId,
               corretorId: { in: ids },
               createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+              ...origemWhere,
             },
             _count: { _all: true },
           }),
@@ -1035,6 +1090,7 @@ export class DashboardService {
               tenantId,
               corretorId: { in: ids },
               createdAt: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
+              ...origemWhere,
             },
             _count: { _all: true },
           }),
@@ -1048,6 +1104,7 @@ export class DashboardService {
               tipo: AgendamentoTipo.visita,
               status: AgendamentoStatus.concluido,
               startsAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+              ...(origem ? { lead: { origem } } : {}),
             },
             _count: { _all: true },
           }),
@@ -1059,13 +1116,15 @@ export class DashboardService {
               tenantId,
               corretorId: { in: ids },
               createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+              ...(origem ? { lead: { origem } } : {}),
             },
             _count: { _all: true },
           }),
       this.aggregateVendasPorCorretor(tenantId, ids, mesAtual, {
         incluirEstoqueAtual: true,
+        origem,
       }),
-      this.aggregateVendasPorCorretor(tenantId, ids, mesAnterior),
+      this.aggregateVendasPorCorretor(tenantId, ids, mesAnterior, { origem }),
       ids.length === 0
         ? emptyGroup
         : this.prisma.lead.groupBy({
@@ -1074,6 +1133,7 @@ export class DashboardService {
               tenantId,
               corretorId: { in: ids },
               perdidoAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+              ...origemWhere,
             },
             _count: { _all: true },
           }),

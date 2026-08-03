@@ -1,10 +1,11 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { DashboardService } from './dashboard.service';
+import { QueryDashboardDto } from './dto/query-dashboard.dto';
 
 @Controller('dashboard')
 @UseGuards(RolesGuard)
@@ -19,13 +20,19 @@ export class DashboardController {
 
   @Get('admin')
   @Roles(Role.admin, Role.gerente)
-  resumoAdmin(@CurrentUser() requester: AuthenticatedUser) {
-    return this.dashboardService.resumoAdmin(requester);
+  resumoAdmin(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.resumoAdmin(requester, query);
   }
 
   @Get('ranking')
   @Roles(Role.admin, Role.gerente)
-  ranking(@CurrentUser() requester: AuthenticatedUser) {
-    return this.dashboardService.rankingCompleto(requester);
+  ranking(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.rankingCompleto(requester, query);
   }
 }
