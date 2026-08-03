@@ -3,10 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AnaliseStatus, Prisma, Role } from '@prisma/client';
+import { AnaliseStatus, FunilEtapaPapel, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { FunisService } from '../funis/funis.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { QueryAnaliseDto, UpdateAnaliseDto } from './dto/analise.dto';
@@ -71,6 +72,7 @@ export class AnaliseService {
     private readonly prisma: PrismaService,
     private readonly teamScope: TeamScopeService,
     private readonly notificacoes: NotificacoesService,
+    private readonly funis: FunisService,
   ) {}
 
   async list(query: QueryAnaliseDto, requester: AuthenticatedUser) {
@@ -220,7 +222,7 @@ export class AnaliseService {
   }
 
   /**
-   * Cria a ficha de análise ao entrar em "em-analise" (idempotente).
+   * Cria a ficha de análise ao entrar na etapa com papel análise (idempotente).
    * Usa snapshot do lead + última documentação, se houver.
    */
   async ensureForLead(leadId: string, autorId: string, tenantId: string) {
@@ -305,10 +307,16 @@ export class AnaliseService {
   private async backfillMissing(requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     const leadScope = await this.teamScope.leadScope(requester);
+    const analiseSlug = await this.funis.getSlugByPapel(
+      tenantId,
+      FunilEtapaPapel.analise,
+    );
+    if (!analiseSlug) return;
+
     const leads = await this.prisma.lead.findMany({
       where: {
         perdidoAt: null,
-        stage: 'em-analise',
+        stage: analiseSlug,
         analise: null,
         ...leadScope,
       },

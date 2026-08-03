@@ -6,6 +6,7 @@ import {
   AgendamentoTipo,
   AnaliseStatus,
   ContatoTipo,
+  FunilEtapaPapel,
   MetaPeriodo,
   MetaTipo,
   Role,
@@ -15,6 +16,7 @@ import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { AgendaService } from '../agenda/agenda.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
+import { FunisService } from '../funis/funis.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -72,6 +74,7 @@ export class DashboardService {
     private readonly prisma: PrismaService,
     private readonly agendaService: AgendaService,
     private readonly teamScope: TeamScopeService,
+    private readonly funis: FunisService,
   ) {}
 
   async resumoCorretor(requester: AuthenticatedUser) {
@@ -154,8 +157,13 @@ export class DashboardService {
     const totalLeads = totalPorTipo.get(ContatoTipo.lead) ?? 0;
     const totalClientes = totalPorTipo.get(ContatoTipo.cliente) ?? 0;
     const totalCarteira = totalLeads + totalClientes;
-    const emAnalise =
-      funil.find((item) => item.stage === 'em-analise')?._count._all ?? 0;
+    const analiseSlug = await this.funis.getSlugByPapel(
+      tenantId,
+      FunilEtapaPapel.analise,
+    );
+    const emAnalise = analiseSlug
+      ? (funil.find((item) => item.stage === analiseSlug)?._count._all ?? 0)
+      : 0;
     const agendaAtiva = agendaHoje.filter(
       (item) => item.status !== 'cancelado',
     );
@@ -249,11 +257,15 @@ export class DashboardService {
       createdAt: { gte: periodo.inicio, lt: periodo.fim },
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
     });
+    const vendaSlug = await this.funis.getSlugByPapel(
+      tenantId,
+      FunilEtapaPapel.venda,
+    );
     /** Leads que entraram no período e já viraram venda (coorte). */
     const leadVendidoDaEntradaWhere = (periodo: Periodo) => ({
       ...leadCriadoWhere(periodo),
       OR: [
-        { stage: 'ganho-venda' },
+        ...(vendaSlug ? [{ stage: vendaSlug }] : []),
         {
           documentacoes: {
             some: { status2: 'Vendido' },
@@ -493,7 +505,7 @@ export class DashboardService {
       })),
       /**
        * Regra de negócio: % dos leads que entraram no período e viraram venda.
-       * Coorte = createdAt no mês; venda = stage ganho-venda ou documentação vendida.
+       * Coorte = createdAt no mês; venda = etapa com papel venda ou documentação vendida.
        */
       conversao: {
         entradas: metric(entradasMes, entradasMesAnt),

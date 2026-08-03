@@ -820,6 +820,15 @@ enum CatalogType {
   tag
 }
 
+/// Papel semântico da etapa no funil — dispara fluxos (análise, venda, perda)
+/// independentemente do slug/label personalizados.
+enum FunilEtapaPapel {
+  inicial
+  analise
+  venda
+  perdido
+}
+
 /// Funil comercial nomeado do tenant. Apenas um pode estar `ativo` por vez.
 model Funil {
   id       String @id @default(uuid())
@@ -841,14 +850,16 @@ model Funil {
 
 /// Etapa pertencente a um funil. Lead.stage guarda o `slug`.
 model FunilEtapa {
-  id        String  @id @default(uuid())
+  id        String           @id @default(uuid())
   funilId   String
-  funil     Funil   @relation(fields: [funilId], references: [id], onDelete: Cascade)
+  funil     Funil            @relation(fields: [funilId], references: [id], onDelete: Cascade)
   label     String
   slug      String
-  color     String  @default("bg-slate-200 text-slate-700")
-  sortOrder Int     @default(0)
-  active    Boolean @default(true)
+  color     String           @default("bg-slate-200 text-slate-700")
+  sortOrder Int              @default(0)
+  active    Boolean          @default(true)
+  /// null = etapa intermediária sem fluxo especial.
+  papel     FunilEtapaPapel?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -856,6 +867,7 @@ model FunilEtapa {
   @@unique([funilId, slug])
   @@unique([funilId, label])
   @@index([funilId, sortOrder])
+  @@index([funilId, papel])
   @@map("funil_etapas")
 }
 

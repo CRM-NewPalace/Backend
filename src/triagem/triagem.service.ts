@@ -4,11 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ContatoTipo, Role, TriagemOrigem } from '@prisma/client';
+import { ContatoTipo, FunilEtapaPapel, Role, TriagemOrigem } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
+import { FunisService } from '../funis/funis.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { CreateTriagemDto } from './dto/create-triagem.dto';
@@ -48,6 +49,7 @@ export class TriagemService {
     private readonly catalog: CatalogService,
     private readonly teamScope: TeamScopeService,
     private readonly analiseService: AnaliseService,
+    private readonly funis: FunisService,
   ) {}
 
   /**
@@ -198,8 +200,15 @@ export class TriagemService {
       });
     });
 
-    if (targetStage === 'em-analise') {
-      await this.analiseService.ensureForLead(lead.id, requester.id, tenantId);
+    if (targetStage) {
+      const papel = await this.funis.getPapelBySlug(tenantId, targetStage);
+      if (papel === FunilEtapaPapel.analise) {
+        await this.analiseService.ensureForLead(
+          lead.id,
+          requester.id,
+          tenantId,
+        );
+      }
     }
 
     return event;

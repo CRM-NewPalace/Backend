@@ -2,6 +2,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -9,9 +10,11 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { FunilEtapaPapel } from '@prisma/client';
 
 export class CreateFunilEtapaDto {
   @IsString()
@@ -29,6 +32,11 @@ export class CreateFunilEtapaDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsEnum(FunilEtapaPapel, { message: 'Papel de etapa inválido.' })
+  papel?: FunilEtapaPapel | null;
 }
 
 export class CreateFunilDto {
@@ -76,6 +84,12 @@ export class UpdateFunilEtapaDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  /** null limpa o papel (etapa intermediária). */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsEnum(FunilEtapaPapel, { message: 'Papel de etapa inválido.' })
+  papel?: FunilEtapaPapel | null;
 }
 
 export class ReorderFunilEtapasDto {

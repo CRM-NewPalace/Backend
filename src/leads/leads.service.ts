@@ -4,13 +4,22 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ContatoTipo, CatalogType, Prisma, Role, TriagemOrigem, UserStatus } from '@prisma/client';
+import {
+  ContatoTipo,
+  CatalogType,
+  FunilEtapaPapel,
+  Prisma,
+  Role,
+  TriagemOrigem,
+  UserStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
+import { FunisService } from '../funis/funis.service';
 import { leadSelect, LeadEntity } from './lead-select';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
@@ -33,6 +42,7 @@ export class LeadsService {
     private readonly catalog: CatalogService,
     private readonly teamScope: TeamScopeService,
     private readonly analiseService: AnaliseService,
+    private readonly funis: FunisService,
   ) {}
 
   async create(
@@ -742,7 +752,10 @@ export class LeadsService {
     let construtoraId = previous?.construtoraId ?? null;
     let empreendimentoId = previous?.empreendimentoId ?? null;
 
-    if (stage === 'em-analise') {
+    const stagePapel = await this.funis.getPapelBySlug(tenantId, stage);
+    const isAnalise = stagePapel === FunilEtapaPapel.analise;
+
+    if (isAnalise) {
       construtoraId = dto.construtoraId ?? construtoraId;
       empreendimentoId = dto.empreendimentoId ?? empreendimentoId;
       if (!construtoraId || !empreendimentoId) {
@@ -756,9 +769,7 @@ export class LeadsService {
       where: { id },
       data: {
         stage,
-        ...(stage === 'em-analise'
-          ? { construtoraId, empreendimentoId }
-          : {}),
+        ...(isAnalise ? { construtoraId, empreendimentoId } : {}),
       },
       select: leadSelect,
     });
@@ -781,7 +792,7 @@ export class LeadsService {
       });
     }
 
-    if (stage === 'em-analise') {
+    if (isAnalise) {
       await this.analiseService.ensureForLead(id, requester.id, tenantId);
     }
 
@@ -817,9 +828,10 @@ export class LeadsService {
       throw new BadRequestException('Informe o motivo da exclusão.');
     }
 
-    // Move para a etapa "perdido" do funil quando existir.
-    const stageSlugs = await this.catalog.getActiveStageSlugs(tenantId);
-    const perdidoStage = stageSlugs.includes('perdido') ? 'perdido' : undefined;
+    // Move para a etapa com papel perdido (fallback slug legado).
+    const perdidoStage =
+      (await this.funis.getSlugByPapel(tenantId, FunilEtapaPapel.perdido)) ??
+      undefined;
 
     return this.prisma.lead.update({
       where: { id },

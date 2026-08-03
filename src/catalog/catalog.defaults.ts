@@ -1,15 +1,18 @@
 /**
  * Etapas padrão do funil de vendas (imobiliário).
- * Persistidas em `catalog_items` — o slug é o identificador estável usado em Lead.stage.
- * `novo` é a etapa inicial obrigatória no cadastro de leads.
+ * Persistidas em `funil_etapas` — o slug é o identificador estável usado em Lead.stage.
+ * `papel` dispara fluxos (análise, venda, perda) independente do label.
  */
 export const DEFAULT_INITIAL_STAGE_SLUG = 'novo';
+
+export type DefaultFunnelPapel = 'inicial' | 'analise' | 'venda' | 'perdido';
 
 export interface DefaultFunnelStage {
   label: string;
   slug: string;
   color: string;
   sortOrder: number;
+  papel?: DefaultFunnelPapel;
 }
 
 export const DEFAULT_FUNNEL_STAGES: readonly DefaultFunnelStage[] = [
@@ -18,6 +21,7 @@ export const DEFAULT_FUNNEL_STAGES: readonly DefaultFunnelStage[] = [
     slug: DEFAULT_INITIAL_STAGE_SLUG,
     color: 'bg-slate-200 text-slate-700',
     sortOrder: 0,
+    papel: 'inicial',
   },
   {
     label: 'Contato',
@@ -36,6 +40,7 @@ export const DEFAULT_FUNNEL_STAGES: readonly DefaultFunnelStage[] = [
     slug: 'em-analise',
     color: 'bg-violet-100 text-violet-700',
     sortOrder: 3,
+    papel: 'analise',
   },
   {
     label: 'Visita agendada',
@@ -72,11 +77,13 @@ export const DEFAULT_FUNNEL_STAGES: readonly DefaultFunnelStage[] = [
     slug: 'ganho-venda',
     color: 'bg-green-200 text-green-800',
     sortOrder: 9,
+    papel: 'venda',
   },
   {
     label: 'Perdido',
     slug: 'perdido',
     color: 'bg-red-100 text-red-700',
     sortOrder: 10,
+    papel: 'perdido',
   },
 ] as const;
