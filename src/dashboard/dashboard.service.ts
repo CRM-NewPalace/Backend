@@ -72,6 +72,8 @@ function janelasBrasil(opts: JanelasOpts = {}) {
     inicioHoje,
     inicioAmanha,
     inicioSemana,
+    ano: y,
+    mes: m,
     mesAtual: { inicio: inicioMesAtual, fim: inicioProximoMes } satisfies Periodo,
     mesAnterior: {
       inicio: inicioMesAnterior,
@@ -506,6 +508,38 @@ export class DashboardService {
       entradasMesAnt,
     );
 
+    const brasilAgora = new Date(windows.agora.getTime() - BRASIL_UTC_OFFSET_MS);
+    const ehMesCorrente =
+      windows.ano === brasilAgora.getUTCFullYear() &&
+      windows.mes === brasilAgora.getUTCMonth();
+    /** Entradas/vendas/perdidos/VGV no mês filtrado. */
+    const temRegistroNoPeriodo =
+      entradasMes > 0 ||
+      vendasDaEntradaMes > 0 ||
+      perdidosMes > 0 ||
+      (vgvMes._sum.vgv ?? 0) > 0;
+    /**
+     * Indicadores de estoque/"hoje" só fazem sentido no mês corrente com dados.
+     * Em período histórico/vazio, zera para não misturar com o recorte filtrado.
+     */
+    const mostrarSnapshotAtual = ehMesCorrente && temRegistroNoPeriodo;
+
+    const rankingResposta = mostrarSnapshotAtual
+      ? ranking
+      : ranking.map((r) => ({
+          ...r,
+          leads: 0,
+          visitas: 0,
+        }));
+    const equipesResposta = mostrarSnapshotAtual
+      ? distribuicaoEquipes
+      : distribuicaoEquipes.map((eq) => ({
+          ...eq,
+          leads: 0,
+          clientes: 0,
+          total: 0,
+        }));
+
     return {
       periodo: {
         mesAtual: {
@@ -518,14 +552,19 @@ export class DashboardService {
         },
       },
       entradas: {
-        hoje: entradasHoje,
-        semana: entradasSemana,
+        hoje: mostrarSnapshotAtual ? entradasHoje : 0,
+        semana: mostrarSnapshotAtual ? entradasSemana : 0,
         mes: metric(entradasMes, entradasMesAnt),
       },
-      funil: funil.map((item) => ({
-        etapa: item.stage,
-        total: item._count._all,
-      })),
+      funil: mostrarSnapshotAtual
+        ? funil.map((item) => ({
+            etapa: item.stage,
+            total: item._count._all,
+          }))
+        : funil.map((item) => ({
+            etapa: item.stage,
+            total: 0,
+          })),
       /**
        * Regra de negócio: % dos leads que entraram no período e viraram venda.
        * Coorte = createdAt no mês; venda = etapa com papel venda ou documentação vendida.
@@ -537,8 +576,8 @@ export class DashboardService {
         vgv: metric(vgvMes._sum.vgv ?? 0, vgvMesAnt._sum.vgv ?? 0),
       },
       atencao: {
-        semDono,
-        parados,
+        semDono: mostrarSnapshotAtual ? semDono : 0,
+        parados: mostrarSnapshotAtual ? parados : 0,
         diasParado,
       },
       perdidos: {
@@ -551,27 +590,41 @@ export class DashboardService {
           };
         }),
       },
-      agenda: {
-        totalHoje: agendaHoje.length,
-        pendentesHoje: agendaHoje.filter(
-          (a) => a.status === AgendamentoStatus.agendado,
-        ).length,
-        concluidosHoje: agendaHoje.filter(
-          (a) => a.status === AgendamentoStatus.concluido,
-        ).length,
-        atrasados: agendaAtrasados,
-        itens: agendaHoje.slice(0, 8).map((item) => ({
-          id: item.id,
-          titulo: item.titulo,
-          tipo: item.tipo,
-          status: item.status,
-          startsAt: item.startsAt.toISOString(),
-          contato: item.lead?.nome ?? null,
-        })),
-      },
-      ranking,
-      equipes: distribuicaoEquipes,
-      metas,
+      agenda: mostrarSnapshotAtual
+        ? {
+            totalHoje: agendaHoje.length,
+            pendentesHoje: agendaHoje.filter(
+              (a) => a.status === AgendamentoStatus.agendado,
+            ).length,
+            concluidosHoje: agendaHoje.filter(
+              (a) => a.status === AgendamentoStatus.concluido,
+            ).length,
+            atrasados: agendaAtrasados,
+            itens: agendaHoje.slice(0, 8).map((item) => ({
+              id: item.id,
+              titulo: item.titulo,
+              tipo: item.tipo,
+              status: item.status,
+              startsAt: item.startsAt.toISOString(),
+              contato: item.lead?.nome ?? null,
+            })),
+          }
+        : {
+            totalHoje: 0,
+            pendentesHoje: 0,
+            concluidosHoje: 0,
+            atrasados: 0,
+            itens: [],
+          },
+      ranking: rankingResposta,
+      equipes: equipesResposta,
+      metas: mostrarSnapshotAtual
+        ? metas
+        : {
+            corretores: [],
+            equipes: [],
+            imobiliaria: { meta: 0, atual: 0, percentual: 0 },
+          },
     };
   }
 
