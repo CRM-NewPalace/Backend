@@ -441,20 +441,6 @@ enum DocumentacaoFonte {
   outro
 }
 
-/// Status 1 da documentação (crédito/análise).
-enum DocumentacaoStatus1 {
-  aprovado
-  analise
-  aprovado_restricao
-}
-
-/// Status 2 da documentação (andamento comercial).
-enum DocumentacaoStatus2 {
-  vendido
-  bacen
-  andamento
-}
-
 /// Construtora parceira (cadastro admin; gerente só visualiza).
 model Construtora {
   id                  String  @id @default(uuid())
@@ -535,9 +521,11 @@ model Documentacao {
   empreendimentoId String?
   empreendimento   Empreendimento? @relation(fields: [empreendimentoId], references: [id], onDelete: SetNull)
 
-  fonte   DocumentacaoFonte    @default(outro)
-  status1 DocumentacaoStatus1  @default(analise)
-  status2 DocumentacaoStatus2  @default(andamento)
+  fonte   DocumentacaoFonte @default(outro)
+  /// Status de crédito/análise (texto livre; defaults + catálogo).
+  status1 String            @default("Análise")
+  /// Status comercial (texto livre; defaults + catálogo).
+  status2 String            @default("Andamento")
 
   corretorId String?
   corretor   User? @relation("DocumentacaoCorretor", fields: [corretorId], references: [id], onDelete: SetNull)

@@ -126,8 +126,8 @@ export class DocumentacaoService {
         empreendimentoId:
           dto.empreendimentoId || lead.empreendimentoId || null,
         fonte: dto.fonte,
-        status1: dto.status1,
-        status2: dto.status2,
+        status1: dto.status1.trim(),
+        status2: dto.status2.trim(),
         corretorId: dto.corretorId || lead.corretorId || null,
         gerenteId,
         dataAnalise: parseOptionalDate(dto.dataAnalise) ?? null,
@@ -168,8 +168,8 @@ export class DocumentacaoService {
         : { disconnect: true };
     }
     if (dto.fonte !== undefined) data.fonte = dto.fonte;
-    if (dto.status1 !== undefined) data.status1 = dto.status1;
-    if (dto.status2 !== undefined) data.status2 = dto.status2;
+    if (dto.status1 !== undefined) data.status1 = dto.status1.trim();
+    if (dto.status2 !== undefined) data.status2 = dto.status2.trim();
     if (dto.corretorId !== undefined) {
       data.corretor = dto.corretorId
         ? { connect: { id: dto.corretorId } }

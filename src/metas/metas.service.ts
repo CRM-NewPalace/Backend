@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  DocumentacaoStatus2,
   MetaOrigem,
   MetaPeriodo,
   MetaTipo,
@@ -210,7 +209,7 @@ export class MetasService {
       tenantId,
       corretorId: meta.corretorId,
       dataVenda: { gte: meta.inicio, lt: meta.fim },
-      status2: DocumentacaoStatus2.vendido,
+      status2: 'Vendido',
     };
     let atual = 0;
 

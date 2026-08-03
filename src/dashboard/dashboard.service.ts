@@ -6,7 +6,6 @@ import {
   AgendamentoTipo,
   AnaliseStatus,
   ContatoTipo,
-  DocumentacaoStatus2,
   MetaPeriodo,
   MetaTipo,
   Role,
@@ -135,7 +134,7 @@ export class DashboardService {
         where: {
           tenantId,
           lead: leadWhere,
-          status2: DocumentacaoStatus2.vendido,
+          status2: 'Vendido',
           dataVenda: { gte: inicioMes, lt: inicioProximoMes },
         },
         _sum: { vgv: true },
@@ -190,11 +189,11 @@ export class DashboardService {
         ),
         vendidos:
           documentacoes.find(
-            (item) => item.status2 === DocumentacaoStatus2.vendido,
+            (item) => item.status2 === 'Vendido',
           )?._count._all ?? 0,
         emAndamento:
           documentacoes.find(
-            (item) => item.status2 === DocumentacaoStatus2.andamento,
+            (item) => item.status2 === 'Andamento',
           )?._count._all ?? 0,
         vgvVendidoMes: vgvVendido._sum.vgv ?? 0,
       },
@@ -257,14 +256,14 @@ export class DashboardService {
         { stage: 'ganho-venda' },
         {
           documentacoes: {
-            some: { status2: DocumentacaoStatus2.vendido },
+            some: { status2: 'Vendido' },
           },
         },
       ],
     });
     const docVendaWhere = (periodo: Periodo) => ({
       tenantId,
-      status2: DocumentacaoStatus2.vendido,
+      status2: 'Vendido',
       dataVenda: { gte: periodo.inicio, lt: periodo.fim },
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
     });
@@ -583,7 +582,7 @@ export class DashboardService {
         where: {
           tenantId,
           corretorId: { in: ids },
-          status2: DocumentacaoStatus2.vendido,
+          status2: 'Vendido',
           dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
         },
         _count: { _all: true },
@@ -593,7 +592,7 @@ export class DashboardService {
         where: {
           tenantId,
           corretorId: { in: ids },
-          status2: DocumentacaoStatus2.vendido,
+          status2: 'Vendido',
           dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
         },
         _count: { _all: true },
@@ -603,7 +602,7 @@ export class DashboardService {
         where: {
           tenantId,
           corretorId: { in: ids },
-          status2: DocumentacaoStatus2.vendido,
+          status2: 'Vendido',
           dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
         },
         _sum: { vgv: true },
@@ -613,7 +612,7 @@ export class DashboardService {
         where: {
           tenantId,
           corretorId: { in: ids },
-          status2: DocumentacaoStatus2.vendido,
+          status2: 'Vendido',
           dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
         },
         _sum: { vgv: true },
@@ -753,7 +752,7 @@ export class DashboardService {
           tenantId,
           corretorId: meta.corretorId,
           dataVenda: { gte: meta.inicio, lt: meta.fim },
-          status2: DocumentacaoStatus2.vendido,
+          status2: 'Vendido',
         };
         let atual = 0;
         if (meta.tipo === MetaTipo.documentacoes) {
@@ -990,7 +989,7 @@ export class DashboardService {
             where: {
               tenantId,
               corretorId: { in: ids },
-              status2: DocumentacaoStatus2.vendido,
+              status2: 'Vendido',
               dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
             },
             _count: { _all: true },
@@ -1002,7 +1001,7 @@ export class DashboardService {
             where: {
               tenantId,
               corretorId: { in: ids },
-              status2: DocumentacaoStatus2.vendido,
+              status2: 'Vendido',
               dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
             },
             _count: { _all: true },
@@ -1014,7 +1013,7 @@ export class DashboardService {
             where: {
               tenantId,
               corretorId: { in: ids },
-              status2: DocumentacaoStatus2.vendido,
+              status2: 'Vendido',
               dataVenda: { gte: mesAtual.inicio, lt: mesAtual.fim },
             },
             _sum: { vgv: true },
@@ -1026,7 +1025,7 @@ export class DashboardService {
             where: {
               tenantId,
               corretorId: { in: ids },
-              status2: DocumentacaoStatus2.vendido,
+              status2: 'Vendido',
               dataVenda: { gte: mesAnterior.inicio, lt: mesAnterior.fim },
             },
             _sum: { vgv: true },

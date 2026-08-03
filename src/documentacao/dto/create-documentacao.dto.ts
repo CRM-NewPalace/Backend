@@ -11,11 +11,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import {
-  DocumentacaoFonte,
-  DocumentacaoStatus1,
-  DocumentacaoStatus2,
-} from '@prisma/client';
+import { DocumentacaoFonte } from '@prisma/client';
 
 function toOptionalInt({ value }: { value: unknown }) {
   if (value === undefined) return undefined;
@@ -45,11 +41,15 @@ export class CreateDocumentacaoDto {
   @IsEnum(DocumentacaoFonte, { message: 'Fonte inválida.' })
   fonte!: DocumentacaoFonte;
 
-  @IsEnum(DocumentacaoStatus1, { message: 'Status 1 inválido.' })
-  status1!: DocumentacaoStatus1;
+  @IsString({ message: 'Status 1 inválido.' })
+  @MinLength(1, { message: 'Informe o status 1.' })
+  @MaxLength(80)
+  status1!: string;
 
-  @IsEnum(DocumentacaoStatus2, { message: 'Status 2 inválido.' })
-  status2!: DocumentacaoStatus2;
+  @IsString({ message: 'Status 2 inválido.' })
+  @MinLength(1, { message: 'Informe o status 2.' })
+  @MaxLength(80)
+  status2!: string;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
