@@ -23,6 +23,7 @@ import { MetasModule } from './metas/metas.module';
 import { OzapModule } from './ozap/ozap.module';
 import { MetaModule } from './meta/meta.module';
 import { PropostasModule } from './propostas/propostas.module';
+import { FinanceiroModule } from './financeiro/financeiro.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { validateEnv } from './config/env.validation';
@@ -49,6 +50,7 @@ import { THROTTLE } from './config/security.constants';
     OzapModule,
     MetaModule,
     PropostasModule,
+    FinanceiroModule,
     EquipesModule,
     AnaliseModule,
     NotificacoesModule,

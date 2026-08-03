@@ -106,6 +106,10 @@ model Tenant {
   metas             Meta[]
   metaConnections   TenantMetaConnection[]
   ozapConnections   TenantOzapConnection[]
+  financeiroParceiros  FinanceiroParceiro[]
+  financeiroMovimentos FinanceiroMovimento[]
+  financeiroTitulos    FinanceiroTitulo[]
+  financeiroComissoes  FinanceiroComissao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -916,6 +920,141 @@ model Meta {
   @@index([corretorId, inicio, fim])
   @@index([criadorId])
   @@map("metas")
+}
+
+/// Tipo de parceiro no módulo financeiro.
+enum FinanceiroParceiroTipo {
+  cliente
+  fornecedor
+  ambos
+}
+
+/// Status de título / movimento financeiro.
+enum FinanceiroTituloStatus {
+  aberto
+  pago
+  atrasado
+  cancelado
+}
+
+/// Contas a receber vs a pagar.
+enum FinanceiroTituloTipo {
+  receber
+  pagar
+}
+
+enum FinanceiroMovimentoTipo {
+  entrada
+  saida
+}
+
+enum FinanceiroComissaoStatus {
+  pendente
+  liberada
+  paga
+}
+
+/// Cliente / fornecedor do módulo financeiro.
+model FinanceiroParceiro {
+  id          String                 @id @default(uuid())
+  tenantId    String
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome        String
+  documento   String
+  tipo        FinanceiroParceiroTipo
+  email       String?
+  telefone    String?
+  cidade      String?
+  saldoAberto Float                  @default(0)
+  ativo       Boolean                @default(true)
+
+  movimentos FinanceiroMovimento[]
+  titulos    FinanceiroTitulo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, tipo])
+  @@index([tenantId, ativo])
+  @@index([nome])
+  @@map("financeiro_parceiros")
+}
+
+/// Lançamento de movimentação financeira.
+model FinanceiroMovimento {
+  id             String                  @id @default(uuid())
+  tenantId       String
+  tenant         Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  data           DateTime
+  descricao      String
+  parceiroId     String?
+  parceiro       FinanceiroParceiro?     @relation(fields: [parceiroId], references: [id], onDelete: SetNull)
+  parceiroNome   String                  @default("")
+  categoria      String
+  centro         String                  @default("")
+  tipo           FinanceiroMovimentoTipo
+  valor          Float
+  status         FinanceiroTituloStatus  @default(aberto)
+  formaPagamento String                  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, data])
+  @@index([parceiroId])
+  @@map("financeiro_movimentos")
+}
+
+/// Título a receber ou a pagar.
+model FinanceiroTitulo {
+  id           String                 @id @default(uuid())
+  tenantId     String
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tipo         FinanceiroTituloTipo
+  descricao    String
+  parceiroId   String?
+  parceiro     FinanceiroParceiro?    @relation(fields: [parceiroId], references: [id], onDelete: SetNull)
+  parceiroNome String                 @default("")
+  categoria    String                 @default("")
+  centro       String                 @default("")
+  vencimento   DateTime
+  valor        Float
+  status       FinanceiroTituloStatus @default(aberto)
+  parcela      String                 @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, tipo])
+  @@index([tenantId, vencimento])
+  @@index([parceiroId])
+  @@map("financeiro_titulos")
+}
+
+/// Comissão de corretor.
+model FinanceiroComissao {
+  id              String                   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  corretor        String
+  equipe          String                   @default("")
+  empreendimento  String                   @default("")
+  cliente         String                   @default("")
+  dataVenda       DateTime
+  vgv             Float
+  percentual      Float
+  valor           Float
+  status          FinanceiroComissaoStatus @default(pendente)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, dataVenda])
+  @@map("financeiro_comissoes")
 }
 
 /// Motivo de uma tentativa de login recusada (para auditoria).
