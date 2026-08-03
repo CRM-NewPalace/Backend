@@ -45,7 +45,7 @@ export class CatalogController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.corretor)
   create(
     @Body() dto: CreateCatalogItemDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -73,7 +73,7 @@ export class CatalogController {
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.corretor)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCatalogItemDto,

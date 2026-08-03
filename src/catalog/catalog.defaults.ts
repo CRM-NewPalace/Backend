@@ -113,3 +113,14 @@ export const DEFAULT_DOCUMENTACAO_STATUS2: readonly DefaultCatalogLabel[] = [
   { label: 'Bacen', color: 'bg-sky-100 text-sky-700' },
   { label: 'Andamento', color: 'bg-orange-100 text-orange-700' },
 ] as const;
+
+/** Motivos padrão de perda de lead. */
+export const DEFAULT_MOTIVOS_PERDA: readonly DefaultCatalogLabel[] = [
+  { label: 'Sem retorno', color: 'bg-slate-200 text-slate-700' },
+  { label: 'Comprou com concorrente', color: 'bg-orange-100 text-orange-700' },
+  { label: 'Crédito não aprovado', color: 'bg-red-100 text-red-700' },
+  { label: 'Fora do perfil financeiro', color: 'bg-amber-100 text-amber-700' },
+  { label: 'Contato inválido', color: 'bg-rose-100 text-rose-700' },
+  { label: 'Desistiu da compra', color: 'bg-violet-100 text-violet-700' },
+  { label: 'Sem interesse', color: 'bg-indigo-100 text-indigo-700' },
+] as const;

@@ -21,6 +21,7 @@ import {
   DEFAULT_DOCUMENTACAO_STATUS1,
   DEFAULT_DOCUMENTACAO_STATUS2,
   DEFAULT_INITIAL_STAGE_SLUG,
+  DEFAULT_MOTIVOS_PERDA,
 } from './catalog.defaults';
 import { FunisService } from '../funis/funis.service';
 
@@ -76,6 +77,7 @@ export class CatalogService {
   ): Promise<GroupedCatalog> {
     const tenantId = requireTenantId(requester);
     await this.ensureDocumentacaoCatalogDefaults(tenantId);
+    await this.ensureMotivoPerdaDefaults(tenantId);
 
     const items = await this.prisma.catalogItem.findMany({
       where: {
@@ -139,6 +141,27 @@ export class CatalogService {
     }
   }
 
+  /** Garante motivos padrão de perda no tenant. */
+  private async ensureMotivoPerdaDefaults(tenantId: string) {
+    const count = await this.prisma.catalogItem.count({
+      where: { tenantId, type: CatalogType.motivo_perda },
+    });
+    if (count > 0) return;
+    for (const [index, item] of DEFAULT_MOTIVOS_PERDA.entries()) {
+      await this.prisma.catalogItem.create({
+        data: {
+          tenantId,
+          type: CatalogType.motivo_perda,
+          label: item.label,
+          slug: slugify(item.label),
+          color: item.color,
+          sortOrder: index,
+          active: true,
+        },
+      });
+    }
+  }
+
   async create(
     dto: CreateCatalogItemDto,
     requester: AuthenticatedUser,
@@ -148,14 +171,7 @@ export class CatalogService {
         'Etapas do funil são gerenciadas em Configurações → Funis.',
       );
     }
-    if (
-      requester.role === Role.analista &&
-      !DOCUMENTACAO_CATALOG_TYPES.has(dto.type)
-    ) {
-      throw new ForbiddenException(
-        'Analistas só podem criar fontes e status da documentação.',
-      );
-    }
+    this.assertCanMutateCatalogType(requester, dto.type);
     const tenantId = requireTenantId(requester);
     const label = dto.label.trim();
     await this.ensureLabelIsAvailable(tenantId, dto.type, label);
@@ -173,7 +189,6 @@ export class CatalogService {
         type: dto.type,
         label,
         slug: slugify(label),
-        // Cor das badges (classes Tailwind) — válido para etapas, origens, tags e motivos.
         color: dto.color?.trim() || null,
         sortOrder,
       },
@@ -187,6 +202,7 @@ export class CatalogService {
   ): Promise<CatalogItem> {
     const tenantId = requireTenantId(requester);
     const existing = await this.ensureExists(id, tenantId);
+    this.assertCanMutateCatalogType(requester, existing.type);
 
     const label = dto.label?.trim();
     if (label && label !== existing.label) {
@@ -279,6 +295,38 @@ export class CatalogService {
    */
   async getDefaultStageSlug(tenantId: string): Promise<string> {
     return this.funisService.getDefaultStageSlug(tenantId);
+  }
+
+  private assertCanMutateCatalogType(
+    requester: AuthenticatedUser,
+    type: CatalogType,
+  ) {
+    if (requester.role === Role.admin || requester.role === Role.gerente) {
+      return;
+    }
+    if (
+      requester.role === Role.analista &&
+      DOCUMENTACAO_CATALOG_TYPES.has(type)
+    ) {
+      return;
+    }
+    if (
+      requester.role === Role.corretor &&
+      type === CatalogType.motivo_perda
+    ) {
+      return;
+    }
+    if (requester.role === Role.analista) {
+      throw new ForbiddenException(
+        'Analistas só podem criar fontes e status da documentação.',
+      );
+    }
+    if (requester.role === Role.corretor) {
+      throw new ForbiddenException(
+        'Corretores só podem criar ou editar motivos de perda.',
+      );
+    }
+    throw new ForbiddenException('Sem permissão para alterar este catálogo.');
   }
 
   private async ensureExists(
