@@ -1,7 +1,5 @@
-import { Transform } from 'class-transformer';
 import {
   IsDateString,
-  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -11,7 +9,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { DocumentacaoFonte } from '@prisma/client';
+import { Transform } from 'class-transformer';
 
 function toOptionalInt({ value }: { value: unknown }) {
   if (value === undefined) return undefined;
@@ -38,8 +36,10 @@ export class CreateDocumentacaoDto {
   @IsUUID('4', { message: 'Empreendimento inválido.' })
   empreendimentoId?: string | null;
 
-  @IsEnum(DocumentacaoFonte, { message: 'Fonte inválida.' })
-  fonte!: DocumentacaoFonte;
+  @IsString({ message: 'Fonte inválida.' })
+  @MinLength(1, { message: 'Informe a fonte.' })
+  @MaxLength(80)
+  fonte!: string;
 
   @IsString({ message: 'Status 1 inválido.' })
   @MinLength(1, { message: 'Informe o status 1.' })

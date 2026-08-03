@@ -15,10 +15,26 @@ import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 import { QueryCatalogDto } from './dto/query-catalog.dto';
 import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
 import { slugify } from './catalog.util';
-import { DEFAULT_INITIAL_STAGE_SLUG } from './catalog.defaults';
+import {
+  DEFAULT_DOCUMENTACAO_FONTES,
+  DEFAULT_DOCUMENTACAO_STATUS1,
+  DEFAULT_DOCUMENTACAO_STATUS2,
+  DEFAULT_INITIAL_STAGE_SLUG,
+} from './catalog.defaults';
 import { FunisService } from '../funis/funis.service';
 
 export type GroupedCatalog = Record<CatalogType, CatalogItem[]>;
+
+const DOCUMENTACAO_CATALOG_DEFAULTS: Record<
+  | typeof CatalogType.documentacao_fonte
+  | typeof CatalogType.documentacao_status1
+  | typeof CatalogType.documentacao_status2,
+  readonly { label: string; color: string }[]
+> = {
+  [CatalogType.documentacao_fonte]: DEFAULT_DOCUMENTACAO_FONTES,
+  [CatalogType.documentacao_status1]: DEFAULT_DOCUMENTACAO_STATUS1,
+  [CatalogType.documentacao_status2]: DEFAULT_DOCUMENTACAO_STATUS2,
+};
 
 @Injectable()
 export class CatalogService {
@@ -52,6 +68,8 @@ export class CatalogService {
     activeOnly = true,
   ): Promise<GroupedCatalog> {
     const tenantId = requireTenantId(requester);
+    await this.ensureDocumentacaoCatalogDefaults(tenantId);
+
     const items = await this.prisma.catalogItem.findMany({
       where: {
         tenantId,
@@ -67,6 +85,9 @@ export class CatalogService {
       [CatalogType.origem]: [],
       [CatalogType.motivo_perda]: [],
       [CatalogType.tag]: [],
+      [CatalogType.documentacao_fonte]: [],
+      [CatalogType.documentacao_status1]: [],
+      [CatalogType.documentacao_status2]: [],
     } as GroupedCatalog;
 
     if (activeOnly) {
@@ -79,6 +100,36 @@ export class CatalogService {
       grouped[item.type].push(item);
     }
     return grouped;
+  }
+
+  /** Garante fontes/status padrão da documentação no tenant. */
+  private async ensureDocumentacaoCatalogDefaults(tenantId: string) {
+    for (const [type, defaults] of Object.entries(
+      DOCUMENTACAO_CATALOG_DEFAULTS,
+    ) as Array<
+      [
+        keyof typeof DOCUMENTACAO_CATALOG_DEFAULTS,
+        readonly { label: string; color: string }[],
+      ]
+    >) {
+      const count = await this.prisma.catalogItem.count({
+        where: { tenantId, type },
+      });
+      if (count > 0) continue;
+      for (const [index, item] of defaults.entries()) {
+        await this.prisma.catalogItem.create({
+          data: {
+            tenantId,
+            type,
+            label: item.label,
+            slug: slugify(item.label),
+            color: item.color,
+            sortOrder: index,
+            active: true,
+          },
+        });
+      }
+    }
   }
 
   async create(

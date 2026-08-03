@@ -440,15 +440,6 @@ model TriagemEvent {
   @@map("triagem_events")
 }
 
-/// Fonte do lead/documentação (planilha operacional).
-enum DocumentacaoFonte {
-  indicacao
-  lead_proprio
-  lista
-  campanha
-  outro
-}
-
 /// Construtora parceira (cadastro admin; gerente só visualiza).
 model Construtora {
   id                  String  @id @default(uuid())
@@ -531,11 +522,12 @@ model Documentacao {
   empreendimentoId String?
   empreendimento   Empreendimento? @relation(fields: [empreendimentoId], references: [id], onDelete: SetNull)
 
-  fonte   DocumentacaoFonte @default(outro)
-  /// Status de crédito/análise (texto livre; defaults + catálogo).
-  status1 String            @default("Análise")
-  /// Status comercial (texto livre; defaults + catálogo).
-  status2 String            @default("Andamento")
+  /// Fonte configurável (catálogo documentacao_fonte; label livre).
+  fonte   String @default("Outro")
+  /// Status de crédito/análise (texto livre; catálogo documentacao_status1).
+  status1 String @default("Análise")
+  /// Status comercial (texto livre; catálogo documentacao_status2).
+  status2 String @default("Andamento")
 
   corretorId String?
   corretor   User? @relation("DocumentacaoCorretor", fields: [corretorId], references: [id], onDelete: SetNull)
@@ -818,6 +810,9 @@ enum CatalogType {
   origem
   motivo_perda
   tag
+  documentacao_fonte
+  documentacao_status1
+  documentacao_status2
 }
 
 /// Papel semântico da etapa no funil — dispara fluxos (análise, venda, perda)

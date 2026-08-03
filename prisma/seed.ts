@@ -54,6 +54,26 @@ const DEFAULT_TAGS = [
   { label: 'Urgente', color: 'bg-red-100 text-red-700' },
 ] as const;
 
+const DEFAULT_DOCUMENTACAO_FONTES = [
+  { label: 'Indicação', color: 'bg-emerald-100 text-emerald-700' },
+  { label: 'Lead próprio', color: 'bg-blue-100 text-blue-700' },
+  { label: 'Lista', color: 'bg-indigo-100 text-indigo-700' },
+  { label: 'Campanha', color: 'bg-amber-100 text-amber-700' },
+  { label: 'Outro', color: 'bg-slate-200 text-slate-700' },
+] as const;
+
+const DEFAULT_DOCUMENTACAO_STATUS1 = [
+  { label: 'Aprovado', color: 'bg-green-100 text-green-700' },
+  { label: 'Análise', color: 'bg-violet-100 text-violet-700' },
+  { label: 'Aprovado c/ restrição', color: 'bg-amber-100 text-amber-700' },
+] as const;
+
+const DEFAULT_DOCUMENTACAO_STATUS2 = [
+  { label: 'Vendido', color: 'bg-green-200 text-green-800' },
+  { label: 'Bacen', color: 'bg-sky-100 text-sky-700' },
+  { label: 'Andamento', color: 'bg-orange-100 text-orange-700' },
+] as const;
+
 const DEFAULT_MOTIVOS_PERDA = [
   { label: 'Sem retorno', color: 'bg-slate-200 text-slate-700' },
   { label: 'Comprou com concorrente', color: 'bg-orange-100 text-orange-700' },
@@ -821,6 +841,21 @@ async function main() {
     tenant.id,
     CatalogType.motivo_perda,
     DEFAULT_MOTIVOS_PERDA,
+  );
+  await seedSimpleCatalog(
+    tenant.id,
+    CatalogType.documentacao_fonte,
+    DEFAULT_DOCUMENTACAO_FONTES,
+  );
+  await seedSimpleCatalog(
+    tenant.id,
+    CatalogType.documentacao_status1,
+    DEFAULT_DOCUMENTACAO_STATUS1,
+  );
+  await seedSimpleCatalog(
+    tenant.id,
+    CatalogType.documentacao_status2,
+    DEFAULT_DOCUMENTACAO_STATUS2,
   );
   await seedLeads(tenant.id, userIds);
 

@@ -87,3 +87,29 @@ export const DEFAULT_FUNNEL_STAGES: readonly DefaultFunnelStage[] = [
     papel: 'perdido',
   },
 ] as const;
+
+export interface DefaultCatalogLabel {
+  label: string;
+  color: string;
+}
+
+/** Fontes padrão da documentação (analista / módulo Documentação). */
+export const DEFAULT_DOCUMENTACAO_FONTES: readonly DefaultCatalogLabel[] = [
+  { label: 'Indicação', color: 'bg-emerald-100 text-emerald-700' },
+  { label: 'Lead próprio', color: 'bg-blue-100 text-blue-700' },
+  { label: 'Lista', color: 'bg-indigo-100 text-indigo-700' },
+  { label: 'Campanha', color: 'bg-amber-100 text-amber-700' },
+  { label: 'Outro', color: 'bg-slate-200 text-slate-700' },
+] as const;
+
+export const DEFAULT_DOCUMENTACAO_STATUS1: readonly DefaultCatalogLabel[] = [
+  { label: 'Aprovado', color: 'bg-green-100 text-green-700' },
+  { label: 'Análise', color: 'bg-violet-100 text-violet-700' },
+  { label: 'Aprovado c/ restrição', color: 'bg-amber-100 text-amber-700' },
+] as const;
+
+export const DEFAULT_DOCUMENTACAO_STATUS2: readonly DefaultCatalogLabel[] = [
+  { label: 'Vendido', color: 'bg-green-200 text-green-800' },
+  { label: 'Bacen', color: 'bg-sky-100 text-sky-700' },
+  { label: 'Andamento', color: 'bg-orange-100 text-orange-700' },
+] as const;
