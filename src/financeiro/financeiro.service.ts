@@ -17,6 +17,7 @@ import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
+import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 
 const MESES_CURTOS = [
@@ -162,6 +163,63 @@ export class FinanceiroService {
       },
     });
     return this.mapMovimento(row);
+  }
+
+  async updateMovimento(
+    id: string,
+    dto: UpdateMovimentoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const existing = await this.findMovimentoOrFail(id, requester);
+    const tenantId = requireTenantId(requester);
+
+    let parceiroId = existing.parceiroId;
+    let parceiroNome = existing.parceiroNome;
+
+    if (dto.parceiroId !== undefined || dto.parceiroNome !== undefined) {
+      const nextId =
+        dto.parceiroId === undefined ? existing.parceiroId : dto.parceiroId;
+      parceiroId = nextId || null;
+      parceiroNome = await this.resolveParceiroNome(
+        tenantId,
+        nextId || undefined,
+        dto.parceiroNome ?? undefined,
+      );
+    }
+
+    const row = await this.prisma.financeiroMovimento.update({
+      where: { id },
+      data: {
+        ...(dto.data !== undefined ? { data: parseDayStart(dto.data) } : {}),
+        ...(dto.descricao !== undefined
+          ? { descricao: dto.descricao.trim() }
+          : {}),
+        ...(dto.parceiroId !== undefined || dto.parceiroNome !== undefined
+          ? { parceiroId, parceiroNome }
+          : {}),
+        ...(dto.categoria !== undefined
+          ? { categoria: dto.categoria.trim() }
+          : {}),
+        ...(dto.centro !== undefined
+          ? { centro: dto.centro?.trim() || '' }
+          : {}),
+        ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
+        ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.formaPagamento !== undefined
+          ? { formaPagamento: dto.formaPagamento?.trim() || '' }
+          : {}),
+      },
+    });
+    return this.mapMovimento(row);
+  }
+
+  async removeMovimento(id: string, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    await this.findMovimentoOrFail(id, requester);
+    await this.prisma.financeiroMovimento.delete({ where: { id } });
+    return { ok: true };
   }
 
   // ─── Títulos ─────────────────────────────────────────────────
@@ -453,6 +511,15 @@ export class FinanceiroService {
       .sort((a, b) => b.realizado - a.realizado);
   }
 
+  private async findMovimentoOrFail(id: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const row = await this.prisma.financeiroMovimento.findFirst({
+      where: { id, tenantId },
+    });
+    if (!row) throw new NotFoundException('Movimento não encontrado.');
+    return row;
+  }
+
   private async findParceiroOrFail(id: string, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     const row = await this.prisma.financeiroParceiro.findFirst({
@@ -506,6 +573,7 @@ export class FinanceiroService {
     id: string;
     data: Date;
     descricao: string;
+    parceiroId: string | null;
     parceiroNome: string;
     categoria: string;
     centro: string;
@@ -518,6 +586,7 @@ export class FinanceiroService {
       id: row.id,
       data: isoDateOnly(row.data),
       descricao: row.descricao,
+      parceiroId: row.parceiroId,
       parceiro: row.parceiroNome,
       categoria: row.categoria,
       centro: row.centro,

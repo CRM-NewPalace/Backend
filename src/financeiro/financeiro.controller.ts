@@ -19,6 +19,7 @@ import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
+import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 import { FinanceiroService } from './financeiro.service';
 
@@ -104,6 +105,25 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.createMovimento(dto, requester);
+  }
+
+  @Patch('movimentos/:id')
+  @Roles(Role.admin, Role.gerente)
+  updateMovimento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateMovimentoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.updateMovimento(id, dto, requester);
+  }
+
+  @Delete('movimentos/:id')
+  @Roles(Role.admin, Role.gerente)
+  removeMovimento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.removeMovimento(id, requester);
   }
 
   // ─── Títulos ─────────────────────────────────────────────────
