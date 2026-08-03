@@ -13,6 +13,7 @@ import { UpdateConstrutoraDto } from './dto/update-construtora.dto';
 const construtoraSelect = {
   id: true,
   nome: true,
+  cor: true,
   contato: true,
   endereco: true,
   viabilizadorNome: true,
@@ -21,6 +22,12 @@ const construtoraSelect = {
   updatedAt: true,
   _count: { select: { empreendimentos: true, documentacoes: true } },
 } as const;
+
+function normalizeCor(cor?: string | null): string | null {
+  if (cor == null) return null;
+  const trimmed = cor.trim();
+  return trimmed ? trimmed : null;
+}
 
 @Injectable()
 export class ConstrutorasService {
@@ -52,6 +59,7 @@ export class ConstrutorasService {
       data: {
         tenantId,
         nome: dto.nome.trim(),
+        cor: normalizeCor(dto.cor),
         contato: dto.contato?.trim() || null,
         endereco: dto.endereco?.trim() || null,
         viabilizadorNome: dto.viabilizadorNome?.trim() || null,
@@ -72,6 +80,7 @@ export class ConstrutorasService {
       where: { id },
       data: {
         ...(dto.nome !== undefined ? { nome: dto.nome.trim() } : {}),
+        ...(dto.cor !== undefined ? { cor: normalizeCor(dto.cor) } : {}),
         ...(dto.contato !== undefined
           ? { contato: dto.contato?.trim() || null }
           : {}),

@@ -36,7 +36,7 @@ const propostaSelect = {
   updatedAt: true,
   autor: userMini,
   corretor: userMini,
-  construtora: { select: { id: true, nome: true } },
+  construtora: { select: { id: true, nome: true, cor: true } },
   empreendimento: { select: { id: true, nome: true, cidade: true } },
   lead: {
     select: {

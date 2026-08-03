@@ -59,7 +59,7 @@ const analiseSelect = {
         },
       },
       construtoraId: true,
-      construtora: { select: { id: true, nome: true } },
+      construtora: { select: { id: true, nome: true, cor: true } },
       empreendimentoId: true,
       empreendimento: { select: { id: true, nome: true, cidade: true } },
     },

@@ -1,15 +1,25 @@
 import {
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
+
+const HEX_COR = /^#[0-9A-Fa-f]{6}$/;
 
 export class CreateConstrutoraDto {
   @IsString()
   @MinLength(2, { message: 'O nome deve ter ao menos 2 caracteres.' })
   @MaxLength(120)
   nome!: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsString()
+  @Matches(HEX_COR, { message: 'Informe a cor no formato #RRGGBB.' })
+  cor?: string | null;
 
   @IsOptional()
   @IsString()

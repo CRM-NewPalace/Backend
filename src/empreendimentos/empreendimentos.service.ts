@@ -28,7 +28,7 @@ const empreendimentoSelect = {
   ativo: true,
   createdAt: true,
   updatedAt: true,
-  construtora: { select: { id: true, nome: true } },
+  construtora: { select: { id: true, nome: true, cor: true } },
 } as const;
 
 @Injectable()

@@ -450,6 +450,8 @@ model Construtora {
   tenantId            String
   tenant              Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome                String
+  /// Cor de destaque em hex (#RRGGBB) para badges na documentação.
+  cor                 String?
   contato             String?
   endereco            String?
   viabilizadorNome    String?
