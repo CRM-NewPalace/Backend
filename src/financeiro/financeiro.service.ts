@@ -59,12 +59,33 @@ export class FinanceiroService {
   listParceiros(requester: AuthenticatedUser) {
     this.assertAccess(requester);
     const tenantId = requireTenantId(requester);
-    return this.prisma.financeiroParceiro
-      .findMany({
+    return Promise.all([
+      this.prisma.financeiroParceiro.findMany({
         where: { tenantId },
         orderBy: { nome: 'asc' },
-      })
-      .then((rows) => rows.map((r) => this.mapParceiro(r)));
+      }),
+      this.prisma.financeiroMovimento.findMany({
+        where: {
+          tenantId,
+          parceiroId: { not: null },
+          status: {
+            in: [
+              FinanceiroTituloStatus.aberto,
+              FinanceiroTituloStatus.atrasado,
+            ],
+          },
+        },
+        select: { parceiroId: true, tipo: true, valor: true },
+      }),
+    ]).then(([rows, movimentos]) => {
+      const saldoByParceiro = this.sumSaldoPorParceiro(movimentos);
+      return rows.map((r) =>
+        this.mapParceiro({
+          ...r,
+          saldoAberto: saldoByParceiro.get(r.id) ?? 0,
+        }),
+      );
+    });
   }
 
   async createParceiro(dto: CreateParceiroDto, requester: AuthenticatedUser) {
@@ -79,7 +100,7 @@ export class FinanceiroService {
         email: dto.email?.trim() || null,
         telefone: dto.telefone?.trim() || null,
         cidade: dto.cidade?.trim() || null,
-        saldoAberto: dto.saldoAberto ?? 0,
+        saldoAberto: 0,
         ativo: dto.ativo ?? true,
       },
     });
@@ -92,6 +113,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    const tenantId = requireTenantId(requester);
     await this.findParceiroOrFail(id, requester);
     const row = await this.prisma.financeiroParceiro.update({
       where: { id },
@@ -110,13 +132,18 @@ export class FinanceiroService {
         ...(dto.cidade !== undefined
           ? { cidade: dto.cidade?.trim() || null }
           : {}),
-        ...(dto.saldoAberto !== undefined
-          ? { saldoAberto: dto.saldoAberto }
-          : {}),
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },
     });
-    return this.mapParceiro(row);
+    await this.recalcSaldoParceiro(tenantId, id);
+    const saldo =
+      (
+        await this.prisma.financeiroParceiro.findFirst({
+          where: { id, tenantId },
+          select: { saldoAberto: true },
+        })
+      )?.saldoAberto ?? 0;
+    return this.mapParceiro({ ...row, saldoAberto: saldo });
   }
 
   async removeParceiro(id: string, requester: AuthenticatedUser) {
@@ -162,6 +189,7 @@ export class FinanceiroService {
         formaPagamento: dto.formaPagamento?.trim() || '',
       },
     });
+    await this.recalcSaldoParceiro(tenantId, row.parceiroId);
     return this.mapMovimento(row);
   }
 
@@ -212,13 +240,23 @@ export class FinanceiroService {
           : {}),
       },
     });
+
+    const parceiroIds = new Set<string>();
+    if (existing.parceiroId) parceiroIds.add(existing.parceiroId);
+    if (row.parceiroId) parceiroIds.add(row.parceiroId);
+    for (const pid of parceiroIds) {
+      await this.recalcSaldoParceiro(tenantId, pid);
+    }
+
     return this.mapMovimento(row);
   }
 
   async removeMovimento(id: string, requester: AuthenticatedUser) {
     this.assertWrite(requester);
-    await this.findMovimentoOrFail(id, requester);
+    const existing = await this.findMovimentoOrFail(id, requester);
+    const tenantId = requireTenantId(requester);
     await this.prisma.financeiroMovimento.delete({ where: { id } });
+    await this.recalcSaldoParceiro(tenantId, existing.parceiroId);
     return { ok: true };
   }
 
@@ -307,7 +345,7 @@ export class FinanceiroService {
     const inicioProx = new Date(Date.UTC(y, m + 1, 1) + BRASIL_UTC_OFFSET_MS);
     const inicioAnt = new Date(Date.UTC(y, m - 1, 1) + BRASIL_UTC_OFFSET_MS);
 
-    const [movMes, movAnt, aReceber, aPagar, saldoParceiros] =
+    const [movMes, movAnt, aReceber, aPagar, movAbertosParceiro] =
       await Promise.all([
         this.prisma.financeiroMovimento.findMany({
           where: {
@@ -343,9 +381,18 @@ export class FinanceiroService {
           },
           _sum: { valor: true },
         }),
-        this.prisma.financeiroParceiro.aggregate({
-          where: { tenantId, ativo: true },
-          _sum: { saldoAberto: true },
+        this.prisma.financeiroMovimento.findMany({
+          where: {
+            tenantId,
+            parceiroId: { not: null },
+            status: {
+              in: [
+                FinanceiroTituloStatus.aberto,
+                FinanceiroTituloStatus.atrasado,
+              ],
+            },
+          },
+          select: { tipo: true, valor: true },
         }),
       ]);
 
@@ -367,11 +414,16 @@ export class FinanceiroService {
     };
 
     const mesesResumo = await this.buildMesesResumo(tenantId, 6);
+    const saldoAtual = movAbertosParceiro.reduce((acc, m) => {
+      return m.tipo === FinanceiroMovimentoTipo.entrada
+        ? acc + m.valor
+        : acc - m.valor;
+    }, 0);
     const centros = await this.buildCentros(tenantId);
 
     return {
       kpis: {
-        saldoAtual: saldoParceiros._sum.saldoAberto ?? 0,
+        saldoAtual,
         receitasMes,
         despesasMes,
         aReceber: aReceber._sum.valor ?? 0,
@@ -543,6 +595,60 @@ export class FinanceiroService {
       return p.nome;
     }
     return fallback?.trim() || '';
+  }
+
+  /**
+   * Saldo aberto = soma dos lançamentos em aberto/atrasado do parceiro.
+   * Entrada soma (+); saída subtrai (−). Pago/cancelado não entra.
+   */
+  private sumSaldoPorParceiro(
+    movimentos: {
+      parceiroId: string | null;
+      tipo: FinanceiroMovimentoTipo | string;
+      valor: number;
+    }[],
+  ) {
+    const map = new Map<string, number>();
+    for (const m of movimentos) {
+      if (!m.parceiroId) continue;
+      const cur = map.get(m.parceiroId) ?? 0;
+      map.set(
+        m.parceiroId,
+        m.tipo === FinanceiroMovimentoTipo.entrada
+          ? cur + m.valor
+          : cur - m.valor,
+      );
+    }
+    return map;
+  }
+
+  private async recalcSaldoParceiro(
+    tenantId: string,
+    parceiroId: string | null | undefined,
+  ) {
+    if (!parceiroId) return;
+
+    const movimentos = await this.prisma.financeiroMovimento.findMany({
+      where: {
+        tenantId,
+        parceiroId,
+        status: {
+          in: [FinanceiroTituloStatus.aberto, FinanceiroTituloStatus.atrasado],
+        },
+      },
+      select: { tipo: true, valor: true },
+    });
+
+    const saldoAberto = movimentos.reduce((acc, m) => {
+      return m.tipo === FinanceiroMovimentoTipo.entrada
+        ? acc + m.valor
+        : acc - m.valor;
+    }, 0);
+
+    await this.prisma.financeiroParceiro.updateMany({
+      where: { id: parceiroId, tenantId },
+      data: { saldoAberto },
+    });
   }
 
   private mapParceiro(row: {
