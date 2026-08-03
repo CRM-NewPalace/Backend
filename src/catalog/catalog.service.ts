@@ -1,12 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
-import { CatalogItem, CatalogType } from '@prisma/client';
+import { CatalogItem, CatalogType, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
@@ -24,6 +25,12 @@ import {
 import { FunisService } from '../funis/funis.service';
 
 export type GroupedCatalog = Record<CatalogType, CatalogItem[]>;
+
+const DOCUMENTACAO_CATALOG_TYPES = new Set<CatalogType>([
+  CatalogType.documentacao_fonte,
+  CatalogType.documentacao_status1,
+  CatalogType.documentacao_status2,
+]);
 
 const DOCUMENTACAO_CATALOG_DEFAULTS: Record<
   | typeof CatalogType.documentacao_fonte
@@ -139,6 +146,14 @@ export class CatalogService {
     if (dto.type === CatalogType.funil_etapa) {
       throw new BadRequestException(
         'Etapas do funil são gerenciadas em Configurações → Funis.',
+      );
+    }
+    if (
+      requester.role === Role.analista &&
+      !DOCUMENTACAO_CATALOG_TYPES.has(dto.type)
+    ) {
+      throw new ForbiddenException(
+        'Analistas só podem criar fontes e status da documentação.',
       );
     }
     const tenantId = requireTenantId(requester);

@@ -22,8 +22,10 @@ import { QueryCatalogDto } from './dto/query-catalog.dto';
 import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
 
 /**
- * Catálogos configuráveis (funil, origens, motivos de perda, tags).
- * Leitura: qualquer usuário autenticado. Mutação: admin e gerente.
+ * Catálogos configuráveis (funil, origens, motivos de perda, tags, documentação).
+ * Leitura: qualquer usuário autenticado.
+ * Mutação geral: admin e gerente.
+ * Analista pode criar itens de documentação (fonte / status 1 / status 2).
  */
 @Controller('catalog')
 export class CatalogController {
@@ -43,7 +45,7 @@ export class CatalogController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.analista)
   create(
     @Body() dto: CreateCatalogItemDto,
     @CurrentUser() requester: AuthenticatedUser,
