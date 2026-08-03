@@ -632,6 +632,7 @@ export class LeadsService {
 
     const where: Prisma.LeadWhereInput = {
       tenantId,
+      tipo: ContatoTipo.lead,
       perdidoAt: { not: null },
       ...(query.origem ? { origem: query.origem } : {}),
       ...(query.interesse ? { interesse: query.interesse } : {}),
@@ -812,8 +813,8 @@ export class LeadsService {
   }
 
   /**
-   * Marca o lead como perdido (sai das listas de corretor/gerente).
-   * O registro permanece no banco para o módulo Leads Perdidos (admin).
+   * Marca lead de captação como perdido (módulo Leads Perdidos).
+   * Cliente da carteira: exclusão definitiva — não entra em Leads Perdidos.
    */
   async markLost(
     id: string,
@@ -826,6 +827,25 @@ export class LeadsService {
     const motivoTrim = motivo.trim();
     if (!motivoTrim) {
       throw new BadRequestException('Informe o motivo da exclusão.');
+    }
+
+    const existing = await this.prisma.lead.findFirst({
+      where: { id, tenantId },
+      select: leadSelect,
+    });
+    if (!existing) {
+      throw new NotFoundException('Lead não encontrado.');
+    }
+
+    if (existing.tipo === ContatoTipo.cliente) {
+      await this.prisma.lead.delete({ where: { id } });
+      return {
+        ...existing,
+        perdidoAt: new Date(),
+        motivoPerda: motivoTrim,
+        perdidoPorId: requester.id,
+        perdidoPor: { id: requester.id, name: requester.name },
+      };
     }
 
     // Move para a etapa com papel perdido (fallback slug legado).
@@ -870,33 +890,78 @@ export class LeadsService {
 
   /**
    * Lista corretores ativos para o select de atribuição.
-   * Admin: todos. Gerente: só da própria equipe. Corretor: apenas o próprio.
+   * Admin/analista: todos. Gerente: só da própria equipe. Corretor: apenas o próprio.
+   * Inclui gerenteId da equipe do corretor (para auto-preencher documentação).
    */
-  async listAssignees(
-    requester: AuthenticatedUser,
-  ): Promise<{ id: string; name: string; role: Role }[]> {
+  async listAssignees(requester: AuthenticatedUser): Promise<
+    {
+      id: string;
+      name: string;
+      role: Role;
+      gerenteId: string | null;
+      gerente: { id: string; name: string } | null;
+    }[]
+  > {
     const tenantId = requireTenantId(requester);
-    if (this.isCorretor(requester)) {
-      return [
-        {
-          id: requester.id,
-          name: requester.name,
-          role: requester.role,
+    const assigneeSelect = {
+      id: true,
+      name: true,
+      role: true,
+      equipe: {
+        select: {
+          gerenteId: true,
+          gerente: { select: { id: true, name: true } },
         },
-      ];
+      },
+    } as const;
+
+    const mapAssignee = (u: {
+      id: string;
+      name: string;
+      role: Role;
+      equipe: {
+        gerenteId: string;
+        gerente: { id: string; name: string } | null;
+      } | null;
+    }) => ({
+      id: u.id,
+      name: u.name,
+      role: u.role,
+      gerenteId: u.equipe?.gerenteId ?? null,
+      gerente: u.equipe?.gerente ?? null,
+    });
+
+    if (this.isCorretor(requester)) {
+      const self = await this.prisma.user.findFirst({
+        where: { id: requester.id, tenantId },
+        select: assigneeSelect,
+      });
+      if (!self) {
+        return [
+          {
+            id: requester.id,
+            name: requester.name,
+            role: requester.role,
+            gerenteId: null,
+            gerente: null,
+          },
+        ];
+      }
+      return [mapAssignee(self)];
     }
 
     const ids = await this.teamScope.getVisibleCorretorIds(requester);
-    return this.prisma.user.findMany({
+    const rows = await this.prisma.user.findMany({
       where: {
         tenantId,
         status: UserStatus.ativo,
         role: Role.corretor,
         ...(ids !== null ? { id: { in: ids } } : {}),
       },
-      select: { id: true, name: true, role: true },
+      select: assigneeSelect,
       orderBy: { name: 'asc' },
     });
+    return rows.map(mapAssignee);
   }
 
   // --- Helpers de RBAC ---

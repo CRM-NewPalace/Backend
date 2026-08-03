@@ -56,6 +56,20 @@ function parseOptionalDate(value?: string | null): Date | null | undefined {
   return new Date(value);
 }
 
+/** Compara status1 com "Análise" ignorando acento/caixa. */
+function isStatusAnalise(status: string): boolean {
+  return status
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .startsWith('analise');
+}
+
+function todayDateOnly(): Date {
+  return new Date(new Date().toISOString().slice(0, 10));
+}
+
 @Injectable()
 export class DocumentacaoService {
   constructor(
@@ -106,13 +120,16 @@ export class DocumentacaoService {
     const tenantId = requireTenantId(requester);
     const lead = await this.ensureLeadAccessible(dto.leadId, requester);
 
+    const corretorId = dto.corretorId || lead.corretorId || null;
     let gerenteId = dto.gerenteId ?? null;
-    if (!gerenteId && lead.corretorId) {
-      gerenteId = await this.resolveGerenteOfCorretor(
-        lead.corretorId,
-        tenantId,
-      );
+    if (!gerenteId && corretorId) {
+      gerenteId = await this.resolveGerenteOfCorretor(corretorId, tenantId);
     }
+
+    const status1 = dto.status1.trim();
+    const parsedAnalise = parseOptionalDate(dto.dataAnalise);
+    const dataAnalise =
+      parsedAnalise ?? (isStatusAnalise(status1) ? todayDateOnly() : null);
 
     return this.prisma.documentacao.create({
       data: {
@@ -126,11 +143,11 @@ export class DocumentacaoService {
         empreendimentoId:
           dto.empreendimentoId || lead.empreendimentoId || null,
         fonte: dto.fonte.trim(),
-        status1: dto.status1.trim(),
+        status1,
         status2: dto.status2.trim(),
-        corretorId: dto.corretorId || lead.corretorId || null,
+        corretorId,
         gerenteId,
-        dataAnalise: parseOptionalDate(dto.dataAnalise) ?? null,
+        dataAnalise,
         dataVenda: parseOptionalDate(dto.dataVenda) ?? null,
         vgv: dto.vgv ?? null,
         obs: dto.obs?.trim() || null,
@@ -147,7 +164,14 @@ export class DocumentacaoService {
     const tenantId = requireTenantId(requester);
     const existing = await this.prisma.documentacao.findFirst({
       where: { id, tenantId },
-      select: { id: true, leadId: true },
+      select: {
+        id: true,
+        leadId: true,
+        dataAnalise: true,
+        corretorId: true,
+        gerenteId: true,
+        status1: true,
+      },
     });
     if (!existing) {
       throw new NotFoundException('Documentação não encontrada.');
@@ -176,12 +200,37 @@ export class DocumentacaoService {
         : { disconnect: true };
     }
     if (dto.gerenteId !== undefined) {
-      data.gerente = dto.gerenteId
-        ? { connect: { id: dto.gerenteId } }
-        : { disconnect: true };
+      if (dto.gerenteId) {
+        data.gerente = { connect: { id: dto.gerenteId } };
+      } else {
+        const corretorForResolve =
+          dto.corretorId !== undefined
+            ? dto.corretorId
+            : existing.corretorId;
+        const resolved = corretorForResolve
+          ? await this.resolveGerenteOfCorretor(corretorForResolve, tenantId)
+          : null;
+        data.gerente = resolved
+          ? { connect: { id: resolved } }
+          : { disconnect: true };
+      }
+    } else if (dto.corretorId) {
+      const resolved = await this.resolveGerenteOfCorretor(
+        dto.corretorId,
+        tenantId,
+      );
+      if (resolved) {
+        data.gerente = { connect: { id: resolved } };
+      }
     }
     if (dto.dataAnalise !== undefined) {
       data.dataAnalise = parseOptionalDate(dto.dataAnalise) ?? null;
+    } else if (
+      dto.status1 !== undefined &&
+      isStatusAnalise(dto.status1) &&
+      !existing.dataAnalise
+    ) {
+      data.dataAnalise = todayDateOnly();
     }
     if (dto.dataVenda !== undefined) {
       data.dataVenda = parseOptionalDate(dto.dataVenda) ?? null;
