@@ -15,6 +15,7 @@ import {
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   isStatusVendido,
+  documentacaoVendaNoPeriodoWhere,
   sumVgvVendido,
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
@@ -431,18 +432,30 @@ export class MetasService {
         where: {
           tenantId,
           corretorId: { in: corretorIds },
-          dataVenda: { gte: meta.inicio, lt: meta.fim },
+          ...documentacaoVendaNoPeriodoWhere({
+            inicio: meta.inicio,
+            fim: meta.fim,
+          }),
         },
-        select: { status2: true },
+        select: { id: true, status2: true },
       });
-      atual = docs.filter((doc) => isStatusVendido(doc.status2)).length;
+      const seen = new Set<string>();
+      atual = 0;
+      for (const doc of docs) {
+        if (!isStatusVendido(doc.status2) || seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        atual += 1;
+      }
     } else {
       const resultado = await this.prisma.documentacao.groupBy({
         by: ['status2'],
         where: {
           tenantId,
           corretorId: { in: corretorIds },
-          dataVenda: { gte: meta.inicio, lt: meta.fim },
+          ...documentacaoVendaNoPeriodoWhere({
+            inicio: meta.inicio,
+            fim: meta.fim,
+          }),
         },
         _sum: { vgv: true },
       });

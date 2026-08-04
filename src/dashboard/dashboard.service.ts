@@ -17,6 +17,7 @@ import {
   countStatusAndamento,
   countStatusVendido,
   documentacaoPipelineStatusKey,
+  documentacaoVendaNoPeriodoWhere,
   isStatusVendido,
   status2VendidoWhere,
   sumVgvVendido,
@@ -161,7 +162,10 @@ export class DashboardService {
         where: {
           tenantId,
           lead: leadWhere,
-          dataVenda: { gte: inicioMes, lt: inicioProximoMes },
+          ...documentacaoVendaNoPeriodoWhere({
+            inicio: inicioMes,
+            fim: inicioProximoMes,
+          }),
         },
         _sum: { vgv: true },
       }),
@@ -299,7 +303,7 @@ export class DashboardService {
     });
     const docVendaWhere = (periodo: Periodo) => ({
       tenantId,
-      dataVenda: { gte: periodo.inicio, lt: periodo.fim },
+      ...documentacaoVendaNoPeriodoWhere(periodo),
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
       ...(origem ? { lead: { origem } } : {}),
     });
@@ -731,13 +735,16 @@ export class DashboardService {
       where: {
         tenantId,
         corretorId: { in: corretorIds },
-        dataVenda: { gte: periodo.inicio, lt: periodo.fim },
+        ...documentacaoVendaNoPeriodoWhere(periodo),
         ...(origem ? { lead: { origem } } : {}),
       },
-      select: { leadId: true, corretorId: true, vgv: true, status2: true },
+      select: { id: true, leadId: true, corretorId: true, vgv: true, status2: true },
     });
+    const seenDocs = new Set<string>();
     for (const doc of docs) {
       if (!isStatusVendido(doc.status2)) continue;
+      if (seenDocs.has(doc.id)) continue;
+      seenDocs.add(doc.id);
       markSale(doc.leadId, doc.corretorId);
       addVgv(doc.corretorId, doc.vgv);
     }
