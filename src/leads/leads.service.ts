@@ -930,6 +930,7 @@ export class LeadsService {
       id: string;
       name: string;
       role: Role;
+      cor: string | null;
       gerenteId: string | null;
       gerente: { id: string; name: string } | null;
     }[]
@@ -939,6 +940,7 @@ export class LeadsService {
       id: true,
       name: true,
       role: true,
+      cor: true,
       equipe: {
         select: {
           gerenteId: true,
@@ -951,6 +953,7 @@ export class LeadsService {
       id: string;
       name: string;
       role: Role;
+      cor: string | null;
       equipe: {
         gerenteId: string;
         gerente: { id: string; name: string } | null;
@@ -959,6 +962,7 @@ export class LeadsService {
       id: u.id,
       name: u.name,
       role: u.role,
+      cor: u.cor,
       gerenteId: u.equipe?.gerenteId ?? null,
       gerente: u.equipe?.gerente ?? null,
     });
@@ -974,6 +978,7 @@ export class LeadsService {
             id: requester.id,
             name: requester.name,
             role: requester.role,
+            cor: null,
             gerenteId: null,
             gerente: null,
           },

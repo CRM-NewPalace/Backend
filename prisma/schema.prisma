@@ -170,6 +170,8 @@ model User {
   /// WhatsApp do corretor (admin cadastra; usado para enviar resultado da análise).
   whatsapp  String?
   cargo     String?
+  /// Cor de destaque em hex (#RRGGBB) para badges (ex.: Documentação).
+  cor       String?
   role      Role       @default(corretor)
   status    UserStatus @default(ativo)
   avatar    String?
@@ -487,6 +489,8 @@ model Empreendimento {
   tenantId      String
   tenant        Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome          String
+  /// Cor de destaque em hex (#RRGGBB) para badges na documentação.
+  cor           String?
   construtoraId String?
   construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
 

@@ -12,10 +12,12 @@ import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
 import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
 import { QueryEmpreendimentosDto } from './dto/query-empreendimentos.dto';
 import { fetchSiteEmpreendimentos } from './site-sync';
+import { normalizeCor } from '../common/utils/cor';
 
 const empreendimentoSelect = {
   id: true,
   nome: true,
+  cor: true,
   construtoraId: true,
   cidade: true,
   endereco: true,
@@ -101,6 +103,7 @@ export class EmpreendimentosService {
       data: {
         tenantId,
         nome: dto.nome.trim(),
+        cor: normalizeCor(dto.cor),
         construtoraId: dto.construtoraId ?? null,
         cidade: dto.cidade?.trim() || null,
         endereco: dto.endereco?.trim() || null,
@@ -127,6 +130,7 @@ export class EmpreendimentosService {
       where: { id },
       data: {
         ...(dto.nome !== undefined ? { nome: dto.nome.trim() } : {}),
+        ...(dto.cor !== undefined ? { cor: normalizeCor(dto.cor) } : {}),
         ...(dto.construtoraId !== undefined
           ? { construtoraId: dto.construtoraId }
           : {}),

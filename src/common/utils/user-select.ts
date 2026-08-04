@@ -9,6 +9,7 @@ export const publicUserSelect = {
   phone: true,
   whatsapp: true,
   cargo: true,
+  cor: true,
   role: true,
   status: true,
   avatar: true,

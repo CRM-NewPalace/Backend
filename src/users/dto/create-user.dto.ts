@@ -8,6 +8,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import {
   PASSWORD_REGEX,
@@ -43,6 +44,14 @@ export class CreateUserDto {
   @IsString()
   @MaxLength(80)
   cargo?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/, {
+    message: 'Informe a cor no formato #RRGGBB.',
+  })
+  cor?: string | null;
 
   @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista], {
     message: 'Perfil inválido.',

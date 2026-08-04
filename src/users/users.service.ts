@@ -12,6 +12,7 @@ import { TeamScopeService } from '../equipes/team-scope.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { publicUserSelect, PublicUser } from '../common/utils/user-select';
+import { normalizeCor } from '../common/utils/cor';
 import { SALT_ROUNDS } from '../config/security.constants';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -57,6 +58,7 @@ export class UsersService {
         phone: dto.phone,
         whatsapp: dto.whatsapp,
         cargo: dto.cargo,
+        cor: normalizeCor(dto.cor),
         role: dto.role,
         status: dto.status ?? UserStatus.ativo,
         avatar: dto.avatar,
@@ -223,6 +225,7 @@ export class UsersService {
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.whatsapp !== undefined ? { whatsapp: dto.whatsapp } : {}),
         ...(dto.cargo !== undefined ? { cargo: dto.cargo } : {}),
+        ...(dto.cor !== undefined ? { cor: normalizeCor(dto.cor) } : {}),
         ...(dto.role !== undefined ? { role: dto.role } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(dto.avatar !== undefined ? { avatar: dto.avatar } : {}),

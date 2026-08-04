@@ -19,7 +19,7 @@ import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
 import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
 import { QueryDocumentacaoDto } from './dto/query-documentacao.dto';
 
-const userMini = { select: { id: true, name: true } } as const;
+const userMini = { select: { id: true, name: true, cor: true } } as const;
 
 const docSelect = {
   id: true,
@@ -42,7 +42,7 @@ const docSelect = {
   updatedAt: true,
   autor: userMini,
   construtora: { select: { id: true, nome: true, cor: true } },
-  empreendimento: { select: { id: true, nome: true, cidade: true } },
+  empreendimento: { select: { id: true, nome: true, cidade: true, cor: true } },
   corretor: userMini,
   gerente: userMini,
   lead: {

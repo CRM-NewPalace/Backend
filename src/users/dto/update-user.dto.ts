@@ -5,7 +5,9 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 /** Atualização de usuário: todos os campos opcionais. A senha é trocada
@@ -31,6 +33,14 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   cargo?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/, {
+    message: 'Informe a cor no formato #RRGGBB.',
+  })
+  cor?: string | null;
 
   @IsOptional()
   @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista], {

@@ -449,6 +449,7 @@ export class AuthService {
       phone: user.phone,
       whatsapp: user.whatsapp,
       cargo: user.cargo,
+      cor: user.cor,
       role: user.role,
       status: user.status,
       avatar: user.avatar,
