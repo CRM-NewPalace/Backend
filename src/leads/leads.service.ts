@@ -57,12 +57,12 @@ export class LeadsService {
       );
     }
 
-    // Corretor só cria leads para si; admin/gerente atribuem dentro do escopo.
-    const corretorId = this.isCorretor(requester)
-      ? requester.id
-      : (dto.corretorId ?? requester.id);
-
-    await this.ensureCorretorAssignable(corretorId, requester);
+    // Corretor só cria leads para si; admin/gerente atribuem corretor e/ou equipe.
+    const assignment = await this.resolveAssignment(
+      { corretorId: dto.corretorId, equipeId: dto.equipeId },
+      requester,
+      tenantId,
+    );
 
     const stage = dto.stage ?? (await this.catalog.getDefaultStageSlug(tenantId));
     await this.ensureStageIsValid(tenantId, stage);
@@ -89,7 +89,8 @@ export class LeadsService {
         prioridade: dto.prioridade ?? 'Média',
         renda: dto.renda ?? null,
         tags: dto.tags ?? [],
-        corretorId,
+        corretorId: assignment.corretorId,
+        equipeId: assignment.equipeId,
       },
       select: leadSelect,
     });
@@ -680,15 +681,41 @@ export class LeadsService {
     await this.ensureExistsAndAccessible(id, requester);
 
     // Corretor não pode reatribuir o lead para outra pessoa.
-    let corretorId: string | undefined;
-    if (dto.corretorId !== undefined) {
+    let assignment:
+      | { corretorId: string | null; equipeId: string | null }
+      | undefined;
+    if (dto.corretorId !== undefined || dto.equipeId !== undefined) {
       if (this.isCorretor(requester)) {
         throw new ForbiddenException(
           'Você não pode reatribuir o lead para outro corretor.',
         );
       }
-      await this.ensureCorretorAssignable(dto.corretorId, requester);
-      corretorId = dto.corretorId;
+      const current = await this.prisma.lead.findFirst({
+        where: { id, tenantId },
+        select: { corretorId: true, equipeId: true },
+      });
+      // Sempre reenvia o par completo: se só equipe muda, zera corretor (pool);
+      // se só corretor muda, herda equipe do corretor.
+      const nextCorretorId =
+        dto.corretorId !== undefined
+          ? dto.corretorId
+          : dto.equipeId !== undefined
+            ? null
+            : (current?.corretorId ?? null);
+      const nextEquipeId =
+        dto.equipeId !== undefined
+          ? dto.equipeId
+          : dto.corretorId !== undefined
+            ? null
+            : (current?.equipeId ?? null);
+      assignment = await this.resolveAssignment(
+        {
+          corretorId: nextCorretorId,
+          equipeId: nextEquipeId,
+        },
+        requester,
+        tenantId,
+      );
     }
 
     if (dto.stage !== undefined) {
@@ -717,7 +744,12 @@ export class LeadsService {
         ...(dto.prioridade !== undefined ? { prioridade: dto.prioridade } : {}),
         ...(dto.renda !== undefined ? { renda: dto.renda } : {}),
         ...(dto.tags !== undefined ? { tags: dto.tags } : {}),
-        ...(corretorId !== undefined ? { corretorId } : {}),
+        ...(assignment
+          ? {
+              corretorId: assignment.corretorId,
+              equipeId: assignment.equipeId,
+            }
+          : {}),
       },
       select: leadSelect,
     });
@@ -991,12 +1023,99 @@ export class LeadsService {
     const tenantId = requireTenantId(requester);
     const lead = await this.prisma.lead.findFirst({
       where: { id, tenantId },
-      select: { id: true, corretorId: true, perdidoAt: true },
+      select: { id: true, corretorId: true, equipeId: true, perdidoAt: true },
     });
     if (!lead || lead.perdidoAt) {
       throw new NotFoundException('Lead não encontrado.');
     }
     await this.ensureCanAccess(lead, requester);
+  }
+
+  /**
+   * Resolve corretor + equipe para create/update.
+   * - Corretor: sempre ele mesmo
+   * - Admin: equipe (gerente) e/ou corretor da equipe
+   * - Gerente: corretor da equipe ou pool da própria equipe
+   */
+  private async resolveAssignment(
+    dto: { corretorId?: string | null; equipeId?: string | null },
+    requester: AuthenticatedUser,
+    tenantId: string,
+  ): Promise<{ corretorId: string | null; equipeId: string | null }> {
+    if (this.isCorretor(requester)) {
+      const self = await this.prisma.user.findFirst({
+        where: { id: requester.id, tenantId },
+        select: { equipeId: true },
+      });
+      return {
+        corretorId: requester.id,
+        equipeId: self?.equipeId ?? null,
+      };
+    }
+
+    let corretorId =
+      dto.corretorId && dto.corretorId.trim() !== ''
+        ? dto.corretorId
+        : null;
+    let equipeId =
+      dto.equipeId && dto.equipeId.trim() !== '' ? dto.equipeId : null;
+
+    if (requester.role === Role.gerente && !equipeId) {
+      const equipe = await this.prisma.equipe.findFirst({
+        where: {
+          tenantId,
+          gerenteId: requester.id,
+          status: UserStatus.ativo,
+        },
+        select: { id: true },
+      });
+      equipeId = equipe?.id ?? null;
+    }
+
+    if (corretorId) {
+      await this.ensureCorretorAssignable(corretorId, requester);
+      const corretor = await this.prisma.user.findFirst({
+        where: { id: corretorId, tenantId },
+        select: { equipeId: true },
+      });
+      if (equipeId) {
+        if (corretor?.equipeId !== equipeId) {
+          throw new BadRequestException(
+            'O corretor não pertence à equipe/gerente selecionado.',
+          );
+        }
+      } else {
+        equipeId = corretor?.equipeId ?? null;
+      }
+    } else if (equipeId) {
+      await this.ensureEquipeAssignable(equipeId, requester);
+    }
+
+    return { corretorId, equipeId };
+  }
+
+  private async ensureEquipeAssignable(
+    equipeId: string,
+    requester: AuthenticatedUser,
+  ): Promise<void> {
+    const tenantId = requireTenantId(requester);
+    const equipe = await this.prisma.equipe.findFirst({
+      where: { id: equipeId, tenantId, status: UserStatus.ativo },
+      select: { id: true, gerenteId: true },
+    });
+    if (!equipe) {
+      throw new BadRequestException(
+        'Equipe informada não existe ou está inativa.',
+      );
+    }
+    if (
+      requester.role === Role.gerente &&
+      equipe.gerenteId !== requester.id
+    ) {
+      throw new ForbiddenException(
+        'Você só pode atribuir leads à sua própria equipe.',
+      );
+    }
   }
 
   private async ensureCorretorAssignable(

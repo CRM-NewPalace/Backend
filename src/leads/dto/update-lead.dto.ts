@@ -88,6 +88,13 @@ export class UpdateLeadDto {
 
   /** Reatribuição de corretor — permitida apenas para admin/gerente (regra no service). */
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsUUID('4', { message: 'Corretor inválido.' })
-  corretorId?: string;
+  corretorId?: string | null;
+
+  /** Pool da equipe / gerente. null limpa. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID('4', { message: 'Equipe inválida.' })
+  equipeId?: string | null;
 }

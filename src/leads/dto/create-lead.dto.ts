@@ -88,9 +88,19 @@ export class CreateLeadDto {
 
   /**
    * Corretor dono do lead. Ignorado para o perfil corretor (força o próprio id).
-   * Admin/gerente podem atribuir livremente.
+   * Admin/gerente: opcional — sem corretor + com equipeId = pool da equipe.
    */
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsUUID('4', { message: 'Corretor inválido.' })
-  corretorId?: string;
+  corretorId?: string | null;
+
+  /**
+   * Equipe/gerente que recebe o lead (pool).
+   * Admin escolhe a equipe do gerente; gerente usa a própria.
+   */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID('4', { message: 'Equipe inválida.' })
+  equipeId?: string | null;
 }
