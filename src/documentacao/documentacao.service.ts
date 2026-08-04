@@ -7,6 +7,11 @@ import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import {
+  canonicalizeStatus1,
+  canonicalizeStatus2,
+  isStatusAnalise,
+} from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
 import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
 import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
@@ -55,16 +60,6 @@ function parseOptionalDate(value?: string | null): Date | null | undefined {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
   return new Date(value);
-}
-
-/** Compara status1 com "Análise" ignorando acento/caixa. */
-function isStatusAnalise(status: string): boolean {
-  return status
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .startsWith('analise');
 }
 
 function todayDateOnly(): Date {
@@ -127,7 +122,7 @@ export class DocumentacaoService {
       gerenteId = await this.resolveGerenteOfCorretor(corretorId, tenantId);
     }
 
-    const status1 = dto.status1.trim();
+    const status1 = canonicalizeStatus1(dto.status1);
     const parsedAnalise = parseOptionalDate(dto.dataAnalise);
     const dataAnalise =
       parsedAnalise ?? (isStatusAnalise(status1) ? todayDateOnly() : null);
@@ -145,7 +140,7 @@ export class DocumentacaoService {
           dto.empreendimentoId || lead.empreendimentoId || null,
         fonte: dto.fonte.trim(),
         status1,
-        status2: dto.status2.trim(),
+        status2: canonicalizeStatus2(dto.status2),
         corretorId,
         gerenteId,
         dataAnalise,
@@ -193,8 +188,12 @@ export class DocumentacaoService {
         : { disconnect: true };
     }
     if (dto.fonte !== undefined) data.fonte = dto.fonte.trim();
-    if (dto.status1 !== undefined) data.status1 = dto.status1.trim();
-    if (dto.status2 !== undefined) data.status2 = dto.status2.trim();
+    if (dto.status1 !== undefined) {
+      data.status1 = canonicalizeStatus1(dto.status1);
+    }
+    if (dto.status2 !== undefined) {
+      data.status2 = canonicalizeStatus2(dto.status2);
+    }
     if (dto.corretorId !== undefined) {
       data.corretor = dto.corretorId
         ? { connect: { id: dto.corretorId } }

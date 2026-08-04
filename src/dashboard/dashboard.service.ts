@@ -13,6 +13,14 @@ import {
   UserStatus,
 } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import {
+  countStatusAndamento,
+  countStatusVendido,
+  documentacaoPipelineStatusKey,
+  isStatusVendido,
+  status2VendidoWhere,
+  sumVgvVendido,
+} from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
 import { AgendaService } from '../agenda/agenda.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
@@ -37,19 +45,6 @@ function metric(atual: number, anterior: number) {
   };
 }
 
-function documentacaoStatusKey(
-  status: string,
-): 'aprovadas' | 'reprovadas' | 'emAnalise' | null {
-  const normalized = status
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  if (normalized.startsWith('reprov')) return 'reprovadas';
-  if (normalized.startsWith('aprov')) return 'aprovadas';
-  if (normalized.includes('analise')) return 'emAnalise';
-  return null;
-}
 
 type JanelasOpts = {
   /** Mês 1–12. Omite = mês corrente (BR). */
@@ -161,11 +156,11 @@ export class DashboardService {
         where: { tenantId, lead: leadWhere },
         _count: { _all: true },
       }),
-      this.prisma.documentacao.aggregate({
+      this.prisma.documentacao.groupBy({
+        by: ['status2'],
         where: {
           tenantId,
           lead: leadWhere,
-          status2: 'Vendido',
           dataVenda: { gte: inicioMes, lt: inicioProximoMes },
         },
         _sum: { vgv: true },
@@ -223,15 +218,9 @@ export class DashboardService {
           (total, item) => total + item._count._all,
           0,
         ),
-        vendidos:
-          documentacoes.find(
-            (item) => item.status2 === 'Vendido',
-          )?._count._all ?? 0,
-        emAndamento:
-          documentacoes.find(
-            (item) => item.status2 === 'Andamento',
-          )?._count._all ?? 0,
-        vgvVendidoMes: vgvVendido._sum.vgv ?? 0,
+        vendidos: countStatusVendido(documentacoes),
+        emAndamento: countStatusAndamento(documentacoes),
+        vgvVendidoMes: sumVgvVendido(vgvVendido),
       },
       agenda: {
         totalHoje: agendaAtiva.length,
@@ -303,14 +292,13 @@ export class DashboardService {
         ...(vendaSlug ? [{ stage: vendaSlug }] : []),
         {
           documentacoes: {
-            some: { status2: 'Vendido' },
+            some: status2VendidoWhere(),
           },
         },
       ],
     });
     const docVendaWhere = (periodo: Periodo) => ({
       tenantId,
-      status2: 'Vendido',
       dataVenda: { gte: periodo.inicio, lt: periodo.fim },
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
       ...(origem ? { lead: { origem } } : {}),
@@ -411,11 +399,13 @@ export class DashboardService {
       this.prisma.lead.count({
         where: leadVendidoDaEntradaWhere(mesAnterior),
       }),
-      this.prisma.documentacao.aggregate({
+      this.prisma.documentacao.groupBy({
+        by: ['status2'],
         where: docVendaWhere(mesAtual),
         _sum: { vgv: true },
       }),
-      this.prisma.documentacao.aggregate({
+      this.prisma.documentacao.groupBy({
+        by: ['status2'],
         where: docVendaWhere(mesAnterior),
         _sum: { vgv: true },
       }),
@@ -493,6 +483,7 @@ export class DashboardService {
       this.prisma.meta.findMany({
         where: {
           tenantId,
+          escopo: 'corretor',
           inicio: { lte: windows.agora },
           fim: { gt: windows.agora },
           periodo: MetaPeriodo.mensal,
@@ -522,7 +513,7 @@ export class DashboardService {
     ) =>
       rows.reduce(
         (acc, row) => {
-          const key = documentacaoStatusKey(row.status1);
+          const key = documentacaoPipelineStatusKey(row.status1);
           if (key) acc[key] += row._count._all;
           return acc;
         },
@@ -560,11 +551,14 @@ export class DashboardService {
       windows.ano === brasilAgora.getUTCFullYear() &&
       windows.mes === brasilAgora.getUTCMonth();
     /** Entradas/vendas/perdidos/VGV no mês filtrado. */
+    const vgvMesTotal = sumVgvVendido(vgvMes);
+    const vgvMesAntTotal = sumVgvVendido(vgvMesAnt);
+
     const temRegistroNoPeriodo =
       entradasMes > 0 ||
       vendasDaEntradaMes > 0 ||
       perdidosMes > 0 ||
-      (vgvMes._sum.vgv ?? 0) > 0;
+      vgvMesTotal > 0;
     /**
      * Indicadores de estoque/"hoje" só fazem sentido no mês corrente com dados.
      * Em período histórico/vazio, zera para não misturar com o recorte filtrado.
@@ -620,7 +614,7 @@ export class DashboardService {
         entradas: metric(entradasMes, entradasMesAnt),
         vendas: metric(vendasDaEntradaMes, vendasDaEntradaMesAnt),
         taxa: metric(taxaMes, taxaMesAnt),
-        vgv: metric(vgvMes._sum.vgv ?? 0, vgvMesAnt._sum.vgv ?? 0),
+        vgv: metric(vgvMesTotal, vgvMesAntTotal),
       },
       documentacaoPipeline: {
         aprovadas: metric(
@@ -635,7 +629,7 @@ export class DashboardService {
           pipelineAtual.emAnalise,
           pipelineAnterior.emAnalise,
         ),
-        vgv: metric(vgvMes._sum.vgv ?? 0, vgvMesAnt._sum.vgv ?? 0),
+        vgv: metric(vgvMesTotal, vgvMesAntTotal),
       },
       atencao: {
         semDono: mostrarSnapshotAtual ? semDono : 0,
@@ -737,13 +731,13 @@ export class DashboardService {
       where: {
         tenantId,
         corretorId: { in: corretorIds },
-        status2: 'Vendido',
         dataVenda: { gte: periodo.inicio, lt: periodo.fim },
         ...(origem ? { lead: { origem } } : {}),
       },
-      select: { leadId: true, corretorId: true, vgv: true },
+      select: { leadId: true, corretorId: true, vgv: true, status2: true },
     });
     for (const doc of docs) {
+      if (!isStatusVendido(doc.status2)) continue;
       markSale(doc.leadId, doc.corretorId);
       addVgv(doc.corretorId, doc.vgv);
     }
@@ -972,23 +966,27 @@ export class DashboardService {
       valor: number;
       inicio: Date;
       fim: Date;
-      corretorId: string;
+      corretorId: string | null;
       corretor: {
         id: string;
         name: string;
         equipeId: string | null;
         equipe: { id: string; name: string } | null;
-      };
+      } | null;
     }>,
   ) {
     const items = await Promise.all(
-      metas.map(async (meta) => {
+      metas
+        .filter((meta) => meta.corretorId && meta.corretor)
+        .map(async (meta) => {
+        const corretorId = meta.corretorId!;
+        const corretor = meta.corretor!;
         let atual = 0;
         if (meta.tipo === MetaTipo.documentacoes) {
           atual = await this.prisma.documentacao.count({
             where: {
               tenantId,
-              corretorId: meta.corretorId,
+              corretorId,
               createdAt: { gte: meta.inicio, lt: meta.fim },
             },
           });
@@ -996,7 +994,7 @@ export class DashboardService {
           const agora = new Date();
           const agg = await this.aggregateVendasPorCorretor(
             tenantId,
-            [meta.corretorId],
+            [corretorId],
             { inicio: meta.inicio, fim: meta.fim },
             {
               incluirEstoqueAtual:
@@ -1005,8 +1003,8 @@ export class DashboardService {
           );
           atual =
             meta.tipo === MetaTipo.vendas
-              ? (agg.vendas.get(meta.corretorId) ?? 0)
-              : (agg.vgv.get(meta.corretorId) ?? 0);
+              ? (agg.vendas.get(corretorId) ?? 0)
+              : (agg.vgv.get(corretorId) ?? 0);
         }
         return {
           id: meta.id,
@@ -1014,10 +1012,10 @@ export class DashboardService {
           valor: meta.valor,
           atual,
           percentual: Math.min(100, Math.round((atual / meta.valor) * 100)),
-          corretorId: meta.corretorId,
-          corretorNome: meta.corretor.name,
-          equipeId: meta.corretor.equipeId,
-          equipeNome: meta.corretor.equipe?.name ?? null,
+          corretorId,
+          corretorNome: corretor.name,
+          equipeId: corretor.equipeId,
+          equipeNome: corretor.equipe?.name ?? null,
         };
       }),
     );
@@ -1134,6 +1132,7 @@ export class DashboardService {
       this.prisma.meta.findMany({
         where: {
           tenantId,
+          escopo: 'corretor',
           inicio: { lte: agora },
           fim: { gt: agora },
           periodo: MetaPeriodo.mensal,

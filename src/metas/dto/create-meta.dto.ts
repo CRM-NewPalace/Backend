@@ -2,15 +2,29 @@ import { IsIn, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
 
 export const META_TIPOS = ['vendas', 'documentacoes', 'vgv'] as const;
 export const META_PERIODOS = ['diaria', 'semanal', 'mensal'] as const;
+export const META_ESCOPOS = ['corretor', 'gerente', 'imobiliaria'] as const;
 
 export class CreateMetaDto {
   /**
-   * Obrigatório para o gerente. É ignorado para o corretor, que sempre cria
-   * uma meta pessoal para si mesmo.
+   * Escopo da meta. Corretor/gerente usam `corretor` (padrão).
+   * Admin pode criar `imobiliaria`, `gerente` ou `corretor`.
+   */
+  @IsOptional()
+  @IsIn(META_ESCOPOS, { message: 'Escopo de meta inválido.' })
+  escopo?: (typeof META_ESCOPOS)[number];
+
+  /**
+   * Obrigatório para gerente e para admin com escopo=corretor.
+   * Ignorado para corretor (sempre self) e para escopos imobiliaria/gerente.
    */
   @IsOptional()
   @IsUUID('4', { message: 'Corretor inválido.' })
   corretorId?: string;
+
+  /** Obrigatório para admin com escopo=gerente. */
+  @IsOptional()
+  @IsUUID('4', { message: 'Gerente inválido.' })
+  gerenteId?: string;
 
   @IsIn(META_TIPOS, { message: 'Indicador de meta inválido.' })
   tipo!: (typeof META_TIPOS)[number];

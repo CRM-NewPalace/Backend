@@ -37,6 +37,14 @@ enum TenantPlano {
 enum MetaOrigem {
   pessoal
   gerente
+  admin
+}
+
+/// Alvo da meta comercial.
+enum MetaEscopo {
+  corretor
+  gerente
+  imobiliaria
 }
 
 /// Indicador acompanhado pela meta comercial.
@@ -224,7 +232,10 @@ model User {
   // Metas em que este usuário é o corretor acompanhado.
   metasComoCorretor Meta[] @relation("MetaCorretor")
 
-  // Metas criadas pelo próprio corretor ou atribuídas pelo gerente.
+  // Metas em que este usuário é o gerente alvo.
+  metasComoGerente Meta[] @relation("MetaGerente")
+
+  // Metas criadas pelo próprio corretor, gerente ou administração.
   metasCriadas Meta[] @relation("MetaCriador")
 
   /// Equipe que este gerente lidera (no máximo uma).
@@ -894,14 +905,19 @@ model CatalogItem {
   @@map("catalog_items")
 }
 
-/// Meta comercial individual, aplicável ao período diário, semanal ou mensal.
+/// Meta comercial por escopo (corretor, gerente/equipe ou imobiliária).
 model Meta {
   id       String @id @default(uuid())
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  corretorId String
-  corretor   User   @relation("MetaCorretor", fields: [corretorId], references: [id], onDelete: Cascade)
+  escopo MetaEscopo @default(corretor)
+
+  corretorId String?
+  corretor   User?   @relation("MetaCorretor", fields: [corretorId], references: [id], onDelete: Cascade)
+
+  gerenteId String?
+  gerente   User?   @relation("MetaGerente", fields: [gerenteId], references: [id], onDelete: Cascade)
 
   criadorId String
   criador   User   @relation("MetaCriador", fields: [criadorId], references: [id], onDelete: Cascade)
@@ -917,9 +933,10 @@ model Meta {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([corretorId, origem, tipo, periodo, inicio])
   @@index([tenantId])
+  @@index([escopo])
   @@index([corretorId, inicio, fim])
+  @@index([gerenteId, inicio, fim])
   @@index([criadorId])
   @@map("metas")
 }
