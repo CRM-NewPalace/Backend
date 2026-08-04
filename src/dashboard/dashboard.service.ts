@@ -37,6 +37,20 @@ function metric(atual: number, anterior: number) {
   };
 }
 
+function documentacaoStatusKey(
+  status: string,
+): 'aprovadas' | 'reprovadas' | 'emAnalise' | null {
+  const normalized = status
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (normalized.startsWith('reprov')) return 'reprovadas';
+  if (normalized.startsWith('aprov')) return 'aprovadas';
+  if (normalized.includes('analise')) return 'emAnalise';
+  return null;
+}
+
 type JanelasOpts = {
   /** Mês 1–12. Omite = mês corrente (BR). */
   mes?: number;
@@ -301,6 +315,14 @@ export class DashboardService {
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
       ...(origem ? { lead: { origem } } : {}),
     });
+    const docPipelineWhere = (periodo: Periodo) => ({
+      tenantId,
+      createdAt: { gte: periodo.inicio, lt: periodo.fim },
+      lead: {
+        ...(origem ? { origem } : {}),
+        ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+      },
+    });
     const perdidoWhere = (periodo: Periodo) => ({
       tenantId,
       perdidoAt: { gte: periodo.inicio, lt: periodo.fim },
@@ -324,6 +346,8 @@ export class DashboardService {
       vendasDaEntradaMesAnt,
       vgvMes,
       vgvMesAnt,
+      documentacaoStatusMes,
+      documentacaoStatusMesAnt,
       agendaHoje,
       agendaAtrasados,
       corretores,
@@ -394,6 +418,16 @@ export class DashboardService {
       this.prisma.documentacao.aggregate({
         where: docVendaWhere(mesAnterior),
         _sum: { vgv: true },
+      }),
+      this.prisma.documentacao.groupBy({
+        by: ['status1'],
+        where: docPipelineWhere(mesAtual),
+        _count: { _all: true },
+      }),
+      this.prisma.documentacao.groupBy({
+        by: ['status1'],
+        where: docPipelineWhere(mesAnterior),
+        _count: { _all: true },
       }),
       this.prisma.agendamento.findMany({
         where: {
@@ -483,6 +517,19 @@ export class DashboardService {
         item._count._all,
       ]),
     );
+    const pipelineCounts = (
+      rows: Array<{ status1: string; _count: { _all: number } }>,
+    ) =>
+      rows.reduce(
+        (acc, row) => {
+          const key = documentacaoStatusKey(row.status1);
+          if (key) acc[key] += row._count._all;
+          return acc;
+        },
+        { aprovadas: 0, reprovadas: 0, emAnalise: 0 },
+      );
+    const pipelineAtual = pipelineCounts(documentacaoStatusMes);
+    const pipelineAnterior = pipelineCounts(documentacaoStatusMesAnt);
 
     const ranking = await this.buildRanking(
       tenantId,
@@ -573,6 +620,21 @@ export class DashboardService {
         entradas: metric(entradasMes, entradasMesAnt),
         vendas: metric(vendasDaEntradaMes, vendasDaEntradaMesAnt),
         taxa: metric(taxaMes, taxaMesAnt),
+        vgv: metric(vgvMes._sum.vgv ?? 0, vgvMesAnt._sum.vgv ?? 0),
+      },
+      documentacaoPipeline: {
+        aprovadas: metric(
+          pipelineAtual.aprovadas,
+          pipelineAnterior.aprovadas,
+        ),
+        reprovadas: metric(
+          pipelineAtual.reprovadas,
+          pipelineAnterior.reprovadas,
+        ),
+        emAnalise: metric(
+          pipelineAtual.emAnalise,
+          pipelineAnterior.emAnalise,
+        ),
         vgv: metric(vgvMes._sum.vgv ?? 0, vgvMesAnt._sum.vgv ?? 0),
       },
       atencao: {

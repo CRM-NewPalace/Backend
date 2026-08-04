@@ -44,6 +44,7 @@ const docSelect = {
       tipo: true,
       nome: true,
       stage: true,
+      origem: true,
       corretorId: true,
       corretor: userMini,
     },
