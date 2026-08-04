@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -13,12 +14,18 @@ import {
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
+import { BaixarTituloDto } from './dto/baixar-titulo.dto';
 import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
+import {
+  FluxoGranularidade,
+  QueryFluxoCaixaDto,
+} from './dto/query-fluxo-caixa.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
+import { UpdateTituloDto } from './dto/update-titulo.dto';
 
 const MESES_CURTOS = [
   'Jan',
@@ -49,6 +56,96 @@ function parseDayStart(iso: string): Date {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d) + BRASIL_UTC_OFFSET_MS);
 }
+
+function parseDayEnd(iso: string): Date {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1) + BRASIL_UTC_OFFSET_MS);
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function todayIsoBrasil(): string {
+  return isoDateOnly(new Date());
+}
+
+function startOfMonthIso(iso: string): string {
+  return `${iso.slice(0, 7)}-01`;
+}
+
+function endOfMonthIso(iso: string): string {
+  const [y, m] = iso.slice(0, 10).split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+}
+
+/** Segunda-feira da semana ISO (semana começa na segunda). */
+function startOfWeekIso(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const day = dt.getUTCDay(); // 0=dom
+  const diff = day === 0 ? -6 : 1 - day;
+  dt.setUTCDate(dt.getUTCDate() + diff);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function isoWeekKey(iso: string): { chave: string; inicio: string; fim: string } {
+  const inicio = startOfWeekIso(iso);
+  const fim = addDaysIso(inicio, 6);
+  const [y, m, d] = inicio.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  // ISO week number
+  const thursday = new Date(date);
+  thursday.setUTCDate(date.getUTCDate() + 3 - ((date.getUTCDay() + 6) % 7));
+  const week1 = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 4));
+  const week =
+    1 +
+    Math.round(
+      ((thursday.getTime() - week1.getTime()) / 86400000 -
+        3 +
+        ((week1.getUTCDay() + 6) % 7)) /
+        7,
+    );
+  const year = thursday.getUTCFullYear();
+  return {
+    chave: `${year}-W${String(week).padStart(2, '0')}`,
+    inicio,
+    fim,
+  };
+}
+
+function quarterKey(iso: string): { chave: string; inicio: string; fim: string } {
+  const [y, m] = iso.slice(0, 10).split('-').map(Number);
+  const q = Math.floor((m - 1) / 3) + 1;
+  const startMonth = (q - 1) * 3 + 1;
+  const endMonth = startMonth + 2;
+  const inicio = `${y}-${String(startMonth).padStart(2, '0')}-01`;
+  const fim = endOfMonthIso(`${y}-${String(endMonth).padStart(2, '0')}-01`);
+  return { chave: `${y}-Q${q}`, inicio, fim };
+}
+
+type FluxoEvento = {
+  data: string;
+  tipo: 'entrada' | 'saida';
+  valor: number;
+  natureza: 'realizado' | 'previsto';
+  origem: 'titulo' | 'movimento';
+  id: string;
+  descricao: string;
+  parceiro: string;
+  categoria: string;
+  centro: string;
+  status: string;
+};
 
 @Injectable()
 export class FinanceiroService {
@@ -299,6 +396,124 @@ export class FinanceiroService {
     return this.mapTitulo(row);
   }
 
+  async updateTitulo(
+    id: string,
+    dto: UpdateTituloDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const existing = await this.findTituloOrFail(id, requester);
+    if (existing.status === FinanceiroTituloStatus.pago) {
+      throw new BadRequestException(
+        'Título já baixado. Não é possível editar.',
+      );
+    }
+    const tenantId = requireTenantId(requester);
+
+    let parceiroId = existing.parceiroId;
+    let parceiroNome = existing.parceiroNome;
+    if (dto.parceiroId !== undefined || dto.parceiroNome !== undefined) {
+      const nextId =
+        dto.parceiroId === undefined ? existing.parceiroId : dto.parceiroId;
+      parceiroId = nextId || null;
+      parceiroNome = await this.resolveParceiroNome(
+        tenantId,
+        nextId || undefined,
+        dto.parceiroNome ?? undefined,
+      );
+    }
+
+    const row = await this.prisma.financeiroTitulo.update({
+      where: { id },
+      data: {
+        ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
+        ...(dto.descricao !== undefined
+          ? { descricao: dto.descricao.trim() }
+          : {}),
+        ...(dto.parceiroId !== undefined || dto.parceiroNome !== undefined
+          ? { parceiroId, parceiroNome }
+          : {}),
+        ...(dto.categoria !== undefined
+          ? { categoria: dto.categoria?.trim() || '' }
+          : {}),
+        ...(dto.centro !== undefined
+          ? { centro: dto.centro?.trim() || '' }
+          : {}),
+        ...(dto.vencimento !== undefined
+          ? { vencimento: parseDayStart(dto.vencimento) }
+          : {}),
+        ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.parcela !== undefined
+          ? { parcela: dto.parcela?.trim() || '' }
+          : {}),
+      },
+    });
+    return this.mapTitulo(row);
+  }
+
+  async removeTitulo(id: string, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    const existing = await this.findTituloOrFail(id, requester);
+    if (existing.status === FinanceiroTituloStatus.pago) {
+      throw new BadRequestException(
+        'Título baixado não pode ser excluído. Cancele o movimento vinculado se necessário.',
+      );
+    }
+    await this.prisma.financeiroTitulo.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async baixarTitulo(
+    id: string,
+    dto: BaixarTituloDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const existing = await this.findTituloOrFail(id, requester);
+    if (existing.status === FinanceiroTituloStatus.pago) {
+      throw new BadRequestException('Título já está baixado.');
+    }
+    if (existing.status === FinanceiroTituloStatus.cancelado) {
+      throw new BadRequestException('Título cancelado não pode ser baixado.');
+    }
+    const tenantId = requireTenantId(requester);
+    const dataPagamento = parseDayStart(dto.dataPagamento);
+    const tipoMov =
+      existing.tipo === FinanceiroTituloTipo.receber
+        ? FinanceiroMovimentoTipo.entrada
+        : FinanceiroMovimentoTipo.saida;
+
+    const [titulo] = await this.prisma.$transaction([
+      this.prisma.financeiroTitulo.update({
+        where: { id },
+        data: {
+          status: FinanceiroTituloStatus.pago,
+          dataPagamento,
+        },
+      }),
+      this.prisma.financeiroMovimento.create({
+        data: {
+          tenantId,
+          data: dataPagamento,
+          descricao: existing.descricao,
+          parceiroId: existing.parceiroId,
+          parceiroNome: existing.parceiroNome,
+          categoria: existing.categoria || 'Título',
+          centro: existing.centro,
+          tipo: tipoMov,
+          valor: existing.valor,
+          status: FinanceiroTituloStatus.pago,
+          formaPagamento: dto.formaPagamento?.trim() || '',
+          tituloId: existing.id,
+        },
+      }),
+    ]);
+
+    await this.recalcSaldoParceiro(tenantId, existing.parceiroId);
+    return this.mapTitulo(titulo);
+  }
+
   // ─── Comissões ───────────────────────────────────────────────
 
   listComissoes(requester: AuthenticatedUser) {
@@ -438,31 +653,90 @@ export class FinanceiroService {
     };
   }
 
-  async fluxoCaixa(requester: AuthenticatedUser) {
+  async fluxoCaixa(requester: AuthenticatedUser, query: QueryFluxoCaixaDto) {
     this.assertAccess(requester);
     const tenantId = requireTenantId(requester);
-    const rows = await this.prisma.financeiroMovimento.findMany({
-      where: {
-        tenantId,
-        status: { not: FinanceiroTituloStatus.cancelado },
-      },
-      orderBy: { data: 'asc' },
-    });
-
-    const byDay = new Map<string, { entradas: number; saidas: number }>();
-    for (const r of rows) {
-      const dia = isoDateOnly(r.data);
-      const cur = byDay.get(dia) ?? { entradas: 0, saidas: 0 };
-      if (r.tipo === FinanceiroMovimentoTipo.entrada) cur.entradas += r.valor;
-      else cur.saidas += r.valor;
-      byDay.set(dia, cur);
+    const granularidade: FluxoGranularidade = query.granularidade ?? 'dia';
+    const today = todayIsoBrasil();
+    const from = query.from?.slice(0, 10) ?? startOfMonthIso(today);
+    const to = query.to?.slice(0, 10) ?? endOfMonthIso(today);
+    if (from > to) {
+      throw new BadRequestException('Data inicial maior que a final.');
     }
 
-    let saldo = 0;
-    return [...byDay.entries()].map(([dia, v]) => {
-      saldo += v.entradas - v.saidas;
-      return { dia, entradas: v.entradas, saidas: v.saidas, saldo };
+    const eventos = await this.collectFluxoEventos(tenantId, from, to);
+    const buckets = this.buildFluxoBuckets(from, to, granularidade);
+
+    type Acc = {
+      entradasRealizadas: number;
+      saidasRealizadas: number;
+      entradasPrevistas: number;
+      saidasPrevistas: number;
+    };
+    const byKey = new Map<string, Acc>();
+    for (const b of buckets) {
+      byKey.set(b.chave, {
+        entradasRealizadas: 0,
+        saidasRealizadas: 0,
+        entradasPrevistas: 0,
+        saidasPrevistas: 0,
+      });
+    }
+
+    for (const ev of eventos) {
+      const meta = this.bucketMetaForDate(ev.data, granularidade);
+      const acc = byKey.get(meta.chave);
+      if (!acc) continue;
+      if (ev.natureza === 'realizado') {
+        if (ev.tipo === 'entrada') acc.entradasRealizadas += ev.valor;
+        else acc.saidasRealizadas += ev.valor;
+      } else {
+        if (ev.tipo === 'entrada') acc.entradasPrevistas += ev.valor;
+        else acc.saidasPrevistas += ev.valor;
+      }
+    }
+
+    let saldoRealizado = 0;
+    let saldoProjetado = 0;
+    return buckets.map((b) => {
+      const v = byKey.get(b.chave)!;
+      const liquidoReal =
+        v.entradasRealizadas - v.saidasRealizadas;
+      const liquidoPrev = v.entradasPrevistas - v.saidasPrevistas;
+      saldoRealizado += liquidoReal;
+      saldoProjetado += liquidoReal + liquidoPrev;
+      return {
+        chave: b.chave,
+        label: b.label,
+        inicio: b.inicio,
+        fim: b.fim,
+        entradasRealizadas: v.entradasRealizadas,
+        saidasRealizadas: v.saidasRealizadas,
+        entradasPrevistas: v.entradasPrevistas,
+        saidasPrevistas: v.saidasPrevistas,
+        saldoRealizado,
+        saldoProjetado,
+        // Compat com UI antiga / gráficos simples
+        dia: b.chave,
+        entradas: v.entradasRealizadas + v.entradasPrevistas,
+        saidas: v.saidasRealizadas + v.saidasPrevistas,
+        saldo: saldoProjetado,
+      };
     });
+  }
+
+  async fluxoCaixaItens(
+    requester: AuthenticatedUser,
+    from?: string,
+    to?: string,
+  ) {
+    this.assertAccess(requester);
+    const tenantId = requireTenantId(requester);
+    const today = todayIsoBrasil();
+    const start = from?.slice(0, 10) ?? today;
+    const end = to?.slice(0, 10) ?? start;
+    const eventos = await this.collectFluxoEventos(tenantId, start, end);
+    return eventos.sort((a, b) => a.data.localeCompare(b.data));
   }
 
   async centrosDespesa(requester: AuthenticatedUser) {
@@ -570,6 +844,161 @@ export class FinanceiroService {
     });
     if (!row) throw new NotFoundException('Movimento não encontrado.');
     return row;
+  }
+
+  private async findTituloOrFail(id: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const row = await this.prisma.financeiroTitulo.findFirst({
+      where: { id, tenantId },
+    });
+    if (!row) throw new NotFoundException('Título não encontrado.');
+    return row;
+  }
+
+  private async collectFluxoEventos(
+    tenantId: string,
+    from: string,
+    to: string,
+  ): Promise<FluxoEvento[]> {
+    const fromDate = parseDayStart(from);
+    const toExclusive = parseDayEnd(to);
+
+    const [movimentos, titulos] = await Promise.all([
+      this.prisma.financeiroMovimento.findMany({
+        where: {
+          tenantId,
+          status: { not: FinanceiroTituloStatus.cancelado },
+          data: { gte: fromDate, lt: toExclusive },
+        },
+      }),
+      this.prisma.financeiroTitulo.findMany({
+        where: {
+          tenantId,
+          status: {
+            in: [FinanceiroTituloStatus.aberto, FinanceiroTituloStatus.atrasado],
+          },
+          vencimento: { gte: fromDate, lt: toExclusive },
+        },
+      }),
+    ]);
+
+    const eventos: FluxoEvento[] = [];
+
+    for (const m of movimentos) {
+      const natureza =
+        m.status === FinanceiroTituloStatus.pago ? 'realizado' : 'previsto';
+      eventos.push({
+        data: isoDateOnly(m.data),
+        tipo: m.tipo === FinanceiroMovimentoTipo.entrada ? 'entrada' : 'saida',
+        valor: m.valor,
+        natureza,
+        origem: 'movimento',
+        id: m.id,
+        descricao: m.descricao,
+        parceiro: m.parceiroNome,
+        categoria: m.categoria,
+        centro: m.centro,
+        status: m.status,
+      });
+    }
+
+    for (const t of titulos) {
+      eventos.push({
+        data: isoDateOnly(t.vencimento),
+        tipo:
+          t.tipo === FinanceiroTituloTipo.receber ? 'entrada' : 'saida',
+        valor: t.valor,
+        natureza: 'previsto',
+        origem: 'titulo',
+        id: t.id,
+        descricao: t.descricao,
+        parceiro: t.parceiroNome,
+        categoria: t.categoria,
+        centro: t.centro,
+        status: t.status,
+      });
+    }
+
+    return eventos;
+  }
+
+  private bucketMetaForDate(
+    iso: string,
+    granularidade: FluxoGranularidade,
+  ): { chave: string; inicio: string; fim: string; label: string } {
+    if (granularidade === 'dia') {
+      const [y, m, d] = iso.split('-').map(Number);
+      const label = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('pt-BR', {
+        timeZone: 'UTC',
+        day: '2-digit',
+        month: '2-digit',
+      });
+      return { chave: iso, inicio: iso, fim: iso, label };
+    }
+    if (granularidade === 'semana') {
+      const w = isoWeekKey(iso);
+      return {
+        ...w,
+        label: `${w.inicio.slice(8)}/${w.inicio.slice(5, 7)} – ${w.fim.slice(8)}/${w.fim.slice(5, 7)}`,
+      };
+    }
+    if (granularidade === 'mes') {
+      const inicio = startOfMonthIso(iso);
+      const fim = endOfMonthIso(iso);
+      const m = Number(iso.slice(5, 7)) - 1;
+      const y = iso.slice(0, 4);
+      return {
+        chave: iso.slice(0, 7),
+        inicio,
+        fim,
+        label: `${MESES_CURTOS[m]}/${y}`,
+      };
+    }
+    const q = quarterKey(iso);
+    return {
+      ...q,
+      label: q.chave.replace('-', ' '),
+    };
+  }
+
+  private buildFluxoBuckets(
+    from: string,
+    to: string,
+    granularidade: FluxoGranularidade,
+  ) {
+    const seen = new Set<string>();
+    const buckets: {
+      chave: string;
+      label: string;
+      inicio: string;
+      fim: string;
+    }[] = [];
+
+    let cursor = from;
+    while (cursor <= to) {
+      const meta = this.bucketMetaForDate(cursor, granularidade);
+      if (!seen.has(meta.chave)) {
+        seen.add(meta.chave);
+        buckets.push({
+          chave: meta.chave,
+          label: meta.label,
+          inicio: meta.inicio,
+          fim: meta.fim,
+        });
+      }
+      if (granularidade === 'dia') {
+        cursor = addDaysIso(cursor, 1);
+      } else if (granularidade === 'semana') {
+        cursor = addDaysIso(meta.fim, 1);
+      } else if (granularidade === 'mes') {
+        const [y, m] = meta.inicio.split('-').map(Number);
+        cursor = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+      } else {
+        cursor = addDaysIso(meta.fim, 1);
+      }
+      if (buckets.length > 400) break;
+    }
+    return buckets;
   }
 
   private async findParceiroOrFail(id: string, requester: AuthenticatedUser) {
@@ -687,6 +1116,7 @@ export class FinanceiroService {
     valor: number;
     status: string;
     formaPagamento: string;
+    tituloId?: string | null;
   }) {
     return {
       id: row.id,
@@ -700,27 +1130,36 @@ export class FinanceiroService {
       valor: row.valor,
       status: row.status,
       formaPagamento: row.formaPagamento,
+      tituloId: row.tituloId ?? null,
     };
   }
 
   private mapTitulo(row: {
     id: string;
+    tipo: string;
     descricao: string;
+    parceiroId: string | null;
     parceiroNome: string;
     categoria: string;
     centro: string;
     vencimento: Date;
+    dataPagamento?: Date | null;
     valor: number;
     status: string;
     parcela: string;
   }) {
     return {
       id: row.id,
+      tipo: row.tipo,
       descricao: row.descricao,
+      parceiroId: row.parceiroId,
       parceiro: row.parceiroNome,
       categoria: row.categoria,
       centro: row.centro,
       vencimento: isoDateOnly(row.vencimento),
+      dataPagamento: row.dataPagamento
+        ? isoDateOnly(row.dataPagamento)
+        : null,
       valor: row.valor,
       status: row.status,
       parcela: row.parcela,

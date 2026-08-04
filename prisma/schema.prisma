@@ -1020,6 +1020,9 @@ model FinanceiroMovimento {
   valor          Float
   status         FinanceiroTituloStatus  @default(aberto)
   formaPagamento String                  @default("")
+  /// Baixa de título (evita double-count no fluxo).
+  tituloId       String?                 @unique
+  titulo         FinanceiroTitulo?       @relation(fields: [tituloId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1032,20 +1035,22 @@ model FinanceiroMovimento {
 
 /// Título a receber ou a pagar.
 model FinanceiroTitulo {
-  id           String                 @id @default(uuid())
-  tenantId     String
-  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  tipo         FinanceiroTituloTipo
-  descricao    String
-  parceiroId   String?
-  parceiro     FinanceiroParceiro?    @relation(fields: [parceiroId], references: [id], onDelete: SetNull)
-  parceiroNome String                 @default("")
-  categoria    String                 @default("")
-  centro       String                 @default("")
-  vencimento   DateTime
-  valor        Float
-  status       FinanceiroTituloStatus @default(aberto)
-  parcela      String                 @default("")
+  id            String                 @id @default(uuid())
+  tenantId      String
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tipo          FinanceiroTituloTipo
+  descricao     String
+  parceiroId    String?
+  parceiro      FinanceiroParceiro?    @relation(fields: [parceiroId], references: [id], onDelete: SetNull)
+  parceiroNome  String                 @default("")
+  categoria     String                 @default("")
+  centro        String                 @default("")
+  vencimento    DateTime
+  dataPagamento DateTime?
+  valor         Float
+  status        FinanceiroTituloStatus @default(aberto)
+  parcela       String                 @default("")
+  movimento     FinanceiroMovimento?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

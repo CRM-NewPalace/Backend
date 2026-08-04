@@ -18,9 +18,12 @@ import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
+import { BaixarTituloDto } from './dto/baixar-titulo.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
+import { QueryFluxoCaixaDto } from './dto/query-fluxo-caixa.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
+import { UpdateTituloDto } from './dto/update-titulo.dto';
 import { FinanceiroService } from './financeiro.service';
 
 @Controller('financeiro')
@@ -38,8 +41,21 @@ export class FinanceiroController {
 
   @Get('fluxo-caixa')
   @Roles(Role.admin, Role.gerente)
-  fluxoCaixa(@CurrentUser() requester: AuthenticatedUser) {
-    return this.financeiroService.fluxoCaixa(requester);
+  fluxoCaixa(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query() query: QueryFluxoCaixaDto,
+  ) {
+    return this.financeiroService.fluxoCaixa(requester, query);
+  }
+
+  @Get('fluxo-caixa/itens')
+  @Roles(Role.admin, Role.gerente)
+  fluxoCaixaItens(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.financeiroService.fluxoCaixaItens(requester, from, to);
   }
 
   @Get('centros-despesa')
@@ -144,6 +160,35 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.createTitulo(dto, requester);
+  }
+
+  @Patch('titulos/:id')
+  @Roles(Role.admin, Role.gerente)
+  updateTitulo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTituloDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.updateTitulo(id, dto, requester);
+  }
+
+  @Post('titulos/:id/baixar')
+  @Roles(Role.admin, Role.gerente)
+  baixarTitulo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BaixarTituloDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.baixarTitulo(id, dto, requester);
+  }
+
+  @Delete('titulos/:id')
+  @Roles(Role.admin, Role.gerente)
+  removeTitulo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.removeTitulo(id, requester);
   }
 
   // ─── Comissões ───────────────────────────────────────────────
