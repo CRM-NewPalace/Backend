@@ -3,14 +3,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { FunilEtapaPapel, Prisma, Role, TriagemOrigem } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
+import { FunisService } from '../funis/funis.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   canonicalizeStatus1,
   canonicalizeStatus2,
   isStatusAnalise,
+  isStatusVendido,
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
 import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
@@ -71,6 +73,7 @@ export class DocumentacaoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teamScope: TeamScopeService,
+    private readonly funis: FunisService,
   ) {}
 
   async list(query: QueryDocumentacaoDto, requester: AuthenticatedUser) {
@@ -91,11 +94,27 @@ export class DocumentacaoService {
       leadFilter.corretorId = query.corretorId;
     }
 
-    return this.prisma.documentacao.findMany({
+    const docs = await this.prisma.documentacao.findMany({
       where: { tenantId, lead: leadFilter },
       select: docSelect,
       orderBy: { createdAt: 'desc' },
     });
+
+    // Alinha funil: leads com documentação vendida avançam para etapa Venda
+    const vendidoLeadIds = [
+      ...new Set(
+        docs.filter((d) => isStatusVendido(d.status2)).map((d) => d.leadId),
+      ),
+    ];
+    if (vendidoLeadIds.length > 0) {
+      await this.moveLeadsToVendaStage(
+        tenantId,
+        vendidoLeadIds,
+        requester.id,
+      );
+    }
+
+    return docs;
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
@@ -127,7 +146,8 @@ export class DocumentacaoService {
     const dataAnalise =
       parsedAnalise ?? (isStatusAnalise(status1) ? todayDateOnly() : null);
 
-    return this.prisma.documentacao.create({
+    const status2 = canonicalizeStatus2(dto.status2);
+    const created = await this.prisma.documentacao.create({
       data: {
         tenantId,
         leadId: lead.id,
@@ -140,7 +160,7 @@ export class DocumentacaoService {
           dto.empreendimentoId || lead.empreendimentoId || null,
         fonte: dto.fonte.trim(),
         status1,
-        status2: canonicalizeStatus2(dto.status2),
+        status2,
         corretorId,
         gerenteId,
         dataAnalise,
@@ -150,6 +170,12 @@ export class DocumentacaoService {
       },
       select: docSelect,
     });
+
+    if (isStatusVendido(status2)) {
+      await this.moveLeadsToVendaStage(tenantId, [lead.id], requester.id);
+    }
+
+    return created;
   }
 
   async update(
@@ -238,11 +264,21 @@ export class DocumentacaoService {
     if (dto.vgv !== undefined) data.vgv = dto.vgv;
     if (dto.obs !== undefined) data.obs = dto.obs?.trim() || null;
 
-    return this.prisma.documentacao.update({
+    const updated = await this.prisma.documentacao.update({
       where: { id },
       data,
       select: docSelect,
     });
+
+    if (isStatusVendido(updated.status2)) {
+      await this.moveLeadsToVendaStage(
+        tenantId,
+        [existing.leadId],
+        requester.id,
+      );
+    }
+
+    return updated;
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
@@ -268,6 +304,53 @@ export class DocumentacaoService {
 
     await this.prisma.documentacao.delete({ where: { id } });
     return { ok: true };
+  }
+
+  /**
+   * Documentação vendida deve aparecer na coluna Venda do funil.
+   */
+  private async moveLeadsToVendaStage(
+    tenantId: string,
+    leadIds: string[],
+    autorId: string,
+  ) {
+    const uniqueIds = [...new Set(leadIds.filter(Boolean))];
+    if (uniqueIds.length === 0) return;
+
+    const vendaSlug = await this.funis.getSlugByPapel(
+      tenantId,
+      FunilEtapaPapel.venda,
+    );
+    if (!vendaSlug) return;
+
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        tenantId,
+        id: { in: uniqueIds },
+        perdidoAt: null,
+        NOT: { stage: vendaSlug },
+      },
+      select: { id: true, stage: true },
+    });
+    if (leads.length === 0) return;
+
+    await this.prisma.$transaction([
+      this.prisma.lead.updateMany({
+        where: { id: { in: leads.map((l) => l.id) } },
+        data: { stage: vendaSlug },
+      }),
+      this.prisma.triagemEvent.createMany({
+        data: leads.map((lead) => ({
+          leadId: lead.id,
+          autorId,
+          texto:
+            'Etapa avançada para venda (documentação marcada como vendido).',
+          stageAnterior: lead.stage,
+          stageNovo: vendaSlug,
+          origem: TriagemOrigem.funil,
+        })),
+      }),
+    ]);
   }
 
   private async resolveGerenteOfCorretor(
