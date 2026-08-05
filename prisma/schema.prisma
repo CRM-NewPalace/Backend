@@ -1001,6 +1001,8 @@ model FinanceiroParceiro {
   email       String?
   telefone    String?
   cidade      String?
+  /// Imobiliária associada (opcional) — texto livre ou nome do tenant.
+  imobiliaria String                 @default("")
   saldoAberto Float                  @default(0)
   ativo       Boolean                @default(true)
 

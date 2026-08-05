@@ -40,6 +40,11 @@ export class CreateParceiroDto {
   cidade?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  imobiliaria?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: 'Saldo aberto inválido.' })
   saldoAberto?: number;

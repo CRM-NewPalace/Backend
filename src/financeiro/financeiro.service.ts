@@ -205,6 +205,7 @@ export class FinanceiroService {
         email: dto.email?.trim() || null,
         telefone: dto.telefone?.trim() || null,
         cidade: dto.cidade?.trim() || null,
+        imobiliaria: dto.imobiliaria?.trim() || '',
         saldoAberto: 0,
         ativo: dto.ativo ?? true,
       },
@@ -236,6 +237,9 @@ export class FinanceiroService {
           : {}),
         ...(dto.cidade !== undefined
           ? { cidade: dto.cidade?.trim() || null }
+          : {}),
+        ...(dto.imobiliaria !== undefined
+          ? { imobiliaria: dto.imobiliaria?.trim() || '' }
           : {}),
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },
@@ -1401,6 +1405,7 @@ export class FinanceiroService {
     email: string | null;
     telefone: string | null;
     cidade: string | null;
+    imobiliaria?: string | null;
     saldoAberto: number;
     ativo: boolean;
   }) {
@@ -1412,6 +1417,7 @@ export class FinanceiroService {
       email: row.email ?? '',
       telefone: row.telefone ?? '',
       cidade: row.cidade ?? '',
+      imobiliaria: row.imobiliaria ?? '',
       saldoAberto: row.saldoAberto,
       ativo: row.ativo,
     };

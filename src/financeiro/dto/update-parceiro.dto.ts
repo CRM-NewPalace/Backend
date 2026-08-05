@@ -43,6 +43,11 @@ export class UpdateParceiroDto {
   cidade?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  imobiliaria?: string | null;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: 'Saldo aberto inválido.' })
   saldoAberto?: number;
