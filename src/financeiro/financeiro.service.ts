@@ -19,6 +19,7 @@ import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
+import { CreateTitulosParceladoDto } from './dto/create-titulos-parcelado.dto';
 import {
   FluxoGranularidade,
   QueryFluxoCaixaDto,
@@ -26,6 +27,7 @@ import {
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
+import { randomUUID } from 'crypto';
 
 const MESES_CURTOS = [
   'Jan',
@@ -359,12 +361,21 @@ export class FinanceiroService {
 
   // ─── Títulos ─────────────────────────────────────────────────
 
-  listTitulos(requester: AuthenticatedUser, tipo?: FinanceiroTituloTipo) {
+  listTitulos(
+    requester: AuthenticatedUser,
+    tipo?: FinanceiroTituloTipo,
+    grupoParcelasId?: string,
+  ) {
     this.assertAccess(requester);
     const tenantId = requireTenantId(requester);
     return this.prisma.financeiroTitulo
       .findMany({
-        where: { tenantId, ...(tipo ? { tipo } : {}) },
+        where: {
+          tenantId,
+          ...(tipo ? { tipo } : {}),
+          ...(grupoParcelasId ? { grupoParcelasId } : {}),
+        },
+        include: { movimento: { select: { formaPagamento: true } } },
         orderBy: { vencimento: 'asc' },
       })
       .then((rows) => rows.map((r) => this.mapTitulo(r)));
@@ -394,6 +405,57 @@ export class FinanceiroService {
       },
     });
     return this.mapTitulo(row);
+  }
+
+  async createTitulosParcelado(
+    dto: CreateTitulosParceladoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const tenantId = requireTenantId(requester);
+    if (!dto.parcelas?.length || dto.parcelas.length < 2) {
+      throw new BadRequestException('Informe ao menos 2 parcelas.');
+    }
+    for (const p of dto.parcelas) {
+      if (!Number.isFinite(p.valor) || p.valor <= 0) {
+        throw new BadRequestException(
+          'Todas as parcelas precisam de valor maior que zero.',
+        );
+      }
+    }
+    const parceiroNome = await this.resolveParceiroNome(
+      tenantId,
+      dto.parceiroId,
+      dto.parceiroNome,
+    );
+    const grupoParcelasId = randomUUID();
+    const n = dto.parcelas.length;
+    const descricao = dto.descricao.trim();
+    const categoria = dto.categoria?.trim() || '';
+    const centro = dto.centro?.trim() || '';
+
+    const rows = await this.prisma.$transaction(
+      dto.parcelas.map((p, i) =>
+        this.prisma.financeiroTitulo.create({
+          data: {
+            tenantId,
+            tipo: dto.tipo,
+            descricao,
+            parceiroId: dto.parceiroId || null,
+            parceiroNome,
+            categoria,
+            centro,
+            vencimento: parseDayStart(p.vencimento),
+            valor: p.valor,
+            status: FinanceiroTituloStatus.aberto,
+            parcela: `${i + 1}/${n}`,
+            grupoParcelasId,
+          },
+        }),
+      ),
+    );
+
+    return rows.map((r) => this.mapTitulo(r));
   }
 
   async updateTitulo(
@@ -1147,6 +1209,8 @@ export class FinanceiroService {
     valor: number;
     status: string;
     parcela: string;
+    grupoParcelasId?: string | null;
+    movimento?: { formaPagamento: string } | null;
   }) {
     return {
       id: row.id,
@@ -1163,6 +1227,8 @@ export class FinanceiroService {
       valor: row.valor,
       status: row.status,
       parcela: row.parcela,
+      grupoParcelasId: row.grupoParcelasId ?? null,
+      formaPagamento: row.movimento?.formaPagamento || '',
     };
   }
 

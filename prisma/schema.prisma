@@ -1048,9 +1048,11 @@ model FinanceiroTitulo {
   vencimento    DateTime
   dataPagamento DateTime?
   valor         Float
-  status        FinanceiroTituloStatus @default(aberto)
-  parcela       String                 @default("")
-  movimento     FinanceiroMovimento?
+  status          FinanceiroTituloStatus @default(aberto)
+  parcela         String                 @default("")
+  /// Liga parcelas do mesmo contrato (N títulos com o mesmo UUID).
+  grupoParcelasId String?
+  movimento       FinanceiroMovimento?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1058,6 +1060,7 @@ model FinanceiroTitulo {
   @@index([tenantId])
   @@index([tenantId, tipo])
   @@index([tenantId, vencimento])
+  @@index([tenantId, grupoParcelasId])
   @@index([parceiroId])
   @@map("financeiro_titulos")
 }

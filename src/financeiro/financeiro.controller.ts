@@ -20,6 +20,7 @@ import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
 import { BaixarTituloDto } from './dto/baixar-titulo.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
+import { CreateTitulosParceladoDto } from './dto/create-titulos-parcelado.dto';
 import { QueryFluxoCaixaDto } from './dto/query-fluxo-caixa.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
@@ -149,8 +150,13 @@ export class FinanceiroController {
   listTitulos(
     @CurrentUser() requester: AuthenticatedUser,
     @Query('tipo') tipo?: FinanceiroTituloTipo,
+    @Query('grupoParcelasId') grupoParcelasId?: string,
   ) {
-    return this.financeiroService.listTitulos(requester, tipo);
+    return this.financeiroService.listTitulos(
+      requester,
+      tipo,
+      grupoParcelasId,
+    );
   }
 
   @Post('titulos')
@@ -160,6 +166,15 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.createTitulo(dto, requester);
+  }
+
+  @Post('titulos/parcelado')
+  @Roles(Role.admin, Role.gerente)
+  createTitulosParcelado(
+    @Body() dto: CreateTitulosParceladoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.createTitulosParcelado(dto, requester);
   }
 
   @Patch('titulos/:id')
