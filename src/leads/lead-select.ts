@@ -14,6 +14,7 @@ export const leadSelect = {
   stage: true,
   prioridade: true,
   renda: true,
+  estadoCivil: true,
   tags: true,
   corretorId: true,
   corretor: { select: { id: true, name: true } },

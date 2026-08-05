@@ -306,6 +306,8 @@ model Lead {
   prioridade String      @default("Média")
   /// Renda mensal informada pelo cliente (opcional).
   renda      Int?
+  /// Estado civil informado pelo cliente (opcional).
+  estadoCivil String?
   tags       String[]    @default([])
 
   // Corretor dono do lead. Fica nulo se o corretor for removido (SetNull),

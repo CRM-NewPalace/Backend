@@ -79,6 +79,13 @@ export class CreateLeadDto {
   @Min(0, { message: 'Renda não pode ser negativa.' })
   renda?: number | null;
 
+  /** Estado civil do cliente (opcional). */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(40)
+  estadoCivil?: string | null;
+
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(20)

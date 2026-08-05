@@ -23,7 +23,13 @@ type MessageSentData = {
   source?: unknown;
 };
 
-type CampoLeadOzap = 'nome' | 'cidade' | 'bairro' | 'renda' | 'tipo_renda';
+type CampoLeadOzap =
+  | 'nome'
+  | 'cidade'
+  | 'bairro'
+  | 'renda'
+  | 'tipo_renda'
+  | 'estado_civil';
 
 const CATEGORIA_PRIORIDADE: Record<string, string> = {
   cold: 'Baixa',
@@ -307,6 +313,9 @@ export class OzapService {
     if (/tipo de renda|clt|autônomo|autonomo|funcionário público|funcionario publico/.test(normalized)) {
       return 'tipo_renda';
     }
+    if (/estado civil/.test(normalized)) {
+      return 'estado_civil';
+    }
     return null;
   }
 
@@ -321,6 +330,9 @@ export class OzapService {
           push: `Renda: ${resposta.trim().slice(0, 80)}`,
         },
       };
+    }
+    if (campo === 'estado_civil') {
+      return { estadoCivil: resposta.trim().slice(0, 40) };
     }
     return { [campo]: resposta.trim().slice(0, 120) };
   }

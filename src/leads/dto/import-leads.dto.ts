@@ -68,6 +68,11 @@ export class ImportLeadItemDto {
   renda?: number | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  estadoCivil?: string | null;
+
+  @IsOptional()
   @IsUUID('4', { message: 'Corretor inválido.' })
   corretorId?: string;
 }
