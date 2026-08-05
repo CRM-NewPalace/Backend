@@ -24,6 +24,7 @@ import {
   resolvePlanoFields,
 } from './tenant-plan';
 import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
+import { PLATFORM_TENANT_ID } from '../common/utils/tenant';
 
 const tenantSelect = tenantAdminSelect;
 
@@ -85,16 +86,29 @@ export class TenantsService {
   findAll() {
     return this.prisma.tenant
       .findMany({
+        where: { id: { not: PLATFORM_TENANT_ID } },
         select: {
           ...tenantSelect,
           users: adminUsersInclude,
+          metaConnections: {
+            where: { ativo: true },
+            select: { id: true },
+            take: 1,
+          },
+          ozapConnections: {
+            where: { ativo: true },
+            select: { id: true },
+            take: 1,
+          },
         },
         orderBy: { name: 'asc' },
       })
       .then((rows) =>
-        rows.map(({ users, ...tenant }) => ({
+        rows.map(({ users, metaConnections, ozapConnections, ...tenant }) => ({
           ...tenant,
           admin: users[0] ?? null,
+          hasMetaConnection: metaConnections.length > 0,
+          hasOzapConnection: ozapConnections.length > 0,
         })),
       );
   }
@@ -126,6 +140,7 @@ export class TenantsService {
           data: {
             name: tenantName,
             slug,
+            documento: this.normalizeDocumento(dto.documento),
             status: dto.status ?? UserStatus.ativo,
             primaryColor: null,
             sidebarStyle: 'default',
@@ -301,6 +316,11 @@ export class TenantsService {
    * Equipes são apagadas antes por causa do FK Restrict em gerenteId → User.
    */
   async remove(id: string) {
+    if (id === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser removido.',
+      );
+    }
     const tenant = await this.prisma.tenant.findUnique({
       where: { id },
       select: { id: true, name: true, slug: true },
@@ -382,6 +402,11 @@ export class TenantsService {
   }
 
   async update(id: string, dto: UpdateTenantDto) {
+    if (id === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser alterado por aqui.',
+      );
+    }
     await this.ensureExists(id);
 
     const current = await this.prisma.tenant.findUnique({
@@ -431,6 +456,9 @@ export class TenantsService {
         where: { id },
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.documento !== undefined
+            ? { documento: this.normalizeDocumento(dto.documento) }
+            : {}),
           ...(dto.status !== undefined ? { status: dto.status } : {}),
           plano: planFields.plano,
           maxUsuarios:
@@ -687,6 +715,13 @@ export class TenantsService {
     }
 
     return chars.join('');
+  }
+
+  /** Mantém só dígitos do CPF/CNPJ (até 14). */
+  private normalizeDocumento(value?: string | null): string {
+    return String(value ?? '')
+      .replace(/\D/g, '')
+      .slice(0, 14);
   }
 
   /** E-mail padrão do admin: admin@{slugSemHifen}.com */

@@ -6,16 +6,20 @@ import {
 } from '@nestjs/common';
 import {
   FinanceiroComissaoStatus,
+  FinanceiroDespesaNatureza,
   FinanceiroMovimentoTipo,
   FinanceiroTituloStatus,
   FinanceiroTituloTipo,
+  Prisma,
   Role,
 } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { requireTenantId } from '../common/utils/tenant';
+import { resolveFinanceiroTenantId } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
 import { BaixarTituloDto } from './dto/baixar-titulo.dto';
 import { CreateComissaoDto } from './dto/create-comissao.dto';
+import { CreateDespesaDto } from './dto/create-despesa.dto';
+import { CreateDespesaTipoDto } from './dto/create-despesa-tipo.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
@@ -24,6 +28,8 @@ import {
   FluxoGranularidade,
   QueryFluxoCaixaDto,
 } from './dto/query-fluxo-caixa.dto';
+import { UpdateDespesaDto } from './dto/update-despesa.dto';
+import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
@@ -157,7 +163,7 @@ export class FinanceiroService {
 
   listParceiros(requester: AuthenticatedUser) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     return Promise.all([
       this.prisma.financeiroParceiro.findMany({
         where: { tenantId },
@@ -189,7 +195,7 @@ export class FinanceiroService {
 
   async createParceiro(dto: CreateParceiroDto, requester: AuthenticatedUser) {
     this.assertWrite(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const row = await this.prisma.financeiroParceiro.create({
       data: {
         tenantId,
@@ -212,7 +218,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     await this.findParceiroOrFail(id, requester);
     const row = await this.prisma.financeiroParceiro.update({
       where: { id },
@@ -256,7 +262,7 @@ export class FinanceiroService {
 
   listMovimentos(requester: AuthenticatedUser) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     return this.prisma.financeiroMovimento
       .findMany({
         where: { tenantId },
@@ -267,7 +273,7 @@ export class FinanceiroService {
 
   async createMovimento(dto: CreateMovimentoDto, requester: AuthenticatedUser) {
     this.assertWrite(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const parceiroNome = await this.resolveParceiroNome(
       tenantId,
       dto.parceiroId,
@@ -299,7 +305,7 @@ export class FinanceiroService {
   ) {
     this.assertWrite(requester);
     const existing = await this.findMovimentoOrFail(id, requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
 
     let parceiroId = existing.parceiroId;
     let parceiroNome = existing.parceiroNome;
@@ -353,7 +359,7 @@ export class FinanceiroService {
   async removeMovimento(id: string, requester: AuthenticatedUser) {
     this.assertWrite(requester);
     const existing = await this.findMovimentoOrFail(id, requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     await this.prisma.financeiroMovimento.delete({ where: { id } });
     await this.recalcSaldoParceiro(tenantId, existing.parceiroId);
     return { ok: true };
@@ -367,7 +373,7 @@ export class FinanceiroService {
     grupoParcelasId?: string,
   ) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     return this.prisma.financeiroTitulo
       .findMany({
         where: {
@@ -383,7 +389,7 @@ export class FinanceiroService {
 
   async createTitulo(dto: CreateTituloDto, requester: AuthenticatedUser) {
     this.assertWrite(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const parceiroNome = await this.resolveParceiroNome(
       tenantId,
       dto.parceiroId,
@@ -412,7 +418,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     if (!dto.parcelas?.length || dto.parcelas.length < 2) {
       throw new BadRequestException('Informe ao menos 2 parcelas.');
     }
@@ -470,7 +476,7 @@ export class FinanceiroService {
         'Título já baixado. Não é possível editar.',
       );
     }
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
 
     let parceiroId = existing.parceiroId;
     let parceiroNome = existing.parceiroNome;
@@ -539,7 +545,7 @@ export class FinanceiroService {
     if (existing.status === FinanceiroTituloStatus.cancelado) {
       throw new BadRequestException('Título cancelado não pode ser baixado.');
     }
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const dataPagamento = parseDayStart(dto.dataPagamento);
     const tipoMov =
       existing.tipo === FinanceiroTituloTipo.receber
@@ -580,7 +586,7 @@ export class FinanceiroService {
 
   listComissoes(requester: AuthenticatedUser) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     return this.prisma.financeiroComissao
       .findMany({
         where: { tenantId },
@@ -591,7 +597,7 @@ export class FinanceiroService {
 
   async createComissao(dto: CreateComissaoDto, requester: AuthenticatedUser) {
     this.assertWrite(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const row = await this.prisma.financeiroComissao.create({
       data: {
         tenantId,
@@ -613,7 +619,7 @@ export class FinanceiroService {
 
   async visaoGeral(requester: AuthenticatedUser) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const now = new Date();
     const brasil = new Date(now.getTime() - BRASIL_UTC_OFFSET_MS);
     const y = brasil.getUTCFullYear();
@@ -717,7 +723,7 @@ export class FinanceiroService {
 
   async fluxoCaixa(requester: AuthenticatedUser, query: QueryFluxoCaixaDto) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const granularidade: FluxoGranularidade = query.granularidade ?? 'dia';
     const today = todayIsoBrasil();
     const from = query.from?.slice(0, 10) ?? startOfMonthIso(today);
@@ -793,7 +799,7 @@ export class FinanceiroService {
     to?: string,
   ) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const today = todayIsoBrasil();
     const start = from?.slice(0, 10) ?? today;
     const end = to?.slice(0, 10) ?? start;
@@ -803,13 +809,205 @@ export class FinanceiroService {
 
   async centrosDespesa(requester: AuthenticatedUser) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     return this.buildCentros(tenantId);
+  }
+
+  // ─── Tipos de despesa (fixa / variável) ─────────────────────
+
+  listDespesaTipos(
+    requester: AuthenticatedUser,
+    natureza?: FinanceiroDespesaNatureza,
+  ) {
+    this.assertAccess(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    return this.prisma.financeiroDespesaTipo
+      .findMany({
+        where: {
+          tenantId,
+          ...(natureza ? { natureza } : {}),
+        },
+        include: {
+          _count: { select: { despesas: true } },
+          despesas: {
+            where: { ativo: true },
+            select: { valor: true },
+          },
+        },
+        orderBy: [{ natureza: 'asc' }, { nome: 'asc' }],
+      })
+      .then((rows) => rows.map((r) => this.mapDespesaTipo(r)));
+  }
+
+  async createDespesaTipo(
+    dto: CreateDespesaTipoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const nome = dto.nome.trim();
+    try {
+      const row = await this.prisma.financeiroDespesaTipo.create({
+        data: {
+          tenantId,
+          nome,
+          natureza: dto.natureza,
+          orcadoMensal: dto.orcadoMensal ?? 0,
+          ativo: dto.ativo ?? true,
+        },
+        include: {
+          _count: { select: { despesas: true } },
+          despesas: { where: { ativo: true }, select: { valor: true } },
+        },
+      });
+      return this.mapDespesaTipo(row);
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          'Já existe um tipo com este nome nesta natureza.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async updateDespesaTipo(
+    id: string,
+    dto: UpdateDespesaTipoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    await this.findDespesaTipoOrFail(id, requester);
+    try {
+      const row = await this.prisma.financeiroDespesaTipo.update({
+        where: { id },
+        data: {
+          ...(dto.nome !== undefined ? { nome: dto.nome.trim() } : {}),
+          ...(dto.natureza !== undefined ? { natureza: dto.natureza } : {}),
+          ...(dto.orcadoMensal !== undefined
+            ? { orcadoMensal: dto.orcadoMensal }
+            : {}),
+          ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
+        },
+        include: {
+          _count: { select: { despesas: true } },
+          despesas: { where: { ativo: true }, select: { valor: true } },
+        },
+      });
+      return this.mapDespesaTipo(row);
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          'Já existe um tipo com este nome nesta natureza.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async removeDespesaTipo(id: string, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    await this.findDespesaTipoOrFail(id, requester);
+    await this.prisma.financeiroDespesaTipo.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // ─── Despesas ────────────────────────────────────────────────
+
+  listDespesas(
+    requester: AuthenticatedUser,
+    natureza?: FinanceiroDespesaNatureza,
+  ) {
+    this.assertAccess(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    return this.prisma.financeiroDespesa
+      .findMany({
+        where: {
+          tenantId,
+          ...(natureza ? { tipo: { natureza } } : {}),
+        },
+        include: {
+          tipo: { select: { id: true, nome: true, natureza: true } },
+        },
+        orderBy: { data: 'desc' },
+      })
+      .then((rows) => rows.map((r) => this.mapDespesa(r)));
+  }
+
+  async createDespesa(dto: CreateDespesaDto, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const tipo = await this.findDespesaTipoOrFail(dto.tipoId, requester);
+    if (!tipo.ativo) {
+      throw new BadRequestException('Tipo de despesa inativo.');
+    }
+    const row = await this.prisma.financeiroDespesa.create({
+      data: {
+        tenantId,
+        tipoId: dto.tipoId,
+        descricao: dto.descricao.trim(),
+        valor: dto.valor,
+        data: parseDayStart(dto.data),
+        observacao: dto.observacao?.trim() || '',
+        ativo: dto.ativo ?? true,
+      },
+      include: {
+        tipo: { select: { id: true, nome: true, natureza: true } },
+      },
+    });
+    return this.mapDespesa(row);
+  }
+
+  async updateDespesa(
+    id: string,
+    dto: UpdateDespesaDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    await this.findDespesaOrFail(id, requester);
+    if (dto.tipoId) {
+      const tipo = await this.findDespesaTipoOrFail(dto.tipoId, requester);
+      if (!tipo.ativo) {
+        throw new BadRequestException('Tipo de despesa inativo.');
+      }
+    }
+    const row = await this.prisma.financeiroDespesa.update({
+      where: { id },
+      data: {
+        ...(dto.tipoId !== undefined ? { tipoId: dto.tipoId } : {}),
+        ...(dto.descricao !== undefined
+          ? { descricao: dto.descricao.trim() }
+          : {}),
+        ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
+        ...(dto.data !== undefined ? { data: parseDayStart(dto.data) } : {}),
+        ...(dto.observacao !== undefined
+          ? { observacao: dto.observacao.trim() }
+          : {}),
+        ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
+      },
+      include: {
+        tipo: { select: { id: true, nome: true, natureza: true } },
+      },
+    });
+    return this.mapDespesa(row);
+  }
+
+  async removeDespesa(id: string, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    await this.findDespesaOrFail(id, requester);
+    await this.prisma.financeiroDespesa.delete({ where: { id } });
+    return { ok: true };
   }
 
   async demonstrativo(requester: AuthenticatedUser) {
     this.assertAccess(requester);
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const mesesResumo = await this.buildMesesResumo(tenantId, 3);
     const meses = mesesResumo.map((m) => m.mes);
 
@@ -877,6 +1075,37 @@ export class FinanceiroService {
   }
 
   private async buildCentros(tenantId: string) {
+    const tipos = await this.prisma.financeiroDespesaTipo.findMany({
+      where: { tenantId, ativo: true },
+      include: {
+        despesas: {
+          where: { ativo: true },
+          select: { valor: true },
+        },
+      },
+      orderBy: { nome: 'asc' },
+    });
+
+    if (tipos.length > 0) {
+      return tipos
+        .map((t) => {
+          const realizado = t.despesas.reduce((s, d) => s + d.valor, 0);
+          const orcado = t.orcadoMensal;
+          return {
+            centro: t.nome,
+            natureza: t.natureza,
+            orcado,
+            realizado,
+            percentual: orcado
+              ? (realizado / orcado) * 100
+              : realizado > 0
+                ? 100
+                : 0,
+          };
+        })
+        .sort((a, b) => b.realizado - a.realizado);
+    }
+
     const rows = await this.prisma.financeiroMovimento.findMany({
       where: {
         tenantId,
@@ -892,6 +1121,7 @@ export class FinanceiroService {
     return [...map.entries()]
       .map(([centro, realizado]) => ({
         centro,
+        natureza: null as string | null,
         orcado: realizado,
         realizado,
         percentual: 100,
@@ -900,7 +1130,7 @@ export class FinanceiroService {
   }
 
   private async findMovimentoOrFail(id: string, requester: AuthenticatedUser) {
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const row = await this.prisma.financeiroMovimento.findFirst({
       where: { id, tenantId },
     });
@@ -909,7 +1139,7 @@ export class FinanceiroService {
   }
 
   private async findTituloOrFail(id: string, requester: AuthenticatedUser) {
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const row = await this.prisma.financeiroTitulo.findFirst({
       where: { id, tenantId },
     });
@@ -1064,11 +1294,32 @@ export class FinanceiroService {
   }
 
   private async findParceiroOrFail(id: string, requester: AuthenticatedUser) {
-    const tenantId = requireTenantId(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     const row = await this.prisma.financeiroParceiro.findFirst({
       where: { id, tenantId },
     });
     if (!row) throw new NotFoundException('Parceiro não encontrado.');
+    return row;
+  }
+
+  private async findDespesaTipoOrFail(
+    id: string,
+    requester: AuthenticatedUser,
+  ) {
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const row = await this.prisma.financeiroDespesaTipo.findFirst({
+      where: { id, tenantId },
+    });
+    if (!row) throw new NotFoundException('Tipo de despesa não encontrado.');
+    return row;
+  }
+
+  private async findDespesaOrFail(id: string, requester: AuthenticatedUser) {
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const row = await this.prisma.financeiroDespesa.findFirst({
+      where: { id, tenantId },
+    });
+    if (!row) throw new NotFoundException('Despesa não encontrada.');
     return row;
   }
 
@@ -1166,6 +1417,54 @@ export class FinanceiroService {
     };
   }
 
+  private mapDespesaTipo(row: {
+    id: string;
+    nome: string;
+    natureza: FinanceiroDespesaNatureza;
+    orcadoMensal: number;
+    ativo: boolean;
+    createdAt: Date;
+    _count?: { despesas: number };
+    despesas?: { valor: number }[];
+  }) {
+    const realizado = (row.despesas ?? []).reduce((s, d) => s + d.valor, 0);
+    return {
+      id: row.id,
+      nome: row.nome,
+      natureza: row.natureza,
+      orcadoMensal: row.orcadoMensal,
+      realizado,
+      qtdDespesas: row._count?.despesas ?? row.despesas?.length ?? 0,
+      ativo: row.ativo,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private mapDespesa(row: {
+    id: string;
+    tipoId: string;
+    descricao: string;
+    valor: number;
+    data: Date;
+    observacao: string;
+    ativo: boolean;
+    createdAt: Date;
+    tipo: { id: string; nome: string; natureza: FinanceiroDespesaNatureza };
+  }) {
+    return {
+      id: row.id,
+      tipoId: row.tipoId,
+      tipoNome: row.tipo.nome,
+      natureza: row.tipo.natureza,
+      descricao: row.descricao,
+      valor: row.valor,
+      data: isoDateOnly(row.data),
+      observacao: row.observacao,
+      ativo: row.ativo,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
   private mapMovimento(row: {
     id: string;
     data: Date;
@@ -1259,19 +1558,18 @@ export class FinanceiroService {
   }
 
   private assertAccess(requester: AuthenticatedUser) {
-    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+    if (
+      requester.role !== Role.admin &&
+      requester.role !== Role.gerente &&
+      requester.role !== Role.super_admin
+    ) {
       throw new ForbiddenException(
-        'Módulo financeiro disponível para admin e gerente.',
+        'Módulo financeiro disponível para admin, gerente e super admin.',
       );
     }
   }
 
   private assertWrite(requester: AuthenticatedUser) {
     this.assertAccess(requester);
-    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
-      throw new ForbiddenException(
-        'Sem permissão para alterar dados financeiros.',
-      );
-    }
   }
 }

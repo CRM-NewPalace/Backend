@@ -74,6 +74,8 @@ model Tenant {
   name   String
   slug   String     @unique
   status UserStatus @default(ativo)
+  /// CPF ou CNPJ do cliente (imobiliária).
+  documento String  @default("")
 
   /// Branding visual (nível 1).
   logoUrl      String?
@@ -114,10 +116,13 @@ model Tenant {
   metas             Meta[]
   metaConnections   TenantMetaConnection[]
   ozapConnections   TenantOzapConnection[]
-  financeiroParceiros  FinanceiroParceiro[]
-  financeiroMovimentos FinanceiroMovimento[]
-  financeiroTitulos    FinanceiroTitulo[]
-  financeiroComissoes  FinanceiroComissao[]
+  financeiroParceiros     FinanceiroParceiro[]
+  financeiroMovimentos    FinanceiroMovimento[]
+  financeiroTitulos       FinanceiroTitulo[]
+  financeiroComissoes     FinanceiroComissao[]
+  financeiroDespesaTipos  FinanceiroDespesaTipo[]
+  financeiroDespesas      FinanceiroDespesa[]
+  platformContratos       PlatformContrato[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -979,6 +984,12 @@ enum FinanceiroComissaoStatus {
   paga
 }
 
+/// Natureza do tipo de despesa no centro de custos.
+enum FinanceiroDespesaNatureza {
+  fixa
+  variavel
+}
+
 /// Cliente / fornecedor do módulo financeiro.
 model FinanceiroParceiro {
   id          String                 @id @default(uuid())
@@ -1067,6 +1078,49 @@ model FinanceiroTitulo {
   @@map("financeiro_titulos")
 }
 
+/// Tipo / centro de despesa (fixa ou variável).
+model FinanceiroDespesaTipo {
+  id           String                     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome         String
+  natureza     FinanceiroDespesaNatureza
+  /// Orçamento mensal de referência para o tipo.
+  orcadoMensal Float                      @default(0)
+  ativo        Boolean                    @default(true)
+  despesas     FinanceiroDespesa[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, nome, natureza])
+  @@index([tenantId])
+  @@index([tenantId, natureza])
+  @@map("financeiro_despesa_tipos")
+}
+
+/// Lançamento de despesa vinculado a um tipo (fixa/variável).
+model FinanceiroDespesa {
+  id          String                @id @default(uuid())
+  tenantId    String
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tipoId      String
+  tipo        FinanceiroDespesaTipo @relation(fields: [tipoId], references: [id], onDelete: Cascade)
+  descricao   String
+  valor       Float
+  data        DateTime
+  observacao  String                @default("")
+  ativo       Boolean               @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, data])
+  @@index([tipoId])
+  @@map("financeiro_despesas")
+}
+
 /// Comissão de corretor.
 model FinanceiroComissao {
   id              String                   @id @default(uuid())
@@ -1088,6 +1142,74 @@ model FinanceiroComissao {
   @@index([tenantId])
   @@index([tenantId, dataVenda])
   @@map("financeiro_comissoes")
+}
+
+/// Tipo de acordo comercial plataforma ↔ imobiliária.
+enum PlatformContratoTipo {
+  assinatura
+  financeiro
+}
+
+/// Ciclo de vida do acordo (proposta = negociação; ativo = fechado).
+enum PlatformContratoStatus {
+  proposta
+  ativo
+  atrasado
+  suspenso
+  cancelado
+  encerrado
+}
+
+/// Contrato / proposta comercial entre Zone Connection e uma imobiliária.
+model PlatformContrato {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  codigo String
+  titulo String
+  tipo   PlatformContratoTipo
+
+  /// Plano da assinatura (quando tipo = assinatura).
+  plano TenantPlano?
+
+  valor      Float
+  dataInicio DateTime
+  vencimento DateTime?
+  status     PlatformContratoStatus @default(proposta)
+  observacao String                 @default("")
+
+  parcelas PlatformContratoParcela[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([codigo])
+  @@index([tenantId])
+  @@index([status])
+  @@index([vencimento])
+  @@map("platform_contratos")
+}
+
+/// Parcela de um contrato da plataforma.
+model PlatformContratoParcela {
+  id         String                 @id @default(uuid())
+  contratoId String
+  contrato   PlatformContrato       @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  numero     Int
+  valor      Float
+  vencimento DateTime
+  status     FinanceiroTituloStatus @default(aberto)
+  dataPagamento  DateTime?
+  formaPagamento String             @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contratoId, numero])
+  @@index([contratoId])
+  @@index([vencimento])
+  @@map("platform_contrato_parcelas")
 }
 
 /// Motivo de uma tentativa de login recusada (para auditoria).

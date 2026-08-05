@@ -38,6 +38,12 @@ export class CreateTenantDto {
   })
   slug!: string;
 
+  /** CPF (11) ou CNPJ (14), somente dígitos ou formatado. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  documento?: string;
+
   @IsOptional()
   @IsIn([UserStatus.ativo, UserStatus.inativo], {
     message: 'Status inválido.',

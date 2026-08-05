@@ -28,6 +28,12 @@ export class UpdateTenantDto {
   @MaxLength(120)
   name?: string;
 
+  /** CPF (11) ou CNPJ (14), somente dígitos ou formatado. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  documento?: string;
+
   @IsOptional()
   @IsIn(['ativo', 'inativo'], { message: 'Status inválido.' })
   status?: 'ativo' | 'inativo';

@@ -5,6 +5,7 @@ export const tenantBrandingSelect = {
   id: true,
   name: true,
   slug: true,
+  documento: true,
   logoUrl: true,
   primaryColor: true,
   sidebarStyle: true,
