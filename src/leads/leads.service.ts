@@ -1027,8 +1027,16 @@ export class LeadsService {
       where: {
         tenantId,
         status: UserStatus.ativo,
-        role: Role.corretor,
-        ...(ids !== null ? { id: { in: ids } } : {}),
+        OR: [
+          {
+            role: Role.corretor,
+            ...(ids !== null ? { id: { in: ids } } : {}),
+          },
+          // Admin pode ser dono da própria carteira / vendas.
+          ...(requester.role === Role.admin
+            ? [{ id: requester.id, role: Role.admin }]
+            : []),
+        ],
       },
       select: assigneeSelect,
       orderBy: { name: 'asc' },
@@ -1074,7 +1082,7 @@ export class LeadsService {
   /**
    * Resolve corretor + equipe para create/update.
    * - Corretor: sempre ele mesmo
-   * - Admin: equipe (gerente) e/ou corretor da equipe
+   * - Admin: equipe e/ou corretor da equipe; também pode atribuir a si (carteira própria)
    * - Gerente: corretor da equipe ou pool da própria equipe
    */
   private async resolveAssignment(
@@ -1159,13 +1167,21 @@ export class LeadsService {
         id: corretorId,
         tenantId,
         status: UserStatus.ativo,
-        role: Role.corretor,
+        role: { in: [Role.corretor, Role.admin] },
       },
     });
     if (count === 0) {
       throw new BadRequestException(
-        'Corretor informado não existe ou está inativo.',
+        'Responsável informado não existe ou está inativo.',
       );
+    }
+
+    // Admin atribuindo a si mesmo (carteira própria).
+    if (
+      requester.role === Role.admin &&
+      corretorId === requester.id
+    ) {
+      return;
     }
 
     const allowed = await this.teamScope.canAccessCorretor(

@@ -358,13 +358,21 @@ export class DocumentacaoService {
   /**
    * - Corretor: só fichas comerciais que criou
    * - Gerente: só fichas de análise da equipe (leitura)
-   * - Analista / Admin: só fichas de análise (autor analista ou admin)
+   * - Analista: só fichas de análise (autor analista ou admin)
+   * - Admin: fichas de análise + próprias fichas comerciais (carteira/vendas)
    */
   private async buildVisibilityWhere(
     requester: AuthenticatedUser,
   ): Promise<Prisma.DocumentacaoWhereInput> {
     switch (requester.role) {
       case Role.admin:
+        return {
+          OR: [
+            { autor: { role: { in: [Role.analista, Role.admin] } } },
+            { autorId: requester.id },
+            { corretorId: requester.id },
+          ],
+        };
       case Role.analista:
         return {
           autor: { role: { in: [Role.analista, Role.admin] } },
@@ -409,9 +417,13 @@ export class DocumentacaoService {
     autorId: string,
     autorRole: Role,
   ): boolean {
-    // Admin edita só fichas de análise (não comerciais).
+    // Admin: fichas de análise + as que ele próprio criou (vendas/carteira).
     if (requester.role === Role.admin) {
-      return autorRole === Role.analista || autorRole === Role.admin;
+      return (
+        autorId === requester.id ||
+        autorRole === Role.analista ||
+        autorRole === Role.admin
+      );
     }
     if (requester.role === Role.analista) {
       return autorId === requester.id || autorRole === Role.admin;
