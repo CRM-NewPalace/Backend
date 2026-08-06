@@ -56,16 +56,73 @@ export class CreatePropostaDto {
   corretorId?: string | null;
 
   @Transform(toOptionalInt)
-  @IsInt({ message: 'Valor inválido.' })
-  @Min(0, { message: 'Valor não pode ser negativo.' })
+  @IsInt({ message: 'Valor de venda inválido.' })
+  @Min(0, { message: 'Valor de venda não pode ser negativo.' })
   valor!: number;
+
+  /** Sinal (mesmo campo `entrada` no banco). */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Sinal inválido.' })
+  @Min(0)
+  entrada?: number | null;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @Transform(toOptionalInt)
-  @IsInt({ message: 'Entrada inválida.' })
+  @IsInt({ message: 'Apartado inválido.' })
   @Min(0)
-  entrada?: number | null;
+  apartado?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Pré-chaves inválido.' })
+  @Min(0)
+  preChaves?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Pós-chaves inválido.' })
+  @Min(0)
+  posChaves?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Intercaladas inválidas.' })
+  @Min(0)
+  intercaladas?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'FGTS inválido.' })
+  @Min(0)
+  fgts?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Mora Bem inválido.' })
+  @Min(0)
+  moraBem?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'MCMV inválido.' })
+  @Min(0)
+  mcmv?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Parcela Caixa inválida.' })
+  @Min(0)
+  parcelaCaixa?: number | null;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)

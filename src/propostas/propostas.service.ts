@@ -27,6 +27,14 @@ const propostaSelect = {
   autorId: true,
   valor: true,
   entrada: true,
+  apartado: true,
+  preChaves: true,
+  posChaves: true,
+  intercaladas: true,
+  fgts: true,
+  moraBem: true,
+  mcmv: true,
+  parcelaCaixa: true,
   financiamento: true,
   status: true,
   validade: true,
@@ -67,16 +75,7 @@ export class PropostasService {
     const tenantId = requireTenantId(requester);
     const where: Prisma.PropostaWhereInput = { tenantId };
 
-    if (requester.role === Role.corretor) {
-      where.OR = [
-        { corretorId: requester.id },
-        { autorId: requester.id },
-        { lead: { corretorId: requester.id } },
-      ];
-    } else if (
-      requester.role !== Role.admin &&
-      requester.role !== Role.analista
-    ) {
+    if (requester.role !== Role.admin) {
       const leadScope = await this.teamScope.leadScope(requester);
       const corretorIds = await this.allowedCorretorIds(requester);
       where.OR = [
@@ -86,7 +85,7 @@ export class PropostasService {
       ];
     }
 
-    if (query.corretorId && requester.role !== Role.corretor) {
+    if (query.corretorId) {
       const allowed = await this.teamScope.canAccessCorretor(
         requester,
         query.corretorId,
@@ -131,8 +130,6 @@ export class PropostasService {
       corretorId = corretorId || lead.corretorId;
       construtoraId = construtoraId || lead.construtoraId;
       empreendimentoId = empreendimentoId || lead.empreendimentoId;
-    } else if (requester.role === Role.corretor) {
-      corretorId = requester.id;
     }
 
     if (corretorId) {
@@ -162,6 +159,14 @@ export class PropostasService {
         autorId: requester.id,
         valor: dto.valor,
         entrada: dto.entrada ?? null,
+        apartado: dto.apartado ?? null,
+        preChaves: dto.preChaves ?? null,
+        posChaves: dto.posChaves ?? null,
+        intercaladas: dto.intercaladas ?? null,
+        fgts: dto.fgts ?? null,
+        moraBem: dto.moraBem ?? null,
+        mcmv: dto.mcmv ?? null,
+        parcelaCaixa: dto.parcelaCaixa ?? null,
         financiamento: dto.financiamento ?? null,
         status,
         validade: parseOptionalDate(dto.validade) ?? null,
@@ -205,6 +210,14 @@ export class PropostasService {
     if (dto.unidade !== undefined) data.unidade = dto.unidade?.trim() || null;
     if (dto.valor !== undefined) data.valor = dto.valor;
     if (dto.entrada !== undefined) data.entrada = dto.entrada;
+    if (dto.apartado !== undefined) data.apartado = dto.apartado;
+    if (dto.preChaves !== undefined) data.preChaves = dto.preChaves;
+    if (dto.posChaves !== undefined) data.posChaves = dto.posChaves;
+    if (dto.intercaladas !== undefined) data.intercaladas = dto.intercaladas;
+    if (dto.fgts !== undefined) data.fgts = dto.fgts;
+    if (dto.moraBem !== undefined) data.moraBem = dto.moraBem;
+    if (dto.mcmv !== undefined) data.mcmv = dto.mcmv;
+    if (dto.parcelaCaixa !== undefined) data.parcelaCaixa = dto.parcelaCaixa;
     if (dto.financiamento !== undefined) data.financiamento = dto.financiamento;
     if (dto.observacao !== undefined) {
       data.observacao = dto.observacao?.trim() || null;
@@ -276,15 +289,6 @@ export class PropostasService {
     if (!existing) throw new NotFoundException('Proposta não encontrada.');
     await this.ensureAccessible(existing, requester);
 
-    if (
-      requester.role === Role.corretor &&
-      existing.autorId !== requester.id
-    ) {
-      throw new ForbiddenException(
-        'Você só pode excluir propostas que criou.',
-      );
-    }
-
     await this.prisma.proposta.delete({ where: { id } });
     return { ok: true };
   }
@@ -310,19 +314,11 @@ export class PropostasService {
     item: { autorId: string; corretorId: string | null; leadId: string | null },
     requester: AuthenticatedUser,
   ) {
-    if (requester.role === Role.admin || requester.role === Role.analista) return;
-    if (requester.role === Role.corretor) {
-      if (
-        item.autorId === requester.id ||
-        item.corretorId === requester.id
-      ) {
-        return;
-      }
-      if (item.leadId) {
-        await this.ensureLeadAccessible(item.leadId, requester);
-        return;
-      }
-      throw new NotFoundException('Proposta não encontrada.');
+    if (requester.role === Role.admin) return;
+    if (requester.role !== Role.gerente) {
+      throw new ForbiddenException(
+        'Apenas administradores e gerentes podem acessar propostas.',
+      );
     }
     if (item.corretorId) {
       const allowed = await this.teamScope.canAccessCorretor(
@@ -336,7 +332,7 @@ export class PropostasService {
       await this.ensureLeadAccessible(item.leadId, requester);
       return;
     }
-    if (item.autorId !== requester.id && requester.role !== Role.gerente) {
+    if (item.autorId !== requester.id) {
       throw new NotFoundException('Proposta não encontrada.');
     }
   }

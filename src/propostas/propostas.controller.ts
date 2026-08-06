@@ -23,7 +23,7 @@ import { PropostasService } from './propostas.service';
 
 @Controller('propostas')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+@Roles(Role.admin, Role.gerente)
 export class PropostasController {
   constructor(private readonly propostasService: PropostasService) {}
 

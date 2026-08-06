@@ -635,8 +635,17 @@ model Proposta {
   autor   User   @relation("PropostaAutor", fields: [autorId], references: [id], onDelete: Cascade)
 
   /// Valores em reais (inteiros).
+  /// valor = valor de venda; entrada = sinal.
   valor          Int
   entrada        Int?
+  apartado       Int?
+  preChaves      Int?
+  posChaves      Int?
+  intercaladas   Int?
+  fgts           Int?
+  moraBem        Int?
+  mcmv           Int?
+  parcelaCaixa   Int?
   financiamento  Int?
 
   status    PropostaStatus @default(rascunho)
