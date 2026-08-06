@@ -1,17 +1,15 @@
 import {
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { requireTenantId, DEFAULT_TENANT_SLUG } from '../common/utils/tenant';
+import { requireTenantId } from '../common/utils/tenant';
 import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
 import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
 import { QueryEmpreendimentosDto } from './dto/query-empreendimentos.dto';
-import { fetchSiteEmpreendimentos } from './site-sync';
 import { normalizeCor } from '../common/utils/cor';
 
 const empreendimentoSelect = {
@@ -35,45 +33,19 @@ const empreendimentoSelect = {
 
 @Injectable()
 export class EmpreendimentosService {
-  private readonly logger = new Logger(EmpreendimentosService.name);
-  private imageSyncPromises = new Map<string, Promise<void>>();
-  /** Evita deleteMany repetido a cada listagem no mesmo processo. */
-  private purgedTenantIds = new Set<string>();
-
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: QueryEmpreendimentosDto, requester: AuthenticatedUser) {
+  list(query: QueryEmpreendimentosDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    await this.purgeForeignSiteCatalogIfNeeded(tenantId);
-
-    const where = {
-      tenantId,
-      ...(query.construtoraId ? { construtoraId: query.construtoraId } : {}),
-      ...(query.ativo !== undefined ? { ativo: query.ativo } : {}),
-    };
-
-    let items = await this.prisma.empreendimento.findMany({
-      where,
+    return this.prisma.empreendimento.findMany({
+      where: {
+        tenantId,
+        ...(query.construtoraId ? { construtoraId: query.construtoraId } : {}),
+        ...(query.ativo !== undefined ? { ativo: query.ativo } : {}),
+      },
       select: empreendimentoSelect,
       orderBy: { nome: 'asc' },
     });
-
-    // Capas: só para o tenant New Palace (único com sync de site).
-    if (
-      (await this.isSiteSyncTenant(tenantId)) &&
-      items.length > 0 &&
-      items.some((item) => !item.imagemUrl) &&
-      !query.construtoraId
-    ) {
-      await this.ensureCatalogImages(tenantId);
-      items = await this.prisma.empreendimento.findMany({
-        where,
-        select: empreendimentoSelect,
-        orderBy: { nome: 'asc' },
-      });
-    }
-
-    return items;
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
@@ -124,7 +96,7 @@ export class EmpreendimentosService {
     dto: UpdateEmpreendimentoDto,
     requester: AuthenticatedUser,
   ) {
-    this.assertAdmin(requester);
+    this.assertAdminOrManager(requester);
     await this.findOne(id, requester);
     return this.prisma.empreendimento.update({
       where: { id },
@@ -159,139 +131,10 @@ export class EmpreendimentosService {
     return { ok: true };
   }
 
-  async syncFromSite(requester: AuthenticatedUser) {
-    this.assertAdmin(requester);
-    const tenantId = requireTenantId(requester);
-    if (!(await this.isSiteSyncTenant(tenantId))) {
-      throw new ForbiddenException(
-        'Sincronização com o site está disponível apenas para o tenant New Palace. Cadastre os imóveis manualmente.',
-      );
-    }
-    return this.runSync(tenantId);
-  }
-
-  /**
-   * Remove catálogo importado do site New Palace em tenants que não são a New Palace.
-   * Itens criados manualmente (externalKey manual-*) são preservados.
-   */
-  private async purgeForeignSiteCatalogIfNeeded(tenantId: string) {
-    if (await this.isSiteSyncTenant(tenantId)) return;
-    if (this.purgedTenantIds.has(tenantId)) return;
-
-    const result = await this.prisma.empreendimento.deleteMany({
-      where: {
-        tenantId,
-        NOT: { externalKey: { startsWith: 'manual-' } },
-      },
-    });
-    this.purgedTenantIds.add(tenantId);
-    if (result.count > 0) {
-      this.logger.log(
-        `Removidos ${result.count} imóveis importados do site New Palace do tenant ${tenantId}.`,
-      );
-    }
-  }
-
-  private async isSiteSyncTenant(tenantId: string): Promise<boolean> {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { slug: true },
-    });
-    return tenant?.slug === DEFAULT_TENANT_SLUG;
-  }
-
-  /** Completa uma única vez as capas do catálogo importado antes da migration. */
-  private async ensureCatalogImages(tenantId: string) {
-    let promise = this.imageSyncPromises.get(tenantId);
-    if (!promise) {
-      promise = this.runSync(tenantId)
-        .then((result) => {
-          this.logger.log(
-            `Capas do catálogo atualizadas: ${result.updated + result.created} empreendimentos.`,
-          );
-        })
-        .catch((err) => {
-          this.logger.error(
-            `Falha ao buscar capas dos empreendimentos: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        })
-        .finally(() => {
-          this.imageSyncPromises.delete(tenantId);
-        });
-      this.imageSyncPromises.set(tenantId, promise);
-    }
-    await promise;
-  }
-
-  private async runSync(tenantId: string) {
-    const { items, source, detail } = await fetchSiteEmpreendimentos();
-    if (detail) {
-      this.logger.warn(detail);
-    }
-
-    let created = 0;
-    let updated = 0;
-
-    for (const item of items) {
-      const existing = await this.prisma.empreendimento.findUnique({
-        where: {
-          tenantId_externalKey: { tenantId, externalKey: item.externalKey },
-        },
-        select: { id: true },
-      });
-
-      if (existing) {
-        await this.prisma.empreendimento.update({
-          where: { id: existing.id },
-          data: {
-            nome: item.nome,
-            cidade: item.cidade,
-            endereco: item.endereco,
-            quartos: item.quartos,
-            banheiros: item.banheiros,
-            areaM2: item.areaM2,
-            externalUrl: item.externalUrl,
-            imagemUrl: item.imagemUrl,
-            ativo: true,
-          },
-        });
-        updated += 1;
-      } else {
-        await this.prisma.empreendimento.create({
-          data: {
-            tenantId,
-            nome: item.nome,
-            cidade: item.cidade,
-            endereco: item.endereco,
-            quartos: item.quartos,
-            banheiros: item.banheiros,
-            areaM2: item.areaM2,
-            externalUrl: item.externalUrl,
-            imagemUrl: item.imagemUrl,
-            externalKey: item.externalKey,
-            ativo: true,
-          },
-        });
-        created += 1;
-      }
-    }
-
-    return {
-      ok: true,
-      source,
-      detail: detail ?? null,
-      total: items.length,
-      created,
-      updated,
-    };
-  }
-
   private assertAdmin(requester: AuthenticatedUser) {
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
-        'Apenas administradores podem alterar empreendimentos.',
+        'Apenas administradores podem remover empreendimentos.',
       );
     }
   }
@@ -299,7 +142,7 @@ export class EmpreendimentosService {
   private assertAdminOrManager(requester: AuthenticatedUser) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
-        'Apenas administradores e gerentes podem cadastrar empreendimentos.',
+        'Apenas administradores e gerentes podem cadastrar ou editar empreendimentos.',
       );
     }
   }

@@ -495,7 +495,7 @@ model Construtora {
   @@map("construtoras")
 }
 
-/// Empreendimento / imóvel (sync do site New Palace + vínculo opcional à construtora).
+/// Empreendimento / imóvel (cadastro manual + vínculo opcional à construtora).
 model Empreendimento {
   id            String  @id @default(uuid())
   tenantId      String
@@ -512,9 +512,8 @@ model Empreendimento {
   banheiros   Int?
   areaM2      Float?
   externalUrl String?
-  /// Imagem principal extraída da página pública do empreendimento.
   imagemUrl   String?
-  /// Chave estável para upsert no sync (slug/URL/nome normalizado).
+  /// Chave estável interna (ex.: manual-slug-timestamp).
   externalKey String
   ativo       Boolean @default(true)
 

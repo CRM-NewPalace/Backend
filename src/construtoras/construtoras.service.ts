@@ -53,7 +53,7 @@ export class ConstrutorasService {
   }
 
   create(dto: CreateConstrutoraDto, requester: AuthenticatedUser) {
-    this.assertAdmin(requester);
+    this.assertAdminOrManager(requester);
     const tenantId = requireTenantId(requester);
     return this.prisma.construtora.create({
       data: {
@@ -108,7 +108,15 @@ export class ConstrutorasService {
   private assertAdmin(requester: AuthenticatedUser) {
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
-        'Apenas administradores podem cadastrar ou editar construtoras.',
+        'Apenas administradores podem editar ou remover construtoras.',
+      );
+    }
+  }
+
+  private assertAdminOrManager(requester: AuthenticatedUser) {
+    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+      throw new ForbiddenException(
+        'Apenas administradores e gerentes podem cadastrar construtoras.',
       );
     }
   }

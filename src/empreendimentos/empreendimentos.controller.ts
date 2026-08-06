@@ -36,12 +36,6 @@ export class EmpreendimentosController {
     return this.empreendimentosService.list(query, requester);
   }
 
-  @Post('sync')
-  @Roles(Role.admin)
-  sync(@CurrentUser() requester: AuthenticatedUser) {
-    return this.empreendimentosService.syncFromSite(requester);
-  }
-
   @Get(':id')
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
   findOne(
@@ -61,7 +55,7 @@ export class EmpreendimentosController {
   }
 
   @Patch(':id')
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.gerente)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateEmpreendimentoDto,

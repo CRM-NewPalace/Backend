@@ -39,7 +39,7 @@ export class ConstrutorasController {
   }
 
   @Post()
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.gerente)
   create(
     @Body() dto: CreateConstrutoraDto,
     @CurrentUser() requester: AuthenticatedUser,
