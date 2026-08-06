@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
   IsInt,
   IsOptional,
@@ -83,4 +84,30 @@ export class UpdateDocumentacaoDto {
   @IsString()
   @MaxLength(2000)
   obs?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  temEntrada?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Valor de entrada inválido.' })
+  @Min(0, { message: 'Valor de entrada não pode ser negativo.' })
+  valorEntrada?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  temFgts?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Valor de FGTS inválido.' })
+  @Min(0, { message: 'Valor de FGTS não pode ser negativo.' })
+  valorFgts?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  temDependente?: boolean;
 }

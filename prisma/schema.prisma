@@ -574,6 +574,12 @@ model Documentacao {
   vgv Int?
   obs String?
 
+  temEntrada    Boolean @default(false)
+  valorEntrada  Int?
+  temFgts       Boolean @default(false)
+  valorFgts     Int?
+  temDependente Boolean @default(false)
+
   comissao FinanceiroComissao?
 
   createdAt DateTime @default(now())

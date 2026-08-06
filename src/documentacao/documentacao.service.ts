@@ -38,6 +38,11 @@ const docSelect = {
   dataVenda: true,
   vgv: true,
   obs: true,
+  temEntrada: true,
+  valorEntrada: true,
+  temFgts: true,
+  valorFgts: true,
+  temDependente: true,
   createdAt: true,
   updatedAt: true,
   autor: userMini,
@@ -167,6 +172,11 @@ export class DocumentacaoService {
         dataVenda: parseOptionalDate(dto.dataVenda) ?? null,
         vgv: dto.vgv ?? null,
         obs: dto.obs?.trim() || null,
+        temEntrada: dto.temEntrada ?? false,
+        valorEntrada: dto.temEntrada ? (dto.valorEntrada ?? null) : null,
+        temFgts: dto.temFgts ?? false,
+        valorFgts: dto.temFgts ? (dto.valorFgts ?? null) : null,
+        temDependente: dto.temDependente ?? false,
       },
       select: docSelect,
     });
@@ -263,6 +273,21 @@ export class DocumentacaoService {
     }
     if (dto.vgv !== undefined) data.vgv = dto.vgv;
     if (dto.obs !== undefined) data.obs = dto.obs?.trim() || null;
+    if (dto.temEntrada !== undefined) {
+      data.temEntrada = dto.temEntrada;
+      if (!dto.temEntrada) data.valorEntrada = null;
+    }
+    if (dto.valorEntrada !== undefined && dto.temEntrada !== false) {
+      data.valorEntrada = dto.valorEntrada;
+    }
+    if (dto.temFgts !== undefined) {
+      data.temFgts = dto.temFgts;
+      if (!dto.temFgts) data.valorFgts = null;
+    }
+    if (dto.valorFgts !== undefined && dto.temFgts !== false) {
+      data.valorFgts = dto.valorFgts;
+    }
+    if (dto.temDependente !== undefined) data.temDependente = dto.temDependente;
 
     const updated = await this.prisma.documentacao.update({
       where: { id },
