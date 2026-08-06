@@ -8,6 +8,7 @@ import {
   FinanceiroComissaoStatus,
   FinanceiroDespesaNatureza,
   FinanceiroMovimentoTipo,
+  FinanceiroParceiroTipo,
   FinanceiroTituloStatus,
   FinanceiroTituloTipo,
   Prisma,
@@ -177,9 +178,22 @@ export class FinanceiroService {
   listParceiros(requester: AuthenticatedUser) {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
+    const fornecedorOnly = requester.role === Role.super_admin;
     return Promise.all([
       this.prisma.financeiroParceiro.findMany({
-        where: { tenantId },
+        where: {
+          tenantId,
+          ...(fornecedorOnly
+            ? {
+                tipo: {
+                  in: [
+                    FinanceiroParceiroTipo.fornecedor,
+                    FinanceiroParceiroTipo.ambos,
+                  ],
+                },
+              }
+            : {}),
+        },
         orderBy: { nome: 'asc' },
       }),
       this.prisma.financeiroMovimento.findMany({
@@ -209,12 +223,16 @@ export class FinanceiroService {
   async createParceiro(dto: CreateParceiroDto, requester: AuthenticatedUser) {
     this.assertWrite(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
+    const tipo =
+      requester.role === Role.super_admin
+        ? FinanceiroParceiroTipo.fornecedor
+        : dto.tipo;
     const row = await this.prisma.financeiroParceiro.create({
       data: {
         tenantId,
         nome: dto.nome.trim(),
         documento: dto.documento.trim(),
-        tipo: dto.tipo,
+        tipo,
         email: dto.email?.trim() || null,
         telefone: dto.telefone?.trim() || null,
         cidade: dto.cidade?.trim() || null,
@@ -234,6 +252,10 @@ export class FinanceiroService {
     this.assertWrite(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.findParceiroOrFail(id, requester);
+    const tipoOverride =
+      requester.role === Role.super_admin
+        ? FinanceiroParceiroTipo.fornecedor
+        : dto.tipo;
     const row = await this.prisma.financeiroParceiro.update({
       where: { id },
       data: {
@@ -241,7 +263,7 @@ export class FinanceiroService {
         ...(dto.documento !== undefined
           ? { documento: dto.documento.trim() }
           : {}),
-        ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
+        ...(tipoOverride !== undefined ? { tipo: tipoOverride } : {}),
         ...(dto.email !== undefined
           ? { email: dto.email?.trim() || null }
           : {}),
