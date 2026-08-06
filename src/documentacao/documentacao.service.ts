@@ -357,7 +357,7 @@ export class DocumentacaoService {
 
   /**
    * - Corretor: só fichas comerciais que criou
-   * - Gerente: comerciais da equipe (leitura) + análise da equipe (leitura) + próprias
+   * - Gerente: só fichas de análise da equipe (leitura)
    * - Analista / Admin: só fichas de análise (autor analista ou admin)
    */
   private async buildVisibilityWhere(
@@ -376,22 +376,11 @@ export class DocumentacaoService {
           (await this.teamScope.getVisibleCorretorIds(requester)) ?? [];
         const teamActorIds = [...new Set([...teamCorretorIds, requester.id])];
         return {
+          autor: { role: { in: [Role.analista, Role.admin] } },
           OR: [
-            {
-              autor: { role: { in: [Role.corretor, Role.gerente] } },
-              OR: [
-                { autorId: { in: teamActorIds } },
-                { corretorId: { in: teamCorretorIds } },
-              ],
-            },
-            {
-              autor: { role: { in: [Role.analista, Role.admin] } },
-              OR: [
-                { corretorId: { in: teamActorIds } },
-                { gerenteId: requester.id },
-                { lead: { corretorId: { in: teamActorIds } } },
-              ],
-            },
+            { corretorId: { in: teamActorIds } },
+            { gerenteId: requester.id },
+            { lead: { corretorId: { in: teamActorIds } } },
           ],
         };
       }
@@ -427,12 +416,12 @@ export class DocumentacaoService {
     if (requester.role === Role.analista) {
       return autorId === requester.id || autorRole === Role.admin;
     }
-    // Corretor e gerente: só as próprias; gerente não edita as da equipe/analista.
-    if (
-      requester.role === Role.corretor ||
-      requester.role === Role.gerente
-    ) {
+    // Corretor: só as próprias. Gerente só visualiza fichas de análise.
+    if (requester.role === Role.corretor) {
       return autorId === requester.id;
+    }
+    if (requester.role === Role.gerente) {
+      return false;
     }
     return false;
   }
