@@ -1,10 +1,20 @@
 import {
   IsBoolean,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  Min,
+  ValidateIf,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+function toOptionalInt({ value }: { value: unknown }) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return Number(value);
+}
 
 /**
  * Movimenta o lead entre as etapas do funil.
@@ -32,4 +42,31 @@ export class UpdateLeadStageDto {
   @IsOptional()
   @IsBoolean()
   omitTriagem?: boolean;
+
+  /** Condições do cliente capturadas no envio para análise (vão para a ficha Analise). */
+  @IsOptional()
+  @IsBoolean()
+  temEntrada?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt()
+  @Min(0)
+  valorEntrada?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  temFgts?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt()
+  @Min(0)
+  valorFgts?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  temDependente?: boolean;
 }

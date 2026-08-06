@@ -204,18 +204,36 @@ export class AnaliseService {
     if (
       statusChanged &&
       (newStatus === AnaliseStatus.aprovado ||
-        newStatus === AnaliseStatus.reprovado) &&
-      existing.lead.corretorId &&
-      existing.lead.corretorId !== requester.id
+        newStatus === AnaliseStatus.reprovado)
     ) {
-      await this.notificacoes.createAnaliseResultado({
-        userId: existing.lead.corretorId,
-        leadId: existing.leadId,
-        analiseId: updated.id,
-        nomeProcesso: updated.nome,
-        status: newStatus,
-        parecer: updated.parecer,
-      });
+      const notifyIds = new Set<string>();
+      if (
+        existing.lead.corretorId &&
+        existing.lead.corretorId !== requester.id
+      ) {
+        notifyIds.add(existing.lead.corretorId);
+      }
+      if (existing.lead.corretorId) {
+        const gerenteId = await this.resolveGerenteOfCorretor(
+          existing.lead.corretorId,
+          requireTenantId(requester),
+        );
+        if (gerenteId && gerenteId !== requester.id) {
+          notifyIds.add(gerenteId);
+        }
+      }
+      await Promise.all(
+        [...notifyIds].map((userId) =>
+          this.notificacoes.createAnaliseResultado({
+            userId,
+            leadId: existing.leadId,
+            analiseId: updated.id,
+            nomeProcesso: updated.nome,
+            status: newStatus,
+            parecer: updated.parecer,
+          }),
+        ),
+      );
     }
 
     return updated;
@@ -225,7 +243,18 @@ export class AnaliseService {
    * Cria a ficha de análise ao entrar na etapa com papel análise (idempotente).
    * Usa snapshot do lead + última documentação, se houver.
    */
-  async ensureForLead(leadId: string, autorId: string, tenantId: string) {
+  async ensureForLead(
+    leadId: string,
+    autorId: string,
+    tenantId: string,
+    finance?: {
+      temEntrada?: boolean;
+      valorEntrada?: number | null;
+      temFgts?: boolean;
+      valorFgts?: number | null;
+      temDependente?: boolean;
+    },
+  ) {
     const existing = await this.prisma.analise.findUnique({
       where: { leadId },
       select: { id: true },
@@ -269,6 +298,10 @@ export class AnaliseService {
     }
 
     const doc = lead.documentacoes[0];
+    const temEntrada = finance?.temEntrada ?? doc?.temEntrada ?? false;
+    const temFgts = finance?.temFgts ?? doc?.temFgts ?? false;
+    const temDependente =
+      finance?.temDependente ?? doc?.temDependente ?? false;
 
     try {
       return await this.prisma.analise.create({
@@ -288,11 +321,15 @@ export class AnaliseService {
           prioridade: lead.prioridade,
           renda: lead.renda ?? null,
           tags: lead.tags ?? [],
-          temFgts: doc?.temFgts ?? false,
-          valorFgts: doc?.temFgts ? (doc.valorFgts ?? null) : null,
-          temEntrada: doc?.temEntrada ?? false,
-          valorEntrada: doc?.temEntrada ? (doc.valorEntrada ?? null) : null,
-          temDependente: doc?.temDependente ?? false,
+          temFgts,
+          valorFgts: temFgts
+            ? (finance?.valorFgts ?? doc?.valorFgts ?? null)
+            : null,
+          temEntrada,
+          valorEntrada: temEntrada
+            ? (finance?.valorEntrada ?? doc?.valorEntrada ?? null)
+            : null,
+          temDependente,
           status: AnaliseStatus.pendente,
         },
         select: { id: true },
@@ -368,5 +405,16 @@ export class AnaliseService {
     }
 
     return lead;
+  }
+
+  private async resolveGerenteOfCorretor(
+    corretorId: string,
+    tenantId: string,
+  ): Promise<string | null> {
+    const corretor = await this.prisma.user.findFirst({
+      where: { id: corretorId, tenantId },
+      select: { equipe: { select: { gerenteId: true } } },
+    });
+    return corretor?.equipe?.gerenteId ?? null;
   }
 }

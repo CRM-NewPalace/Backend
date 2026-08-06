@@ -85,29 +85,26 @@ export class DocumentacaoService {
 
   async list(query: QueryDocumentacaoDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    const autorVisibility = this.buildAutorVisibility(requester);
+    const visibility = await this.buildVisibilityWhere(requester);
 
-    const leadFilter: Prisma.LeadWhereInput = {
-      perdidoAt: null,
-    };
+    const andFilters: Prisma.DocumentacaoWhereInput[] = [
+      visibility,
+      { lead: { perdidoAt: null } },
+    ];
 
-    // Admin mantém filtro por corretor/equipe; demais perfis já filtram por autor.
-    if (requester.role === Role.admin) {
-      Object.assign(leadFilter, await this.teamScope.leadScope(requester));
-      if (query.corretorId) {
-        const allowed = await this.teamScope.canAccessCorretor(
-          requester,
-          query.corretorId,
-        );
-        if (!allowed) return [];
-        leadFilter.corretorId = query.corretorId;
-      }
+    if (query.corretorId && requester.role === Role.admin) {
+      andFilters.push({
+        OR: [
+          { corretorId: query.corretorId },
+          { lead: { corretorId: query.corretorId } },
+        ],
+      });
     }
 
     const docs = await this.prisma.documentacao.findMany({
       where: {
         tenantId,
-        AND: [autorVisibility, { lead: leadFilter }],
+        AND: andFilters,
       },
       select: docSelect,
       orderBy: { createdAt: 'desc' },
@@ -132,15 +129,12 @@ export class DocumentacaoService {
 
   async findOne(id: string, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
+    await this.assertCanView(id, tenantId, requester);
     const doc = await this.prisma.documentacao.findFirst({
       where: { id, tenantId },
       select: docSelect,
     });
     if (!doc) {
-      throw new NotFoundException('Documentação não encontrada.');
-    }
-
-    if (!this.canViewDocumentacao(requester, doc.autor.id, doc.autor.role)) {
       throw new NotFoundException('Documentação não encontrada.');
     }
     return doc;
@@ -221,15 +215,7 @@ export class DocumentacaoService {
       throw new NotFoundException('Documentação não encontrada.');
     }
 
-    if (
-      !this.canViewDocumentacao(
-        requester,
-        existing.autor.id,
-        existing.autor.role,
-      )
-    ) {
-      throw new NotFoundException('Documentação não encontrada.');
-    }
+    await this.assertCanView(id, tenantId, requester);
     if (
       !this.canMutateDocumentacao(
         requester,
@@ -352,15 +338,7 @@ export class DocumentacaoService {
       throw new NotFoundException('Documentação não encontrada.');
     }
 
-    if (
-      !this.canViewDocumentacao(
-        requester,
-        existing.autor.id,
-        existing.autor.role,
-      )
-    ) {
-      throw new NotFoundException('Documentação não encontrada.');
-    }
+    await this.assertCanView(id, tenantId, requester);
     if (
       !this.canMutateDocumentacao(
         requester,
@@ -378,57 +356,63 @@ export class DocumentacaoService {
   }
 
   /**
-   * Visibilidade por autor:
-   * - corretor: só as que criou
-   * - gerente: as próprias + as de analista/admin (somente leitura nas de terceiros)
-   * - analista: as próprias + as do admin
-   * - admin: todas
+   * - Corretor: só fichas comerciais que criou
+   * - Gerente: comerciais da equipe (leitura) + análise da equipe (leitura) + próprias
+   * - Analista / Admin: só fichas de análise (autor analista ou admin)
    */
-  private buildAutorVisibility(
+  private async buildVisibilityWhere(
     requester: AuthenticatedUser,
-  ): Prisma.DocumentacaoWhereInput {
+  ): Promise<Prisma.DocumentacaoWhereInput> {
     switch (requester.role) {
       case Role.admin:
-        return {};
-      case Role.corretor:
-        return { autorId: requester.id };
       case Role.analista:
         return {
-          OR: [
-            { autorId: requester.id },
-            { autor: { role: Role.admin } },
-          ],
+          autor: { role: { in: [Role.analista, Role.admin] } },
         };
-      case Role.gerente:
+      case Role.corretor:
+        return { autorId: requester.id };
+      case Role.gerente: {
+        const teamCorretorIds =
+          (await this.teamScope.getVisibleCorretorIds(requester)) ?? [];
+        const teamActorIds = [...new Set([...teamCorretorIds, requester.id])];
         return {
           OR: [
-            { autorId: requester.id },
-            { autor: { role: { in: [Role.analista, Role.admin] } } },
+            {
+              autor: { role: { in: [Role.corretor, Role.gerente] } },
+              OR: [
+                { autorId: { in: teamActorIds } },
+                { corretorId: { in: teamCorretorIds } },
+              ],
+            },
+            {
+              autor: { role: { in: [Role.analista, Role.admin] } },
+              OR: [
+                { corretorId: { in: teamActorIds } },
+                { gerenteId: requester.id },
+                { lead: { corretorId: { in: teamActorIds } } },
+              ],
+            },
           ],
         };
+      }
       default:
         return { autorId: requester.id };
     }
   }
 
-  private canViewDocumentacao(
+  private async assertCanView(
+    id: string,
+    tenantId: string,
     requester: AuthenticatedUser,
-    autorId: string,
-    autorRole: Role,
-  ): boolean {
-    if (requester.role === Role.admin) return true;
-    if (requester.role === Role.corretor) return autorId === requester.id;
-    if (requester.role === Role.analista) {
-      return autorId === requester.id || autorRole === Role.admin;
+  ) {
+    const visibility = await this.buildVisibilityWhere(requester);
+    const found = await this.prisma.documentacao.findFirst({
+      where: { id, tenantId, AND: [visibility] },
+      select: { id: true },
+    });
+    if (!found) {
+      throw new NotFoundException('Documentação não encontrada.');
     }
-    if (requester.role === Role.gerente) {
-      return (
-        autorId === requester.id ||
-        autorRole === Role.analista ||
-        autorRole === Role.admin
-      );
-    }
-    return false;
   }
 
   private canMutateDocumentacao(
@@ -436,11 +420,19 @@ export class DocumentacaoService {
     autorId: string,
     autorRole: Role,
   ): boolean {
-    if (requester.role === Role.admin) return true;
-    if (requester.role === Role.corretor) return autorId === requester.id;
-    if (requester.role === Role.gerente) return autorId === requester.id;
+    // Admin edita só fichas de análise (não comerciais).
+    if (requester.role === Role.admin) {
+      return autorRole === Role.analista || autorRole === Role.admin;
+    }
     if (requester.role === Role.analista) {
       return autorId === requester.id || autorRole === Role.admin;
+    }
+    // Corretor e gerente: só as próprias; gerente não edita as da equipe/analista.
+    if (
+      requester.role === Role.corretor ||
+      requester.role === Role.gerente
+    ) {
+      return autorId === requester.id;
     }
     return false;
   }

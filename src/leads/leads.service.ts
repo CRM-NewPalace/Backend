@@ -772,6 +772,11 @@ export class LeadsService {
       construtoraId?: string;
       empreendimentoId?: string;
       omitTriagem?: boolean;
+      temEntrada?: boolean;
+      valorEntrada?: number | null;
+      temFgts?: boolean;
+      valorFgts?: number | null;
+      temDependente?: boolean;
     },
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
@@ -842,7 +847,13 @@ export class LeadsService {
     }
 
     if (isAnalise) {
-      await this.analiseService.ensureForLead(id, requester.id, tenantId);
+      await this.analiseService.ensureForLead(id, requester.id, tenantId, {
+        temEntrada: dto.temEntrada,
+        valorEntrada: dto.valorEntrada,
+        temFgts: dto.temFgts,
+        valorFgts: dto.valorFgts,
+        temDependente: dto.temDependente,
+      });
     }
 
     return lead;
