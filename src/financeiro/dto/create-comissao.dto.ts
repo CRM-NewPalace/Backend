@@ -1,52 +1,43 @@
-import {
-  IsDateString,
-  IsEnum,
-  IsNumber,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsNumber, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { FinanceiroComissaoStatus } from '@prisma/client';
 
 export class CreateComissaoDto {
-  @IsString()
-  @MinLength(2)
-  @MaxLength(120)
-  corretor!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  equipe?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(160)
-  empreendimento?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(160)
-  cliente?: string;
-
-  @IsDateString({}, { message: 'Data de venda inválida.' })
-  dataVenda!: string;
+  @IsUUID()
+  documentacaoId!: string;
 
   @Type(() => Number)
-  @IsNumber({}, { message: 'VGV inválido.' })
-  vgv!: number;
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  percentualImobiliaria!: number;
 
   @Type(() => Number)
-  @IsNumber({}, { message: 'Percentual inválido.' })
-  percentual!: number;
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  percentualTributos!: number;
 
   @Type(() => Number)
-  @IsNumber({}, { message: 'Valor inválido.' })
-  valor!: number;
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  percentualCorretor!: number;
 
-  @IsOptional()
-  @IsEnum(FinanceiroComissaoStatus)
-  status?: FinanceiroComissaoStatus;
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  percentualGerente!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  percentualCaixa!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  percentualSocios!: number;
 }

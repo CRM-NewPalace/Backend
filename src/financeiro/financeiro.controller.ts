@@ -33,6 +33,7 @@ import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
+import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { FinanceiroService } from './financeiro.service';
 
 @Controller('financeiro')
@@ -160,11 +161,7 @@ export class FinanceiroController {
     @Query('tipo') tipo?: FinanceiroTituloTipo,
     @Query('grupoParcelasId') grupoParcelasId?: string,
   ) {
-    return this.financeiroService.listTitulos(
-      requester,
-      tipo,
-      grupoParcelasId,
-    );
+    return this.financeiroService.listTitulos(requester, tipo, grupoParcelasId);
   }
 
   @Post('titulos')
@@ -216,19 +213,44 @@ export class FinanceiroController {
 
   // ─── Comissões ───────────────────────────────────────────────
 
+  @Get('comissoes/vendas-elegiveis')
+  @Roles(Role.admin, Role.super_admin)
+  listVendasElegiveis(@CurrentUser() requester: AuthenticatedUser) {
+    return this.financeiroService.listVendasElegiveis(requester);
+  }
+
   @Get('comissoes')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.super_admin)
   listComissoes(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.listComissoes(requester);
   }
 
   @Post('comissoes')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin)
   createComissao(
     @Body() dto: CreateComissaoDto,
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.createComissao(dto, requester);
+  }
+
+  @Patch('comissoes/:id')
+  @Roles(Role.admin, Role.super_admin)
+  updateComissao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateComissaoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.updateComissao(id, dto, requester);
+  }
+
+  @Delete('comissoes/:id')
+  @Roles(Role.admin, Role.super_admin)
+  removeComissao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.removeComissao(id, requester);
   }
 
   // ─── Centro de despesas ──────────────────────────────────────
