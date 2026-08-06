@@ -1,5 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
@@ -17,6 +19,16 @@ function toOptionalInt({ value }: { value: unknown }) {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
   return Number(value);
+}
+
+function toIntArray({ value }: { value: unknown }) {
+  if (value === undefined) return undefined;
+  if (value === null) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  return raw
+    .map((item) => Number(item))
+    .filter((n) => Number.isFinite(n) && n >= 0)
+    .map((n) => Math.trunc(n));
 }
 
 export class CreatePropostaDto {
@@ -76,25 +88,28 @@ export class CreatePropostaDto {
   apartado?: number | null;
 
   @IsOptional()
-  @ValidateIf((_, v) => v !== null && v !== undefined)
-  @Transform(toOptionalInt)
-  @IsInt({ message: 'Pré-chaves inválido.' })
-  @Min(0)
-  preChaves?: number | null;
+  @Transform(toIntArray)
+  @IsArray({ message: 'Pré-chaves deve ser uma lista.' })
+  @ArrayMaxSize(40)
+  @IsInt({ each: true, message: 'Pré-chaves inválido.' })
+  @Min(0, { each: true })
+  preChaves?: number[];
 
   @IsOptional()
-  @ValidateIf((_, v) => v !== null && v !== undefined)
-  @Transform(toOptionalInt)
-  @IsInt({ message: 'Pós-chaves inválido.' })
-  @Min(0)
-  posChaves?: number | null;
+  @Transform(toIntArray)
+  @IsArray({ message: 'Pós-chaves deve ser uma lista.' })
+  @ArrayMaxSize(40)
+  @IsInt({ each: true, message: 'Pós-chaves inválido.' })
+  @Min(0, { each: true })
+  posChaves?: number[];
 
   @IsOptional()
-  @ValidateIf((_, v) => v !== null && v !== undefined)
-  @Transform(toOptionalInt)
-  @IsInt({ message: 'Intercaladas inválidas.' })
-  @Min(0)
-  intercaladas?: number | null;
+  @Transform(toIntArray)
+  @IsArray({ message: 'Intercaladas deve ser uma lista.' })
+  @ArrayMaxSize(40)
+  @IsInt({ each: true, message: 'Intercaladas inválidas.' })
+  @Min(0, { each: true })
+  intercaladas?: number[];
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)

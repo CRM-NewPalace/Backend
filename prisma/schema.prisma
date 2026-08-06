@@ -639,9 +639,12 @@ model Proposta {
   valor          Int
   entrada        Int?
   apartado       Int?
-  preChaves      Int?
-  posChaves      Int?
-  intercaladas   Int?
+  /// Parcelas pré-chaves (vários valores).
+  preChaves      Int[] @default([])
+  /// Parcelas pós-chaves (vários valores).
+  posChaves      Int[] @default([])
+  /// Parcelas intercaladas (vários valores).
+  intercaladas   Int[] @default([])
   fgts           Int?
   moraBem        Int?
   mcmv           Int?
