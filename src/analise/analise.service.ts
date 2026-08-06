@@ -10,6 +10,7 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { FunisService } from '../funis/funis.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
+import { canonicalizeStatus1 } from '../common/utils/documentacao-status';
 import { QueryAnaliseDto, UpdateAnaliseDto } from './dto/analise.dto';
 
 const analiseSelect = {
@@ -206,6 +207,13 @@ export class AnaliseService {
       (newStatus === AnaliseStatus.aprovado ||
         newStatus === AnaliseStatus.reprovado)
     ) {
+      await this.syncDocumentacaoFromAnalise(
+        tenantId,
+        existing.leadId,
+        newStatus,
+        dto.vgv,
+      );
+
       const notifyIds = new Set<string>();
       if (
         existing.lead.corretorId &&
@@ -216,7 +224,7 @@ export class AnaliseService {
       if (existing.lead.corretorId) {
         const gerenteId = await this.resolveGerenteOfCorretor(
           existing.lead.corretorId,
-          requireTenantId(requester),
+          tenantId,
         );
         if (gerenteId && gerenteId !== requester.id) {
           notifyIds.add(gerenteId);
@@ -237,6 +245,37 @@ export class AnaliseService {
     }
 
     return updated;
+  }
+
+  /**
+   * Espelha o parecer da análise no Status 1 (e VGV, se aprovado)
+   * das fichas de documentação (autor analista/admin) do mesmo lead.
+   */
+  private async syncDocumentacaoFromAnalise(
+    tenantId: string,
+    leadId: string,
+    analiseStatus: typeof AnaliseStatus.aprovado | typeof AnaliseStatus.reprovado,
+    vgv?: number | null,
+  ) {
+    const status1 = canonicalizeStatus1(
+      analiseStatus === AnaliseStatus.aprovado ? 'Aprovado' : 'Reprovado',
+    );
+
+    await this.prisma.documentacao.updateMany({
+      where: {
+        tenantId,
+        leadId,
+        autor: { role: { in: [Role.analista, Role.admin] } },
+      },
+      data: {
+        status1,
+        ...(analiseStatus === AnaliseStatus.aprovado &&
+        vgv !== undefined &&
+        vgv !== null
+          ? { vgv }
+          : {}),
+      },
+    });
   }
 
   /**
