@@ -356,7 +356,19 @@ export class MetasService {
       const segunda = dia - ((dataBrasil.getUTCDay() + 6) % 7);
       inicioLocal = new Date(Date.UTC(ano, mes, segunda));
       fimLocal = new Date(Date.UTC(ano, mes, segunda + 7));
+    } else if (periodo === MetaPeriodo.trimestral) {
+      const mesInicioTrimestre = Math.floor(mes / 3) * 3;
+      inicioLocal = new Date(Date.UTC(ano, mesInicioTrimestre, 1));
+      fimLocal = new Date(Date.UTC(ano, mesInicioTrimestre + 3, 1));
+    } else if (periodo === MetaPeriodo.semestral) {
+      const mesInicioSemestre = mes < 6 ? 0 : 6;
+      inicioLocal = new Date(Date.UTC(ano, mesInicioSemestre, 1));
+      fimLocal = new Date(Date.UTC(ano, mesInicioSemestre + 6, 1));
+    } else if (periodo === MetaPeriodo.anual) {
+      inicioLocal = new Date(Date.UTC(ano, 0, 1));
+      fimLocal = new Date(Date.UTC(ano + 1, 0, 1));
     } else {
+      // mensal (padrão)
       inicioLocal = new Date(Date.UTC(ano, mes, 1));
       fimLocal = new Date(Date.UTC(ano, mes + 1, 1));
     }

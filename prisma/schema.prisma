@@ -59,6 +59,9 @@ enum MetaPeriodo {
   diaria
   semanal
   mensal
+  trimestral
+  semestral
+  anual
 }
 
 /// Lead de captação vs cliente da carteira pessoal do corretor.
