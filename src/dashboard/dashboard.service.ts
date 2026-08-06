@@ -6,9 +6,11 @@ import {
   AgendamentoTipo,
   AnaliseStatus,
   ContatoTipo,
+  FinanceiroComissaoStatus,
   FunilEtapaPapel,
   MetaPeriodo,
   MetaTipo,
+  Prisma,
   Role,
   UserStatus,
 } from '@prisma/client';
@@ -43,6 +45,32 @@ function metric(atual: number, anterior: number) {
     valor: atual,
     valorMesAnterior: anterior,
     evolucaoPct: evolucaoPct(atual, anterior),
+  };
+}
+
+function moneyNumber(value: Prisma.Decimal | number | null | undefined) {
+  return Number(value ?? 0);
+}
+
+type ComissaoResumo = {
+  total: number;
+  aReceber: number;
+  pendente: number;
+  liberada: number;
+  paga: number;
+  vendas: number;
+  vgv: number;
+};
+
+function emptyComissaoResumo(): ComissaoResumo {
+  return {
+    total: 0,
+    aReceber: 0,
+    pendente: 0,
+    liberada: 0,
+    paga: 0,
+    vendas: 0,
+    vgv: 0,
   };
 }
 
@@ -122,6 +150,7 @@ export class DashboardService {
     const inicioAmanha = new Date(inicioHoje.getTime() + 24 * 60 * 60 * 1000);
     const leadWhere = { tenantId, corretorId: requester.id, perdidoAt: null };
 
+    const periodoMes = { inicio: inicioMes, fim: inicioProximoMes };
     const [
       carteira,
       novosContatos,
@@ -130,6 +159,7 @@ export class DashboardService {
       documentacoes,
       vgvVendido,
       agendaHoje,
+      comissao,
     ] = await Promise.all([
       this.prisma.lead.groupBy({
         by: ['tipo'],
@@ -162,10 +192,7 @@ export class DashboardService {
         where: {
           tenantId,
           lead: leadWhere,
-          ...documentacaoVendaNoPeriodoWhere({
-            inicio: inicioMes,
-            fim: inicioProximoMes,
-          }),
+          ...documentacaoVendaNoPeriodoWhere(periodoMes),
         },
         _sum: { vgv: true },
       }),
@@ -176,6 +203,10 @@ export class DashboardService {
         },
         requester,
       ),
+      this.aggregateComissaoMes(tenantId, periodoMes, {
+        papel: 'corretor',
+        userId: requester.id,
+      }),
     ]);
 
     const totalPorTipo = new Map(
@@ -226,6 +257,7 @@ export class DashboardService {
         emAndamento: countStatusAndamento(documentacoes),
         vgvVendidoMes: sumVgvVendido(vgvVendido),
       },
+      comissao,
       agenda: {
         totalHoje: agendaAtiva.length,
         pendentesHoje: agendaAtiva.filter(
@@ -345,6 +377,8 @@ export class DashboardService {
       corretores,
       equipes,
       metasAtivas,
+      comissaoMes,
+      comissaoMesAnt,
     ] = await Promise.all([
       this.prisma.lead.groupBy({
         by: ['stage'],
@@ -504,6 +538,16 @@ export class DashboardService {
           },
         },
       }),
+      this.aggregateComissaoMes(tenantId, mesAtual, {
+        papel: requester.role === Role.gerente ? 'gerente' : 'admin',
+        userId: requester.id,
+        corretorIds,
+      }),
+      this.aggregateComissaoMes(tenantId, mesAnterior, {
+        papel: requester.role === Role.gerente ? 'gerente' : 'admin',
+        userId: requester.id,
+        corretorIds,
+      }),
     ]);
 
     const motivosAntMap = new Map(
@@ -635,6 +679,21 @@ export class DashboardService {
         ),
         vgv: metric(vgvMesTotal, vgvMesAntTotal),
       },
+      /**
+       * Comissão do mês filtrado por dataVenda.
+       * Gerente: soma de valorGerente das vendas da equipe.
+       * Admin: soma da comissão líquida no escopo.
+       */
+      comissao: {
+        total: metric(comissaoMes.total, comissaoMesAnt.total),
+        aReceber: metric(comissaoMes.aReceber, comissaoMesAnt.aReceber),
+        pendente: metric(comissaoMes.pendente, comissaoMesAnt.pendente),
+        liberada: metric(comissaoMes.liberada, comissaoMesAnt.liberada),
+        paga: metric(comissaoMes.paga, comissaoMesAnt.paga),
+        vendas: metric(comissaoMes.vendas, comissaoMesAnt.vendas),
+        vgv: metric(comissaoMes.vgv, comissaoMesAnt.vgv),
+        papel: requester.role === Role.gerente ? 'gerente' : 'admin',
+      },
       atencao: {
         semDono: mostrarSnapshotAtual ? semDono : 0,
         parados: mostrarSnapshotAtual ? parados : 0,
@@ -685,6 +744,80 @@ export class DashboardService {
             equipes: [],
             imobiliaria: { meta: 0, atual: 0, percentual: 0 },
           },
+    };
+  }
+
+  /**
+   * Soma as comissões lançadas com dataVenda no período.
+   * Corretor → valorCorretor; gerente → valorGerente; admin → comissão líquida.
+   */
+  private async aggregateComissaoMes(
+    tenantId: string,
+    periodo: Periodo,
+    opts: {
+      papel: 'corretor' | 'gerente' | 'admin';
+      userId: string;
+      corretorIds?: string[] | null;
+    },
+  ): Promise<ComissaoResumo> {
+    const where: Prisma.FinanceiroComissaoWhereInput = {
+      tenantId,
+      dataVenda: { gte: periodo.inicio, lt: periodo.fim },
+    };
+
+    if (opts.papel === 'corretor') {
+      where.corretorId = opts.userId;
+    } else if (opts.papel === 'gerente') {
+      where.OR = [
+        { gerenteId: opts.userId },
+        { equipeRegistro: { gerenteId: opts.userId } },
+      ];
+    } else if (opts.corretorIds) {
+      where.corretorId = { in: opts.corretorIds };
+    }
+
+    const rows = await this.prisma.financeiroComissao.findMany({
+      where,
+      select: {
+        status: true,
+        vgv: true,
+        valorCorretor: true,
+        valorGerente: true,
+        comissaoLiquida: true,
+      },
+    });
+
+    if (rows.length === 0) return emptyComissaoResumo();
+
+    const valueOf = (row: (typeof rows)[number]) => {
+      if (opts.papel === 'corretor') return moneyNumber(row.valorCorretor);
+      if (opts.papel === 'gerente') return moneyNumber(row.valorGerente);
+      return moneyNumber(row.comissaoLiquida);
+    };
+
+    const resumo = emptyComissaoResumo();
+    for (const row of rows) {
+      const valor = valueOf(row);
+      resumo.total += valor;
+      resumo.vgv += moneyNumber(row.vgv);
+      resumo.vendas += 1;
+      if (row.status === FinanceiroComissaoStatus.pendente) {
+        resumo.pendente += valor;
+      } else if (row.status === FinanceiroComissaoStatus.liberada) {
+        resumo.liberada += valor;
+      } else if (row.status === FinanceiroComissaoStatus.paga) {
+        resumo.paga += valor;
+      }
+    }
+    resumo.aReceber = resumo.pendente + resumo.liberada;
+    return {
+      total: Number(resumo.total.toFixed(2)),
+      aReceber: Number(resumo.aReceber.toFixed(2)),
+      pendente: Number(resumo.pendente.toFixed(2)),
+      liberada: Number(resumo.liberada.toFixed(2)),
+      paga: Number(resumo.paga.toFixed(2)),
+      vendas: resumo.vendas,
+      vgv: Number(resumo.vgv.toFixed(2)),
     };
   }
 
