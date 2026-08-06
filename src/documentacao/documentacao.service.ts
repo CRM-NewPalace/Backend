@@ -454,10 +454,17 @@ export class DocumentacaoService {
     });
     if (leads.length === 0) return;
 
+    const leadIdsMoved = leads.map((l) => l.id);
+
     await this.prisma.$transaction([
       this.prisma.lead.updateMany({
-        where: { id: { in: leads.map((l) => l.id) } },
+        where: { id: { in: leadIdsMoved } },
         data: { stage: vendaSlug },
+      }),
+      // Mantém o snapshot da ficha alinhado à etapa atual do funil.
+      this.prisma.documentacao.updateMany({
+        where: { tenantId, leadId: { in: leadIdsMoved } },
+        data: { stageSituacao: vendaSlug },
       }),
       this.prisma.triagemEvent.createMany({
         data: leads.map((lead) => ({

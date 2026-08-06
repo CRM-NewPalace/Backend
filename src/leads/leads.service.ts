@@ -827,6 +827,14 @@ export class LeadsService {
       select: leadSelect,
     });
 
+    // Alinha o snapshot de etapa nas fichas de documentação do lead.
+    if (stageAnterior && stageAnterior !== stage) {
+      await this.prisma.documentacao.updateMany({
+        where: { tenantId, leadId: id },
+        data: { stageSituacao: stage },
+      });
+    }
+
     // Registra na Triagem a mudança de etapa, salvo quando o funil vai
     // consolidar um único evento após o modal de relato.
     if (!dto.omitTriagem && stageAnterior && stageAnterior !== stage) {
