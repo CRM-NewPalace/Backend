@@ -245,6 +245,9 @@ model User {
   // Metas criadas pelo próprio corretor, gerente ou administração.
   metasCriadas Meta[] @relation("MetaCriador")
 
+  comissoesComoCorretor FinanceiroComissao[] @relation("ComissaoCorretor")
+  comissoesComoGerente  FinanceiroComissao[] @relation("ComissaoGerente")
+
   /// Equipe que este gerente lidera (no máximo uma).
   equipeGerenciada Equipe? @relation("EquipeGerente")
 
@@ -282,6 +285,8 @@ model Equipe {
 
   /// Eventos de admin direcionados a esta equipe.
   agendamentosAlvo Agendamento[] @relation("AgendamentoAlvoEquipe")
+
+  comissoes FinanceiroComissao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -568,6 +573,8 @@ model Documentacao {
   /// VGV em reais (inteiro).
   vgv Int?
   obs String?
+
+  comissao FinanceiroComissao?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1123,19 +1130,39 @@ model FinanceiroDespesa {
   @@map("financeiro_despesas")
 }
 
-/// Comissão de corretor.
+/// Comissão originada de uma documentação vendida.
 model FinanceiroComissao {
   id              String                   @id @default(uuid())
   tenantId        String
   tenant          Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documentacaoId  String                   @unique
+  documentacao    Documentacao             @relation(fields: [documentacaoId], references: [id], onDelete: Restrict)
+  corretorId      String
+  corretorUsuario User                     @relation("ComissaoCorretor", fields: [corretorId], references: [id], onDelete: Restrict)
+  gerenteId       String?
+  gerenteUsuario  User?                    @relation("ComissaoGerente", fields: [gerenteId], references: [id], onDelete: SetNull)
+  equipeId        String?
+  equipeRegistro  Equipe?                  @relation(fields: [equipeId], references: [id], onDelete: SetNull)
   corretor        String
+  gerente         String                   @default("")
   equipe          String                   @default("")
   empreendimento  String                   @default("")
   cliente         String                   @default("")
   dataVenda       DateTime
-  vgv             Float
-  percentual      Float
-  valor           Float
+  vgv                   Decimal                  @db.Decimal(18, 2)
+  percentualImobiliaria Decimal                  @db.Decimal(7, 4)
+  comissaoBruta         Decimal                  @db.Decimal(18, 2)
+  percentualTributos    Decimal                  @db.Decimal(7, 4)
+  valorTributos         Decimal                  @db.Decimal(18, 2)
+  comissaoLiquida       Decimal                  @db.Decimal(18, 2)
+  percentualCorretor    Decimal                  @db.Decimal(7, 4)
+  valorCorretor         Decimal                  @db.Decimal(18, 2)
+  percentualGerente     Decimal                  @db.Decimal(7, 4)
+  valorGerente          Decimal                  @db.Decimal(18, 2)
+  percentualCaixa       Decimal                  @db.Decimal(7, 4)
+  valorCaixa            Decimal                  @db.Decimal(18, 2)
+  percentualSocios      Decimal                  @db.Decimal(7, 4)
+  valorSocios           Decimal                  @db.Decimal(18, 2)
   status          FinanceiroComissaoStatus @default(pendente)
 
   createdAt DateTime @default(now())
@@ -1143,6 +1170,9 @@ model FinanceiroComissao {
 
   @@index([tenantId])
   @@index([tenantId, dataVenda])
+  @@index([corretorId])
+  @@index([gerenteId])
+  @@index([equipeId])
   @@map("financeiro_comissoes")
 }
 
