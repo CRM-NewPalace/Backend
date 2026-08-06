@@ -767,7 +767,12 @@ export class LeadsService {
 
   async updateStage(
     id: string,
-    dto: { stage: string; construtoraId?: string; empreendimentoId?: string },
+    dto: {
+      stage: string;
+      construtoraId?: string;
+      empreendimentoId?: string;
+      omitTriagem?: boolean;
+    },
     requester: AuthenticatedUser,
   ): Promise<LeadEntity> {
     const tenantId = requireTenantId(requester);
@@ -817,8 +822,9 @@ export class LeadsService {
       select: leadSelect,
     });
 
-    // Sempre registra na Triagem a mudança de etapa (mesmo sem relato manual).
-    if (stageAnterior && stageAnterior !== stage) {
+    // Registra na Triagem a mudança de etapa, salvo quando o funil vai
+    // consolidar um único evento após o modal de relato.
+    if (!dto.omitTriagem && stageAnterior && stageAnterior !== stage) {
       const [fromLabel, toLabel] = await Promise.all([
         this.resolveStageLabel(tenantId, stageAnterior),
         this.resolveStageLabel(tenantId, stage),

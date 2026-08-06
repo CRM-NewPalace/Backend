@@ -174,8 +174,12 @@ export class TriagemService {
         stageNovo = targetStage;
         shouldUpdateStage = true;
       } else if (origem === TriagemOrigem.funil) {
-        // Funil já avançou a etapa; registra só a etapa atual no histórico.
+        // Funil já avançou a etapa; o relato consolida o único acontecimento.
         stageNovo = targetStage;
+        const from = dto.stageAnterior?.trim();
+        if (from && from !== targetStage) {
+          stageAnterior = from;
+        }
       }
     }
 

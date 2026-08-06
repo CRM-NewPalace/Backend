@@ -1,4 +1,10 @@
-import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 /**
  * Movimenta o lead entre as etapas do funil.
@@ -18,4 +24,12 @@ export class UpdateLeadStageDto {
   @IsOptional()
   @IsUUID('4', { message: 'Empreendimento inválido.' })
   empreendimentoId?: string;
+
+  /**
+   * Quando true, não cria o evento automático na Triagem.
+   * Usado pelo funil quando o modal de relato registra o único acontecimento.
+   */
+  @IsOptional()
+  @IsBoolean()
+  omitTriagem?: boolean;
 }
