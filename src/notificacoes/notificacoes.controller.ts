@@ -18,7 +18,7 @@ import { NotificacoesService } from './notificacoes.service';
 
 @Controller('notificacoes')
 @UseGuards(RolesGuard)
-@Roles(Role.admin, Role.gerente, Role.corretor)
+@Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
 export class NotificacoesController {
   constructor(private readonly notificacoesService: NotificacoesService) {}
 

@@ -195,6 +195,17 @@ export class AgendaService {
    * Chamado no login/polling do front — sem cron no servidor.
    */
   async syncLembretes(requester: AuthenticatedUser) {
+    // Analista não usa agenda operacional — evita 403 no shell e vazamento de solicitações.
+    if (requester.role === Role.analista) {
+      return {
+        urgencia: 'nenhuma' as const,
+        proximosCount: 0,
+        solicitacoesCount: 0,
+        proximos: [],
+        novasNotificacoes: [],
+      };
+    }
+
     const now = new Date();
     const horizon = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const MS_1H = 60 * 60 * 1000;

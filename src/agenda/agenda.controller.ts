@@ -46,6 +46,7 @@ export class AgendaController {
   }
 
   @Get('lembretes')
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
   syncLembretes(@CurrentUser() requester: AuthenticatedUser) {
     return this.agendaService.syncLembretes(requester);
   }
