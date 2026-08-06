@@ -95,7 +95,8 @@ export class CreateLeadDto {
 
   /**
    * Corretor dono do lead. Ignorado para o perfil corretor (força o próprio id).
-   * Admin/gerente: opcional — sem corretor + com equipeId = pool da equipe.
+   * Admin/gerente: opcional — pode ficar sem corretor.
+   * Sem corretor + com equipeId = pool da equipe; ambos nulos = sem vínculo.
    */
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
@@ -103,8 +104,8 @@ export class CreateLeadDto {
   corretorId?: string | null;
 
   /**
-   * Equipe/gerente que recebe o lead (pool).
-   * Admin escolhe a equipe do gerente; gerente usa a própria.
+   * Equipe/gerente que recebe o lead (pool). Opcional.
+   * Admin escolhe a equipe do gerente; gerente pode omitir para deixar sem vínculo.
    */
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')

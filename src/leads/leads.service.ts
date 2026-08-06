@@ -1100,17 +1100,8 @@ export class LeadsService {
     let equipeId =
       dto.equipeId && dto.equipeId.trim() !== '' ? dto.equipeId : null;
 
-    if (requester.role === Role.gerente && !equipeId) {
-      const equipe = await this.prisma.equipe.findFirst({
-        where: {
-          tenantId,
-          gerenteId: requester.id,
-          status: UserStatus.ativo,
-        },
-        select: { id: true },
-      });
-      equipeId = equipe?.id ?? null;
-    }
+    // Sem corretor e sem equipe: lead fica sem vínculo (admin/gerente).
+    // Não forçar a equipe do gerente automaticamente.
 
     if (corretorId) {
       await this.ensureCorretorAssignable(corretorId, requester);
