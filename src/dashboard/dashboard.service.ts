@@ -35,16 +35,17 @@ const DIAS_PARADO_DEFAULT = 7;
 
 type Periodo = { inicio: Date; fim: Date };
 
-function evolucaoPct(atual: number, anterior: number): number | null {
-  if (anterior === 0) return atual === 0 ? 0 : null;
+function evolucaoPct(atual: number, anterior: number): number {
+  // Sem base no mês anterior: 0 se também não houver valor atual; senão +100%.
+  if (anterior === 0) return atual === 0 ? 0 : 100;
   return Number((((atual - anterior) / anterior) * 100).toFixed(1));
 }
 
 function metric(atual: number, anterior: number) {
   return {
-    valor: atual,
-    valorMesAnterior: anterior,
-    evolucaoPct: evolucaoPct(atual, anterior),
+    valor: atual || 0,
+    valorMesAnterior: anterior || 0,
+    evolucaoPct: evolucaoPct(atual || 0, anterior || 0),
   };
 }
 
@@ -1505,11 +1506,11 @@ export class DashboardService {
 
     const totais = rankingCorretores.reduce(
       (acc, r) => {
-        acc.entradas += r.entradas.valor;
-        acc.vendas += r.vendas.valor;
-        acc.vgv += r.vgv.valor;
-        acc.visitas += r.visitas;
-        acc.perdidos += r.perdidos;
+        acc.entradas += r.entradas.valor || 0;
+        acc.vendas += r.vendas.valor || 0;
+        acc.vgv += r.vgv.valor || 0;
+        acc.visitas += r.visitas || 0;
+        acc.perdidos += r.perdidos || 0;
         return acc;
       },
       { entradas: 0, vendas: 0, vgv: 0, visitas: 0, perdidos: 0 },
