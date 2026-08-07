@@ -13,7 +13,11 @@ export function normalizeDocStatus(
     .replace(/[^a-z0-9]+/g, '');
 }
 
-export type DocStatus1Group = 'aprovado' | 'reprovado' | 'analise';
+export type DocStatus1Group =
+  | 'aprovado'
+  | 'reprovado'
+  | 'pre_analise'
+  | 'analise';
 export type DocStatus2Group = 'vendido' | 'andamento' | 'bacen';
 
 /** Agrupa variantes de Status 1 (ex.: ANALISE / em analise). */
@@ -31,6 +35,14 @@ export function status1Group(
     n === 'aprovadas'
   ) {
     return 'aprovado';
+  }
+  // Antes de "analise": "preanalise" contém a substring "analise".
+  if (
+    n.startsWith('preanalise') ||
+    n.includes('preanalise') ||
+    n === 'preanalise'
+  ) {
+    return 'pre_analise';
   }
   if (n.includes('analise')) return 'analise';
   return null;
@@ -66,7 +78,14 @@ export function isStatusVendido(
 export function isStatusAnalise(
   status: string | null | undefined,
 ): boolean {
-  return status1Group(status) === 'analise';
+  const g = status1Group(status);
+  return g === 'analise' || g === 'pre_analise';
+}
+
+export function isStatusPreAnalise(
+  status: string | null | undefined,
+): boolean {
+  return status1Group(status) === 'pre_analise';
 }
 
 /** Compara status considerando variantes semânticas. */
@@ -88,6 +107,7 @@ export function canonicalizeStatus1(status: string): string {
   const g = status1Group(status);
   if (g === 'aprovado') return 'Aprovado';
   if (g === 'reprovado') return 'Reprovado';
+  if (g === 'pre_analise') return 'Pré-análise';
   if (g === 'analise') return 'Em análise';
   return status.trim();
 }

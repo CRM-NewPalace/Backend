@@ -108,6 +108,17 @@ export class LeadsController {
     return this.leadsService.findLost(query, requester);
   }
 
+  /** Clientes perdidos — só corretor (própria carteira). Antes de GET :id. */
+  @Get('clientes-perdidos')
+  @UseGuards(RolesGuard)
+  @Roles(Role.corretor)
+  findLostClientes(
+    @Query() query: QueryLeadsDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.findLostClientes(query, requester);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,

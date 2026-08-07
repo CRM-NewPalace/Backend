@@ -15,6 +15,7 @@ const OPERACIONAL = [
   'agenda',
   'imoveis',
   'clientes',
+  'clientesPerdidos',
   'construtoras',
   'leadsPerdidos',
 ] as const;

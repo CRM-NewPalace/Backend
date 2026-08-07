@@ -143,7 +143,7 @@ export class AnaliseService {
       );
     }
 
-    return this.prisma.analise.update({
+    const updated = await this.prisma.analise.update({
       where: { id },
       data: {
         status: AnaliseStatus.em_analise,
@@ -151,6 +151,18 @@ export class AnaliseService {
       },
       select: analiseSelect,
     });
+
+    // Corretor sobe em Pré-análise; ao assumir, a ficha passa a Em análise.
+    await this.prisma.documentacao.updateMany({
+      where: {
+        tenantId,
+        leadId: existing.leadId,
+        status1: { in: ['Pré-análise', 'Pre-análise', 'Análise', 'Analise'] },
+      },
+      data: { status1: 'Em análise' },
+    });
+
+    return updated;
   }
 
   async update(

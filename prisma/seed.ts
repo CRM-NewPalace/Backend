@@ -63,8 +63,9 @@ const DEFAULT_DOCUMENTACAO_FONTES = [
 ] as const;
 
 const DEFAULT_DOCUMENTACAO_STATUS1 = [
+  { label: 'Pré-análise', color: 'bg-violet-100 text-violet-700' },
+  { label: 'Em análise', color: 'bg-indigo-100 text-indigo-700' },
   { label: 'Aprovado', color: 'bg-green-100 text-green-700' },
-  { label: 'Análise', color: 'bg-violet-100 text-violet-700' },
   { label: 'Aprovado c/ restrição', color: 'bg-amber-100 text-amber-700' },
 ] as const;
 

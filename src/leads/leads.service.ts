@@ -649,9 +649,15 @@ export class LeadsService {
       throw new NotFoundException('Lead não encontrado.');
     }
 
-    // Leads perdidos só o admin consulta (módulo dedicado).
+    // Perdidos: admin vê leads; corretor vê os próprios clientes.
     if (lead.perdidoAt) {
-      if (requester.role !== Role.admin) {
+      const adminLead =
+        requester.role === Role.admin && lead.tipo === ContatoTipo.lead;
+      const corretorCliente =
+        requester.role === Role.corretor &&
+        lead.tipo === ContatoTipo.cliente &&
+        lead.corretorId === requester.id;
+      if (!adminLead && !corretorCliente) {
         throw new NotFoundException('Lead não encontrado.');
       }
       return lead;
@@ -675,17 +681,49 @@ export class LeadsService {
       );
     }
 
+    return this.findLostByTipo(tenantId, ContatoTipo.lead, query);
+  }
+
+  /**
+   * Lista clientes marcados como perdidos — exclusivo do corretor (própria carteira).
+   */
+  async findLostClientes(
+    query: QueryLeadsDto,
+    requester: AuthenticatedUser,
+  ): Promise<PaginatedLeads> {
+    const tenantId = requireTenantId(requester);
+    if (requester.role !== Role.corretor) {
+      throw new ForbiddenException(
+        'Apenas corretores podem ver perda de cliente.',
+      );
+    }
+
+    return this.findLostByTipo(tenantId, ContatoTipo.cliente, query, {
+      corretorId: requester.id,
+    });
+  }
+
+  private async findLostByTipo(
+    tenantId: string,
+    tipo: ContatoTipo,
+    query: QueryLeadsDto,
+    force?: { corretorId?: string },
+  ): Promise<PaginatedLeads> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const search = query.search?.trim();
 
     const where: Prisma.LeadWhereInput = {
       tenantId,
-      tipo: ContatoTipo.lead,
+      tipo,
       perdidoAt: { not: null },
+      ...(force?.corretorId
+        ? { corretorId: force.corretorId }
+        : query.corretorId
+          ? { corretorId: query.corretorId }
+          : {}),
       ...(query.origem ? { origem: query.origem } : {}),
       ...(query.interesse ? { interesse: query.interesse } : {}),
-      ...(query.corretorId ? { corretorId: query.corretorId } : {}),
       ...(search
         ? {
             OR: [
@@ -956,18 +994,9 @@ export class LeadsService {
       throw new NotFoundException('Lead não encontrado.');
     }
 
-    if (existing.tipo === ContatoTipo.cliente) {
-      await this.prisma.lead.delete({ where: { id } });
-      return {
-        ...existing,
-        perdidoAt: new Date(),
-        motivoPerda: motivoTrim,
-        perdidoPorId: requester.id,
-        perdidoPor: { id: requester.id, name: requester.name },
-      };
-    }
-
     // Move para a etapa com papel perdido (fallback slug legado).
+    // Clientes e leads usam soft-delete (perdidoAt) — clientes vão para
+    // "Perda de cliente" (corretor); leads para "Leads Perdidos" (admin).
     const perdidoStage =
       (await this.funis.getSlugByPapel(tenantId, FunilEtapaPapel.perdido)) ??
       undefined;
