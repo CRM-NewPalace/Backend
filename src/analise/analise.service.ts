@@ -397,7 +397,6 @@ export class AnaliseService {
       tenantId,
       FunilEtapaPapel.analise,
     );
-    if (analiseSlugs.length === 0) return;
 
     const isGlobal =
       requester.role === Role.admin || requester.role === Role.analista;
@@ -405,20 +404,114 @@ export class AnaliseService {
       ? { tenantId }
       : await this.teamScope.leadScope(requester);
 
-    const leads = await this.prisma.lead.findMany({
+    const pendingIds = new Map<string, string>();
+
+    if (analiseSlugs.length > 0) {
+      const leads = await this.prisma.lead.findMany({
+        where: {
+          perdidoAt: null,
+          stage: { in: analiseSlugs },
+          analise: null,
+          ...leadScope,
+        },
+        select: { id: true, corretorId: true },
+        take: 200,
+      });
+      for (const lead of leads) {
+        pendingIds.set(lead.id, lead.corretorId ?? requester.id);
+      }
+    }
+
+    // Documentações de gerente/admin (ou status Em análise) sem ficha de análise.
+    const docs = await this.prisma.documentacao.findMany({
       where: {
-        perdidoAt: null,
-        stage: { in: analiseSlugs },
-        analise: null,
-        ...leadScope,
+        tenantId,
+        lead: {
+          perdidoAt: null,
+          analise: null,
+          ...(isGlobal ? {} : leadScope),
+        },
+        OR: [
+          { autor: { role: { in: [Role.gerente, Role.admin, Role.analista] } } },
+          {
+            status1: {
+              in: [
+                'Em análise',
+                'Análise',
+                'ANALISE',
+                'Em analise',
+                'em análise',
+                'em analise',
+              ],
+            },
+          },
+        ],
       },
-      select: { id: true, corretorId: true },
+      select: {
+        leadId: true,
+        autorId: true,
+        temEntrada: true,
+        valorEntrada: true,
+        temFgts: true,
+        valorFgts: true,
+        temDependente: true,
+      },
+      orderBy: { createdAt: 'desc' },
       take: 200,
     });
 
-    for (const lead of leads) {
-      const autorId = lead.corretorId ?? requester.id;
-      await this.ensureForLead(lead.id, autorId, tenantId);
+    const financeByLead = new Map<
+      string,
+      {
+        temEntrada?: boolean;
+        valorEntrada?: number | null;
+        temFgts?: boolean;
+        valorFgts?: number | null;
+        temDependente?: boolean;
+      }
+    >();
+
+    for (const doc of docs) {
+      if (!pendingIds.has(doc.leadId)) {
+        pendingIds.set(doc.leadId, doc.autorId);
+      }
+      if (!financeByLead.has(doc.leadId)) {
+        financeByLead.set(doc.leadId, {
+          temEntrada: doc.temEntrada,
+          valorEntrada: doc.valorEntrada,
+          temFgts: doc.temFgts,
+          valorFgts: doc.valorFgts,
+          temDependente: doc.temDependente,
+        });
+      }
+    }
+
+    // Garante etapa de análise no funil para esses leads.
+    const analiseSlug = analiseSlugs[0] ?? null;
+    if (analiseSlug && pendingIds.size > 0) {
+      const leadIds = [...pendingIds.keys()];
+      await this.prisma.lead.updateMany({
+        where: {
+          id: { in: leadIds },
+          tenantId,
+          perdidoAt: null,
+          NOT: { stage: analiseSlug },
+        },
+        data: { stage: analiseSlug },
+      });
+      await this.prisma.documentacao.updateMany({
+        where: { tenantId, leadId: { in: leadIds } },
+        data: { stageSituacao: analiseSlug },
+      });
+    }
+
+    for (const [leadId, autorId] of pendingIds) {
+      await this.ensureForLead(
+        leadId,
+        autorId,
+        tenantId,
+        financeByLead.get(leadId),
+      );
     }
   }
 

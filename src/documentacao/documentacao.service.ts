@@ -7,6 +7,7 @@ import { FunilEtapaPapel, Prisma, Role, TriagemOrigem } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { FunisService } from '../funis/funis.service';
+import { AnaliseService } from '../analise/analise.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   canonicalizeStatus1,
@@ -92,16 +93,20 @@ export class DocumentacaoService {
     private readonly prisma: PrismaService,
     private readonly teamScope: TeamScopeService,
     private readonly funis: FunisService,
+    private readonly analiseService: AnaliseService,
   ) {}
 
   async list(query: QueryDocumentacaoDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     const visibility = await this.buildVisibilityWhere(requester);
 
+    // Evita AND: [{}] — em alguns casos o Prisma devolve lista vazia.
     const andFilters: Prisma.DocumentacaoWhereInput[] = [
-      visibility,
       { lead: { perdidoAt: null } },
     ];
+    if (Object.keys(visibility).length > 0) {
+      andFilters.push(visibility);
+    }
 
     if (query.corretorId && requester.role === Role.admin) {
       andFilters.push({
@@ -205,6 +210,19 @@ export class DocumentacaoService {
 
     if (isStatusVendido(status2)) {
       await this.moveLeadsToVendaStage(tenantId, [lead.id], requester.id);
+    } else {
+      await this.enqueueAnaliseFromDoc({
+        leadId: lead.id,
+        autorId: requester.id,
+        tenantId,
+        status1,
+        requesterRole: requester.role,
+        temEntrada: created.temEntrada,
+        valorEntrada: created.valorEntrada,
+        temFgts: created.temFgts,
+        valorFgts: created.valorFgts,
+        temDependente: created.temDependente,
+      });
     }
 
     return created;
@@ -340,6 +358,19 @@ export class DocumentacaoService {
         [existing.leadId],
         requester.id,
       );
+    } else {
+      await this.enqueueAnaliseFromDoc({
+        leadId: existing.leadId,
+        autorId: requester.id,
+        tenantId,
+        status1: updated.status1,
+        requesterRole: requester.role,
+        temEntrada: updated.temEntrada,
+        valorEntrada: updated.valorEntrada,
+        temFgts: updated.temFgts,
+        valorFgts: updated.valorFgts,
+        temDependente: updated.temDependente,
+      });
     }
 
     return updated;
@@ -430,12 +461,74 @@ export class DocumentacaoService {
   ) {
     const visibility = await this.buildVisibilityWhere(requester);
     const found = await this.prisma.documentacao.findFirst({
-      where: { id, tenantId, AND: [visibility] },
+      where: {
+        id,
+        tenantId,
+        ...(Object.keys(visibility).length > 0 ? { AND: [visibility] } : {}),
+      },
       select: { id: true },
     });
     if (!found) {
       throw new NotFoundException('Documentação não encontrada.');
     }
+  }
+
+  /**
+   * Coloca o lead na fila do analista quando a ficha é de análise
+   * ou quando gerente/admin/analista sobe a documentação.
+   */
+  private async enqueueAnaliseFromDoc(input: {
+    leadId: string;
+    autorId: string;
+    tenantId: string;
+    status1: string;
+    requesterRole: Role;
+    temEntrada: boolean;
+    valorEntrada: number | null;
+    temFgts: boolean;
+    valorFgts: number | null;
+    temDependente: boolean;
+  }) {
+    const shouldEnqueue =
+      isStatusAnalise(input.status1) ||
+      input.requesterRole === Role.gerente ||
+      input.requesterRole === Role.admin ||
+      input.requesterRole === Role.analista;
+    if (!shouldEnqueue) return;
+
+    const analiseSlug = await this.funis.getSlugByPapel(
+      input.tenantId,
+      FunilEtapaPapel.analise,
+    );
+    if (analiseSlug) {
+      const lead = await this.prisma.lead.findFirst({
+        where: { id: input.leadId, tenantId: input.tenantId },
+        select: { stage: true, perdidoAt: true },
+      });
+      if (lead && !lead.perdidoAt && lead.stage !== analiseSlug) {
+        await this.prisma.lead.update({
+          where: { id: input.leadId },
+          data: { stage: analiseSlug },
+        });
+        await this.prisma.documentacao.updateMany({
+          where: { tenantId: input.tenantId, leadId: input.leadId },
+          data: { stageSituacao: analiseSlug },
+        });
+      }
+    }
+
+    await this.analiseService.ensureForLead(
+      input.leadId,
+      input.autorId,
+      input.tenantId,
+      {
+        temEntrada: input.temEntrada,
+        valorEntrada: input.valorEntrada,
+        temFgts: input.temFgts,
+        valorFgts: input.valorFgts,
+        temDependente: input.temDependente,
+      },
+    );
   }
 
   private canMutateDocumentacao(
