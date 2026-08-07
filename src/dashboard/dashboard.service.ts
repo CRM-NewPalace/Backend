@@ -829,10 +829,10 @@ export class DashboardService {
   }
 
   /**
-   * Vendas/VGV no período: documentação vendida com dataVenda (ou createdAt)
-   * no intervalo, e eventos de triagem que entraram na etapa de venda no
-   * intervalo. Não conta estoque atual do funil — leads ainda em "venda"
-   * de meses anteriores não devem inflar o mês filtrado.
+   * Vendas/VGV no período: só documentação com status vendido cuja
+   * dataVenda (ou createdAt, se dataVenda vazia) cai no intervalo.
+   * Não usa etapa do funil nem eventos de triagem — marcar como vendido
+   * num mês com dataVenda em outro não pode mudar o mês da venda.
    */
   private async aggregateVendasPorCorretor(
     tenantId: string,
@@ -845,12 +845,6 @@ export class DashboardService {
     if (corretorIds.length === 0) return { vendas, vgv };
 
     const origem = opts?.origem?.trim() || undefined;
-    const origemWhere = origem ? { origem } : {};
-
-    const vendaSlugs = await this.funis.getSlugsByPapel(
-      tenantId,
-      FunilEtapaPapel.venda,
-    );
     const countedLeads = new Set<string>();
 
     const markSale = (
@@ -873,7 +867,6 @@ export class DashboardService {
 
     // Credita pela ficha OU pelo lead (admin/analista pode criar a doc sem
     // preencher corretorId; o dono fica em lead.corretorId).
-    // AND evita colisão de chaves `OR` com o filtro de período.
     const corretorIdSet = new Set(corretorIds);
     const docs = await this.prisma.documentacao.findMany({
       where: {
@@ -912,35 +905,6 @@ export class DashboardService {
       if (!credited) continue;
       markSale(doc.leadId, credited);
       addVgv(credited, doc.vgv);
-    }
-
-    if (vendaSlugs.length > 0) {
-      const events = await this.prisma.triagemEvent.findMany({
-        where: {
-          stageNovo: { in: vendaSlugs },
-          createdAt: { gte: periodo.inicio, lt: periodo.fim },
-          lead: { tenantId, corretorId: { in: corretorIds }, ...origemWhere },
-        },
-        select: {
-          leadId: true,
-          lead: {
-            select: {
-              corretorId: true,
-              documentacoes: {
-                select: { vgv: true },
-                orderBy: { updatedAt: 'desc' },
-                take: 1,
-              },
-            },
-          },
-        },
-      });
-      for (const event of events) {
-        const isNew = markSale(event.leadId, event.lead.corretorId);
-        if (isNew) {
-          addVgv(event.lead.corretorId, event.lead.documentacoes[0]?.vgv);
-        }
-      }
     }
 
     return { vendas, vgv };
