@@ -871,22 +871,47 @@ export class DashboardService {
       vgv.set(corretorId, (vgv.get(corretorId) ?? 0) + value);
     };
 
+    // Credita pela ficha OU pelo lead (admin/analista pode criar a doc sem
+    // preencher corretorId; o dono fica em lead.corretorId).
+    // AND evita colisão de chaves `OR` com o filtro de período.
+    const corretorIdSet = new Set(corretorIds);
     const docs = await this.prisma.documentacao.findMany({
       where: {
         tenantId,
-        corretorId: { in: corretorIds },
-        ...documentacaoVendaNoPeriodoWhere(periodo),
-        ...(origem ? { lead: { origem } } : {}),
+        AND: [
+          {
+            OR: [
+              { corretorId: { in: corretorIds } },
+              { lead: { corretorId: { in: corretorIds } } },
+            ],
+          },
+          documentacaoVendaNoPeriodoWhere(periodo),
+          ...(origem ? [{ lead: { origem } }] : []),
+        ],
       },
-      select: { id: true, leadId: true, corretorId: true, vgv: true, status2: true },
+      select: {
+        id: true,
+        leadId: true,
+        corretorId: true,
+        vgv: true,
+        status2: true,
+        lead: { select: { corretorId: true } },
+      },
     });
     const seenDocs = new Set<string>();
     for (const doc of docs) {
       if (!isStatusVendido(doc.status2)) continue;
       if (seenDocs.has(doc.id)) continue;
       seenDocs.add(doc.id);
-      markSale(doc.leadId, doc.corretorId);
-      addVgv(doc.corretorId, doc.vgv);
+      const credited =
+        doc.corretorId && corretorIdSet.has(doc.corretorId)
+          ? doc.corretorId
+          : doc.lead.corretorId && corretorIdSet.has(doc.lead.corretorId)
+            ? doc.lead.corretorId
+            : null;
+      if (!credited) continue;
+      markSale(doc.leadId, credited);
+      addVgv(credited, doc.vgv);
     }
 
     if (vendaSlugs.length > 0) {
@@ -1371,16 +1396,40 @@ export class DashboardService {
           }),
       ids.length === 0
         ? emptyGroup
-        : this.prisma.documentacao.groupBy({
-            by: ['corretorId'],
-            where: {
-              tenantId,
-              corretorId: { in: ids },
-              createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
-              ...(origem ? { lead: { origem } } : {}),
-            },
-            _count: { _all: true },
-          }),
+        : this.prisma.documentacao
+            .findMany({
+              where: {
+                tenantId,
+                OR: [
+                  { corretorId: { in: ids } },
+                  { lead: { corretorId: { in: ids } } },
+                ],
+                createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+                ...(origem ? { lead: { origem } } : {}),
+              },
+              select: {
+                corretorId: true,
+                lead: { select: { corretorId: true } },
+              },
+            })
+            .then((rows) => {
+              const counts = new Map<string, number>();
+              const idSet = new Set(ids);
+              for (const row of rows) {
+                const credited =
+                  row.corretorId && idSet.has(row.corretorId)
+                    ? row.corretorId
+                    : row.lead.corretorId && idSet.has(row.lead.corretorId)
+                      ? row.lead.corretorId
+                      : null;
+                if (!credited) continue;
+                counts.set(credited, (counts.get(credited) ?? 0) + 1);
+              }
+              return [...counts.entries()].map(([corretorId, _all]) => ({
+                corretorId,
+                _count: { _all },
+              }));
+            }),
       this.aggregateVendasPorCorretor(tenantId, ids, mesAtual, {
         incluirEstoqueAtual: true,
         origem,

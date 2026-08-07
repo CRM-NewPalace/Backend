@@ -16,7 +16,6 @@ import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   isStatusVendido,
   documentacaoVendaNoPeriodoWhere,
-  sumVgvVendido,
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
 import { TeamScopeService } from '../equipes/team-scope.service';
@@ -443,11 +442,18 @@ export class MetasService {
       const docs = await this.prisma.documentacao.findMany({
         where: {
           tenantId,
-          corretorId: { in: corretorIds },
-          ...documentacaoVendaNoPeriodoWhere({
-            inicio: meta.inicio,
-            fim: meta.fim,
-          }),
+          AND: [
+            {
+              OR: [
+                { corretorId: { in: corretorIds } },
+                { lead: { corretorId: { in: corretorIds } } },
+              ],
+            },
+            documentacaoVendaNoPeriodoWhere({
+              inicio: meta.inicio,
+              fim: meta.fim,
+            }),
+          ],
         },
         select: { id: true, status2: true },
       });
@@ -459,19 +465,27 @@ export class MetasService {
         atual += 1;
       }
     } else {
-      const resultado = await this.prisma.documentacao.groupBy({
-        by: ['status2'],
+      const docsVgv = await this.prisma.documentacao.findMany({
         where: {
           tenantId,
-          corretorId: { in: corretorIds },
-          ...documentacaoVendaNoPeriodoWhere({
-            inicio: meta.inicio,
-            fim: meta.fim,
-          }),
+          AND: [
+            {
+              OR: [
+                { corretorId: { in: corretorIds } },
+                { lead: { corretorId: { in: corretorIds } } },
+              ],
+            },
+            documentacaoVendaNoPeriodoWhere({
+              inicio: meta.inicio,
+              fim: meta.fim,
+            }),
+          ],
         },
-        _sum: { vgv: true },
+        select: { status2: true, vgv: true },
       });
-      atual = sumVgvVendido(resultado);
+      atual = docsVgv
+        .filter((row) => isStatusVendido(row.status2))
+        .reduce((total, row) => total + (row.vgv ?? 0), 0);
     }
 
     return {

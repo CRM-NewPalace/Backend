@@ -150,8 +150,9 @@ export function status2VendidoWhere(): Prisma.DocumentacaoWhereInput {
 
 /**
  * Documentações cuja venda cai no período.
- * Usa dataVenda quando existe; se estiver vazia, usa createdAt.
- * Também inclui cadastros do período (evita VGV zerado em imports sem data de venda).
+ * Usa dataVenda quando existe; se estiver vazia, usa createdAt
+ * (evita VGV zerado em imports sem data de venda e evita contar a mesma
+ * ficha em dois meses quando as datas divergem).
  */
 export function documentacaoVendaNoPeriodoWhere(periodo: {
   inicio: Date;
@@ -160,7 +161,12 @@ export function documentacaoVendaNoPeriodoWhere(periodo: {
   return {
     OR: [
       { dataVenda: { gte: periodo.inicio, lt: periodo.fim } },
-      { createdAt: { gte: periodo.inicio, lt: periodo.fim } },
+      {
+        AND: [
+          { dataVenda: null },
+          { createdAt: { gte: periodo.inicio, lt: periodo.fim } },
+        ],
+      },
     ],
   };
 }

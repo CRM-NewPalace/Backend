@@ -28,8 +28,8 @@ export class TeamScopeService {
       return [requester.id];
     }
 
-    // gerente → corretores da equipe + o próprio (carteira/vendas)
-    const equipe = await this.prisma.equipe.findFirst({
+    // gerente → corretores de todas as equipes + o próprio (carteira/vendas)
+    const equipes = await this.prisma.equipe.findMany({
       where: { gerenteId: requester.id, tenantId },
       select: {
         membros: {
@@ -39,7 +39,7 @@ export class TeamScopeService {
       },
     });
 
-    const membroIds = equipe?.membros.map((m) => m.id) ?? [];
+    const membroIds = equipes.flatMap((e) => e.membros.map((m) => m.id));
     return [...new Set([requester.id, ...membroIds])];
   }
 
@@ -52,7 +52,7 @@ export class TeamScopeService {
     if (ids === null) return { tenantId };
 
     if (requester.role === Role.gerente) {
-      const equipe = await this.prisma.equipe.findFirst({
+      const equipes = await this.prisma.equipe.findMany({
         where: { gerenteId: requester.id, tenantId },
         select: { id: true },
       });
@@ -60,10 +60,11 @@ export class TeamScopeService {
         tenantId,
         OR: [
           { corretorId: { in: ids } },
-          // Pool da própria equipe.
-          ...(equipe
-            ? [{ equipeId: equipe.id, corretorId: null as null }]
-            : []),
+          // Pool das equipes do gerente.
+          ...equipes.map((equipe) => ({
+            equipeId: equipe.id,
+            corretorId: null as null,
+          })),
           // Pool do admin (leads aguardando distribuição).
           { equipeId: null, corretorId: null },
         ],
