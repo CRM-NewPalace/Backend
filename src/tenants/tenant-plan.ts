@@ -27,6 +27,7 @@ const ADMINISTRATIVO = [
   'analise',
   'metas',
   'propostas',
+  'contratos',
   'taxaConversao',
   'configuracoes',
 ] as const;
@@ -39,6 +40,7 @@ const ADMINISTRATIVO_TOGGLE = [
   'analise',
   'metas',
   'propostas',
+  'contratos',
   'taxaConversao',
 ] as const;
 
