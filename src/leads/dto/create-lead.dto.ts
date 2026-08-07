@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsDateString,
   IsEmail,
   IsIn,
   IsInt,
@@ -111,4 +112,10 @@ export class CreateLeadDto {
   @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsUUID('4', { message: 'Equipe inválida.' })
   equipeId?: string | null;
+
+  /** Data de cadastro retroativa (ISO). Se omitida, usa agora. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsDateString({}, { message: 'Data de cadastro inválida.' })
+  createdAt?: string | null;
 }

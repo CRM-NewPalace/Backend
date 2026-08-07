@@ -110,4 +110,10 @@ export class UpdateDocumentacaoDto {
   @IsOptional()
   @IsBoolean()
   temDependente?: boolean;
+
+  /** Data de cadastro retroativa (ISO). */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsDateString({}, { message: 'Data de cadastro inválida.' })
+  createdAt?: string | null;
 }

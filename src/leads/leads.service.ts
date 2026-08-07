@@ -35,6 +35,18 @@ export interface PaginatedLeads {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+/** Aceita ISO ou YYYY-MM-DD para cadastro retroativo. */
+function parseOptionalCreatedAt(value?: string | null): Date | null {
+  if (value === undefined || value === null || value === '') return null;
+  const raw = value.trim();
+  const date =
+    /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T12:00:00.000Z`) : new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException('Data de cadastro inválida.');
+  }
+  return date;
+}
+
 @Injectable()
 export class LeadsService {
   constructor(
@@ -74,6 +86,8 @@ export class LeadsService {
       emailRaw ||
       `contato.${phoneDigits || Date.now()}@sem-email.local`;
 
+    const createdAt = parseOptionalCreatedAt(dto.createdAt);
+
     return this.prisma.lead.create({
       data: {
         tenantId,
@@ -92,6 +106,7 @@ export class LeadsService {
         tags: dto.tags ?? [],
         corretorId: assignment.corretorId,
         equipeId: assignment.equipeId,
+        ...(createdAt ? { createdAt } : {}),
       },
       select: leadSelect,
     });
@@ -760,6 +775,12 @@ export class LeadsService {
               equipeId: assignment.equipeId,
             }
           : {}),
+        ...(dto.createdAt !== undefined
+          ? {
+              createdAt:
+                parseOptionalCreatedAt(dto.createdAt) ?? undefined,
+            }
+          : {}),
       },
       select: leadSelect,
     });
@@ -952,7 +973,33 @@ export class LeadsService {
         'Marque o lead como perdido antes de excluí-lo definitivamente.',
       );
     }
-    await this.prisma.lead.delete({ where: { id } });
+
+    // Comissão aponta para Documentacao com onDelete: Restrict — limpar antes do cascade.
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const docs = await tx.documentacao.findMany({
+          where: { tenantId, leadId: id },
+          select: { id: true },
+        });
+        const docIds = docs.map((d) => d.id);
+        if (docIds.length > 0) {
+          await tx.financeiroComissao.deleteMany({
+            where: { tenantId, documentacaoId: { in: docIds } },
+          });
+        }
+        await tx.lead.delete({ where: { id } });
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+      ) {
+        throw new BadRequestException(
+          'Não foi possível excluir o lead: há registros financeiros ou vínculos que impedem a remoção.',
+        );
+      }
+      throw err;
+    }
   }
 
   /**
@@ -1030,11 +1077,17 @@ export class LeadsService {
         OR: [
           {
             role: Role.corretor,
-            ...(ids !== null ? { id: { in: ids } } : {}),
+            ...(ids !== null
+              ? {
+                  id: {
+                    in: ids.filter((id) => id !== requester.id),
+                  },
+                }
+              : {}),
           },
-          // Admin pode ser dono da própria carteira / vendas.
-          ...(requester.role === Role.admin
-            ? [{ id: requester.id, role: Role.admin }]
+          // Admin/gerente podem ser donos da própria carteira / vendas.
+          ...(requester.role === Role.admin || requester.role === Role.gerente
+            ? [{ id: requester.id }]
             : []),
         ],
       },
@@ -1082,8 +1135,7 @@ export class LeadsService {
   /**
    * Resolve corretor + equipe para create/update.
    * - Corretor: sempre ele mesmo
-   * - Admin: equipe e/ou corretor da equipe; também pode atribuir a si (carteira própria)
-   * - Gerente: corretor da equipe ou pool da própria equipe
+   * - Admin/gerente: equipe e/ou corretor; também podem atribuir a si (carteira própria)
    */
   private async resolveAssignment(
     dto: { corretorId?: string | null; equipeId?: string | null },
@@ -1113,18 +1165,27 @@ export class LeadsService {
 
     if (corretorId) {
       await this.ensureCorretorAssignable(corretorId, requester);
-      const corretor = await this.prisma.user.findFirst({
+      const owner = await this.prisma.user.findFirst({
         where: { id: corretorId, tenantId },
-        select: { equipeId: true },
+        select: { equipeId: true, role: true },
       });
-      if (equipeId) {
-        if (corretor?.equipeId !== equipeId) {
+
+      if (owner?.role === Role.gerente || owner?.role === Role.admin) {
+        if (!equipeId && owner.role === Role.gerente) {
+          const equipe = await this.prisma.equipe.findFirst({
+            where: { gerenteId: corretorId, tenantId },
+            select: { id: true },
+          });
+          equipeId = equipe?.id ?? owner.equipeId ?? null;
+        }
+      } else if (equipeId) {
+        if (owner?.equipeId !== equipeId) {
           throw new BadRequestException(
             'O corretor não pertence à equipe/gerente selecionado.',
           );
         }
       } else {
-        equipeId = corretor?.equipeId ?? null;
+        equipeId = owner?.equipeId ?? null;
       }
     } else if (equipeId) {
       await this.ensureEquipeAssignable(equipeId, requester);
@@ -1167,7 +1228,7 @@ export class LeadsService {
         id: corretorId,
         tenantId,
         status: UserStatus.ativo,
-        role: { in: [Role.corretor, Role.admin] },
+        role: { in: [Role.corretor, Role.admin, Role.gerente] },
       },
     });
     if (count === 0) {
@@ -1176,12 +1237,25 @@ export class LeadsService {
       );
     }
 
-    // Admin atribuindo a si mesmo (carteira própria).
+    // Admin/gerente atribuindo a si mesmos (carteira própria).
     if (
-      requester.role === Role.admin &&
+      (requester.role === Role.admin || requester.role === Role.gerente) &&
       corretorId === requester.id
     ) {
       return;
+    }
+
+    // Gerente não atribui a outros admins/gerentes — só corretores da equipe.
+    if (requester.role === Role.gerente) {
+      const target = await this.prisma.user.findFirst({
+        where: { id: corretorId, tenantId },
+        select: { role: true },
+      });
+      if (target?.role !== Role.corretor) {
+        throw new ForbiddenException(
+          'Você só pode atribuir leads a corretores da sua equipe ou a si mesmo.',
+        );
+      }
     }
 
     const allowed = await this.teamScope.canAccessCorretor(

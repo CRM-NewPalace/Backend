@@ -28,7 +28,7 @@ export class TeamScopeService {
       return [requester.id];
     }
 
-    // gerente
+    // gerente → corretores da equipe + o próprio (carteira/vendas)
     const equipe = await this.prisma.equipe.findFirst({
       where: { gerenteId: requester.id, tenantId },
       select: {
@@ -39,7 +39,8 @@ export class TeamScopeService {
       },
     });
 
-    return equipe?.membros.map((m) => m.id) ?? [];
+    const membroIds = equipe?.membros.map((m) => m.id) ?? [];
+    return [...new Set([requester.id, ...membroIds])];
   }
 
   /** Filtro Prisma para leads/documentação baseado na equipe + tenant. */
@@ -93,6 +94,13 @@ export class TeamScopeService {
         return Boolean(equipe);
       }
       return false;
+    }
+    // Admin/gerente acessam a própria carteira.
+    if (
+      (requester.role === Role.admin || requester.role === Role.gerente) &&
+      corretorId === requester.id
+    ) {
+      return true;
     }
     const ids = await this.getVisibleCorretorIds(requester);
     if (ids === null) return true;

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -240,7 +241,39 @@ export class UsersService {
       throw new ForbiddenException('Você não pode excluir a própria conta.');
     }
     await this.ensureExists(id, tenantId);
-    await this.prisma.user.delete({ where: { id } });
+
+    const equipeGerenciada = await this.prisma.equipe.findFirst({
+      where: { tenantId, gerenteId: id },
+      select: { id: true, name: true },
+    });
+    if (equipeGerenciada) {
+      throw new BadRequestException(
+        `Este usuário é gerente da equipe "${equipeGerenciada.name}". Troque o gerente da equipe ou remova a equipe antes de excluí-lo.`,
+      );
+    }
+
+    const comissoes = await this.prisma.financeiroComissao.count({
+      where: { tenantId, corretorId: id },
+    });
+    if (comissoes > 0) {
+      throw new BadRequestException(
+        'Este usuário possui comissões vinculadas. Inative a conta em vez de excluir, para preservar o histórico financeiro.',
+      );
+    }
+
+    try {
+      await this.prisma.user.delete({ where: { id } });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+      ) {
+        throw new BadRequestException(
+          'Não foi possível excluir: há registros vinculados a este usuário. Inative a conta ou remova os vínculos primeiro.',
+        );
+      }
+      throw err;
+    }
   }
 
   async updateStatus(

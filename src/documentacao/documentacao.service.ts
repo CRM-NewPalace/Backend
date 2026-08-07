@@ -71,6 +71,17 @@ function parseOptionalDate(value?: string | null): Date | null | undefined {
   return new Date(value);
 }
 
+function parseOptionalCreatedAt(value?: string | null): Date | null {
+  if (value === undefined || value === null || value === '') return null;
+  const raw = value.trim();
+  const date =
+    /^\d{4}-\d{2}-\d{2}$/.test(raw)
+      ? new Date(`${raw}T12:00:00.000Z`)
+      : new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
 function todayDateOnly(): Date {
   return new Date(new Date().toISOString().slice(0, 10));
 }
@@ -146,8 +157,13 @@ export class DocumentacaoService {
 
     const corretorId = dto.corretorId || lead.corretorId || null;
     let gerenteId = dto.gerenteId ?? null;
-    if (!gerenteId && corretorId) {
+    if (!gerenteId && corretorId === requester.id && requester.role === Role.gerente) {
+      gerenteId = requester.id;
+    } else if (!gerenteId && corretorId) {
       gerenteId = await this.resolveGerenteOfCorretor(corretorId, tenantId);
+    }
+    if (!gerenteId && requester.role === Role.gerente) {
+      gerenteId = requester.id;
     }
 
     const status1 = canonicalizeStatus1(dto.status1);
@@ -156,6 +172,7 @@ export class DocumentacaoService {
       parsedAnalise ?? (isStatusAnalise(status1) ? todayDateOnly() : null);
 
     const status2 = canonicalizeStatus2(dto.status2);
+    const createdAt = parseOptionalCreatedAt(dto.createdAt);
     const created = await this.prisma.documentacao.create({
       data: {
         tenantId,
@@ -181,6 +198,7 @@ export class DocumentacaoService {
         temFgts: dto.temFgts ?? false,
         valorFgts: dto.temFgts ? (dto.valorFgts ?? null) : null,
         temDependente: dto.temDependente ?? false,
+        ...(createdAt ? { createdAt } : {}),
       },
       select: docSelect,
     });
@@ -305,6 +323,10 @@ export class DocumentacaoService {
       data.valorFgts = dto.valorFgts;
     }
     if (dto.temDependente !== undefined) data.temDependente = dto.temDependente;
+    if (dto.createdAt !== undefined) {
+      const createdAt = parseOptionalCreatedAt(dto.createdAt);
+      if (createdAt) data.createdAt = createdAt;
+    }
 
     const updated = await this.prisma.documentacao.update({
       where: { id },
@@ -357,7 +379,7 @@ export class DocumentacaoService {
 
   /**
    * - Corretor: só fichas comerciais que criou
-   * - Gerente: só fichas de análise da equipe (leitura)
+   * - Gerente: fichas de análise da equipe + próprias comerciais (carteira/vendas)
    * - Analista: só fichas de análise (autor analista ou admin)
    * - Admin: fichas de análise + próprias fichas comerciais (carteira/vendas)
    */
@@ -384,11 +406,21 @@ export class DocumentacaoService {
           (await this.teamScope.getVisibleCorretorIds(requester)) ?? [];
         const teamActorIds = [...new Set([...teamCorretorIds, requester.id])];
         return {
-          autor: { role: { in: [Role.analista, Role.admin] } },
           OR: [
-            { corretorId: { in: teamActorIds } },
-            { gerenteId: requester.id },
-            { lead: { corretorId: { in: teamActorIds } } },
+            {
+              AND: [
+                { autor: { role: { in: [Role.analista, Role.admin] } } },
+                {
+                  OR: [
+                    { corretorId: { in: teamActorIds } },
+                    { gerenteId: requester.id },
+                    { lead: { corretorId: { in: teamActorIds } } },
+                  ],
+                },
+              ],
+            },
+            { autorId: requester.id },
+            { corretorId: requester.id },
           ],
         };
       }
@@ -428,12 +460,12 @@ export class DocumentacaoService {
     if (requester.role === Role.analista) {
       return autorId === requester.id || autorRole === Role.admin;
     }
-    // Corretor: só as próprias. Gerente só visualiza fichas de análise.
-    if (requester.role === Role.corretor) {
+    // Corretor/gerente: só as próprias fichas comerciais.
+    if (
+      requester.role === Role.corretor ||
+      requester.role === Role.gerente
+    ) {
       return autorId === requester.id;
-    }
-    if (requester.role === Role.gerente) {
-      return false;
     }
     return false;
   }
@@ -518,6 +550,7 @@ export class DocumentacaoService {
         nome: true,
         stage: true,
         corretorId: true,
+        equipeId: true,
         construtoraId: true,
         empreendimentoId: true,
         perdidoAt: true,
@@ -531,6 +564,7 @@ export class DocumentacaoService {
     const allowed = await this.teamScope.canAccessCorretor(
       requester,
       lead.corretorId,
+      lead.equipeId,
     );
     if (!allowed) {
       throw new NotFoundException('Lead/cliente não encontrado.');
