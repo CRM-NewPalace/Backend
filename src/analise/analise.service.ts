@@ -3,7 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AnaliseStatus, FunilEtapaPapel, Prisma, Role } from '@prisma/client';
+import {
+  AnaliseStatus,
+  FunilEtapaPapel,
+  Prisma,
+  Role,
+  TriagemOrigem,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -230,6 +236,12 @@ export class AnaliseService {
         newStatus,
         dto.vgv,
       );
+      await this.leaveAnaliseAfterParecer(
+        tenantId,
+        existing.leadId,
+        requester.id,
+        newStatus,
+      );
 
       const notifyIds = new Set<string>();
       if (
@@ -292,6 +304,74 @@ export class AnaliseService {
           : {}),
       },
     });
+  }
+
+  /** Tira o lead da etapa Em análise após parecer aprovado/reprovado. */
+  private async leaveAnaliseAfterParecer(
+    tenantId: string,
+    leadId: string,
+    autorId: string,
+    analiseStatus: typeof AnaliseStatus.aprovado | typeof AnaliseStatus.reprovado,
+  ) {
+    const analiseSlugs = await this.funis.getSlugsByPapel(
+      tenantId,
+      FunilEtapaPapel.analise,
+    );
+    if (analiseSlugs.length === 0) return;
+
+    const lead = await this.prisma.lead.findFirst({
+      where: {
+        id: leadId,
+        tenantId,
+        perdidoAt: null,
+        stage: { in: analiseSlugs },
+      },
+      select: { id: true, stage: true },
+    });
+    if (!lead) return;
+
+    const lastEntry = await this.prisma.triagemEvent.findFirst({
+      where: {
+        leadId,
+        stageNovo: { in: analiseSlugs },
+        stageAnterior: { not: null },
+        NOT: { stageAnterior: { in: analiseSlugs } },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { stageAnterior: true },
+    });
+
+    let targetStage = lastEntry?.stageAnterior ?? null;
+    if (!targetStage || analiseSlugs.includes(targetStage)) {
+      targetStage = await this.funis.getSlugByPapel(
+        tenantId,
+        FunilEtapaPapel.inicial,
+      );
+    }
+    if (!targetStage || analiseSlugs.includes(targetStage)) return;
+
+    const parecerLabel =
+      analiseStatus === AnaliseStatus.aprovado ? 'aprovado' : 'reprovado';
+    await this.prisma.$transaction([
+      this.prisma.lead.update({
+        where: { id: leadId },
+        data: { stage: targetStage },
+      }),
+      this.prisma.documentacao.updateMany({
+        where: { tenantId, leadId },
+        data: { stageSituacao: targetStage },
+      }),
+      this.prisma.triagemEvent.create({
+        data: {
+          leadId,
+          autorId,
+          texto: `Parecer ${parecerLabel} na análise — saiu da etapa Em análise.`,
+          stageAnterior: lead.stage,
+          stageNovo: targetStage,
+          origem: TriagemOrigem.funil,
+        },
+      }),
+    ]);
   }
 
   /**

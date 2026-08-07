@@ -3,7 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { FunilEtapaPapel, Prisma, Role, TriagemOrigem } from '@prisma/client';
+import {
+  AnaliseStatus,
+  FunilEtapaPapel,
+  Prisma,
+  Role,
+  TriagemOrigem,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { FunisService } from '../funis/funis.service';
@@ -13,6 +19,8 @@ import {
   canonicalizeStatus1,
   canonicalizeStatus2,
   isStatusAnalise,
+  isStatusAprovado,
+  isStatusParecerFinal,
   isStatusVendido,
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
@@ -126,18 +134,51 @@ export class DocumentacaoService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Alinha funil: leads com documentação vendida avançam para etapa Venda
+    // Alinha funil: vendidos → Venda; parecer final → sai de Em análise
     const vendidoLeadIds = [
       ...new Set(
         docs.filter((d) => isStatusVendido(d.status2)).map((d) => d.leadId),
       ),
     ];
+    const parecerLeadIds = [
+      ...new Set(
+        docs
+          .filter(
+            (d) =>
+              !isStatusVendido(d.status2) && isStatusParecerFinal(d.status1),
+          )
+          .map((d) => d.leadId),
+      ),
+    ];
+    let healed = false;
     if (vendidoLeadIds.length > 0) {
       await this.moveLeadsToVendaStage(
         tenantId,
         vendidoLeadIds,
         requester.id,
       );
+      healed = true;
+    }
+    for (const leadId of parecerLeadIds) {
+      const doc = docs.find((d) => d.leadId === leadId);
+      if (!doc) continue;
+      await this.applyParecerFromDocumentacao(
+        tenantId,
+        leadId,
+        requester.id,
+        doc.status1,
+      );
+      healed = true;
+    }
+    if (healed) {
+      return this.prisma.documentacao.findMany({
+        where: {
+          tenantId,
+          AND: andFilters,
+        },
+        select: docSelect,
+        orderBy: { createdAt: 'desc' },
+      });
     }
 
     return docs;
@@ -262,6 +303,13 @@ export class DocumentacaoService {
 
     if (isStatusVendido(status2)) {
       await this.moveLeadsToVendaStage(tenantId, [lead.id], requester.id);
+    } else if (isStatusParecerFinal(status1)) {
+      await this.applyParecerFromDocumentacao(
+        tenantId,
+        lead.id,
+        requester.id,
+        status1,
+      );
     } else {
       await this.enqueueAnaliseFromDoc({
         leadId: lead.id,
@@ -277,7 +325,12 @@ export class DocumentacaoService {
       });
     }
 
-    return created;
+    // Releitura: etapa do lead pode ter mudado (venda / parecer).
+    const fresh = await this.prisma.documentacao.findFirst({
+      where: { id: created.id, tenantId },
+      select: docSelect,
+    });
+    return fresh ?? created;
   }
 
   async update(
@@ -423,6 +476,13 @@ export class DocumentacaoService {
         [existing.leadId],
         requester.id,
       );
+    } else if (isStatusParecerFinal(updated.status1)) {
+      await this.applyParecerFromDocumentacao(
+        tenantId,
+        existing.leadId,
+        requester.id,
+        updated.status1,
+      );
     } else {
       await this.enqueueAnaliseFromDoc({
         leadId: existing.leadId,
@@ -438,7 +498,12 @@ export class DocumentacaoService {
       });
     }
 
-    return updated;
+    // Releitura: etapa do lead pode ter mudado (venda / parecer).
+    const fresh = await this.prisma.documentacao.findFirst({
+      where: { id, tenantId },
+      select: docSelect,
+    });
+    return fresh ?? updated;
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
@@ -548,7 +613,7 @@ export class DocumentacaoService {
 
   /**
    * Coloca o lead na fila do analista quando a ficha é de análise
-   * ou quando gerente/admin/analista sobe a documentação.
+   * ou quando gerente/admin/analista sobe a documentação ainda sem parecer.
    */
   private async enqueueAnaliseFromDoc(input: {
     leadId: string;
@@ -562,6 +627,9 @@ export class DocumentacaoService {
     valorFgts: number | null;
     temDependente: boolean;
   }) {
+    // Parecer já registrado: não recoloca na fila nem força Em análise.
+    if (isStatusParecerFinal(input.status1)) return;
+
     const shouldEnqueue =
       isStatusAnalise(input.status1) ||
       input.requesterRole === Role.gerente ||
@@ -602,6 +670,93 @@ export class DocumentacaoService {
         temDependente: input.temDependente,
       },
     );
+  }
+
+  /**
+   * Espelha o parecer (Aprovado/Reprovado) na ficha de Análise e tira o lead
+   * da etapa Em análise do funil (volta à etapa anterior, se houver).
+   */
+  private async applyParecerFromDocumentacao(
+    tenantId: string,
+    leadId: string,
+    autorId: string,
+    status1: string,
+  ) {
+    if (!isStatusParecerFinal(status1)) return;
+
+    const analiseStatus = isStatusAprovado(status1)
+      ? AnaliseStatus.aprovado
+      : AnaliseStatus.reprovado;
+
+    await this.prisma.analise.updateMany({
+      where: {
+        tenantId,
+        leadId,
+        status: {
+          in: [AnaliseStatus.pendente, AnaliseStatus.em_analise],
+        },
+      },
+      data: { status: analiseStatus },
+    });
+
+    const analiseSlugs = await this.funis.getSlugsByPapel(
+      tenantId,
+      FunilEtapaPapel.analise,
+    );
+    if (analiseSlugs.length === 0) return;
+
+    const lead = await this.prisma.lead.findFirst({
+      where: {
+        id: leadId,
+        tenantId,
+        perdidoAt: null,
+        stage: { in: analiseSlugs },
+      },
+      select: { id: true, stage: true },
+    });
+    if (!lead) return;
+
+    const lastEntry = await this.prisma.triagemEvent.findFirst({
+      where: {
+        leadId,
+        stageNovo: { in: analiseSlugs },
+        stageAnterior: { not: null },
+        NOT: { stageAnterior: { in: analiseSlugs } },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { stageAnterior: true },
+    });
+
+    let targetStage = lastEntry?.stageAnterior ?? null;
+    if (!targetStage || analiseSlugs.includes(targetStage)) {
+      targetStage = await this.funis.getSlugByPapel(
+        tenantId,
+        FunilEtapaPapel.inicial,
+      );
+    }
+    if (!targetStage || analiseSlugs.includes(targetStage)) return;
+
+    const parecerLabel = isStatusAprovado(status1) ? 'aprovado' : 'reprovado';
+    await this.prisma.$transaction([
+      this.prisma.lead.update({
+        where: { id: leadId },
+        data: { stage: targetStage },
+      }),
+      this.prisma.documentacao.updateMany({
+        where: { tenantId, leadId },
+        data: { stageSituacao: targetStage },
+      }),
+      this.prisma.triagemEvent.create({
+        data: {
+          leadId,
+          autorId,
+          texto: `Parecer ${parecerLabel} na documentação — saiu da etapa Em análise.`,
+          stageAnterior: lead.stage,
+          stageNovo: targetStage,
+          origem: TriagemOrigem.funil,
+        },
+      }),
+    ]);
   }
 
   private canMutateDocumentacao(

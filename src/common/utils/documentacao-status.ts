@@ -88,6 +88,26 @@ export function isStatusPreAnalise(
   return status1Group(status) === 'pre_analise';
 }
 
+/** Parecer final do Status 1 (aprovado ou reprovado) — já saiu da fila. */
+export function isStatusParecerFinal(
+  status: string | null | undefined,
+): boolean {
+  const g = status1Group(status);
+  return g === 'aprovado' || g === 'reprovado';
+}
+
+export function isStatusReprovado(
+  status: string | null | undefined,
+): boolean {
+  return status1Group(status) === 'reprovado';
+}
+
+export function isStatusAprovado(
+  status: string | null | undefined,
+): boolean {
+  return status1Group(status) === 'aprovado';
+}
+
 /** Compara status considerando variantes semânticas. */
 export function statusesMatch(a: string, b: string): boolean {
   const na = normalizeDocStatus(a);
