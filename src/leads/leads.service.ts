@@ -536,30 +536,61 @@ export class LeadsService {
     }
 
     const leadScope = await this.teamScope.leadScope(requester);
+    const tipoFiltro = query.tipo as ContatoTipo | undefined;
+    const isGestorCarteira =
+      requester.role === Role.admin || requester.role === Role.gerente;
 
     const where: Prisma.LeadWhereInput = {
       perdidoAt: null,
-      ...(query.tipo ? { tipo: query.tipo as ContatoTipo } : {}),
+      ...(tipoFiltro ? { tipo: tipoFiltro } : {}),
       ...leadScope,
       ...(query.stage ? { stage: query.stage } : {}),
       ...(query.interesse ? { interesse: query.interesse } : {}),
       ...(query.prioridade ? { prioridade: query.prioridade } : {}),
       ...(query.origem ? { origem: query.origem } : {}),
-      ...(search
-        ? {
-            OR: [
-              { nome: { contains: search, mode: 'insensitive' } },
-              { email: { contains: search, mode: 'insensitive' } },
-              { telefone: { contains: search, mode: 'insensitive' } },
-              { bairro: { contains: search, mode: 'insensitive' } },
-              { cidade: { contains: search, mode: 'insensitive' } },
-              ...(phoneMatchIds.length > 0
-                ? [{ id: { in: phoneMatchIds } }]
-                : []),
-            ],
-          }
-        : {}),
     };
+
+    const andExtra: Prisma.LeadWhereInput[] = [];
+
+    // Cliente = carteira pessoal: admin/gerente nunca listam clientes do corretor.
+    if (isGestorCarteira) {
+      if (tipoFiltro === ContatoTipo.cliente) {
+        where.corretorId = requester.id;
+      } else if (!tipoFiltro) {
+        andExtra.push({
+          OR: [
+            { tipo: ContatoTipo.lead },
+            { tipo: ContatoTipo.cliente, corretorId: requester.id },
+          ],
+        });
+      }
+    }
+
+    if (search) {
+      andExtra.push({
+        OR: [
+          { nome: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { telefone: { contains: search, mode: 'insensitive' } },
+          { bairro: { contains: search, mode: 'insensitive' } },
+          { cidade: { contains: search, mode: 'insensitive' } },
+          ...(phoneMatchIds.length > 0
+            ? [{ id: { in: phoneMatchIds } }]
+            : []),
+        ],
+      });
+    }
+
+    if (andExtra.length > 0) {
+      where.AND = [
+        ...(Array.isArray(where.AND)
+          ? where.AND
+          : where.AND
+            ? [where.AND]
+            : []),
+        ...andExtra,
+      ];
+    }
 
     if (query.corretorId && !this.isCorretor(requester)) {
       const allowed = await this.teamScope.canAccessCorretor(
