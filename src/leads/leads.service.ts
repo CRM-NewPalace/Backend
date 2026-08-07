@@ -1103,6 +1103,9 @@ export class LeadsService {
     // Admin e gerente veem todos os corretores do tenant (distribuição cross-team).
     const crossTeam =
       requester.role === Role.admin || requester.role === Role.gerente;
+    // Analista precisa enxergar carteiras de admin/gerente na fila/resultado.
+    const includeCarteiraGestores =
+      crossTeam || requester.role === Role.analista;
     const ids = crossTeam
       ? null
       : await this.teamScope.getVisibleCorretorIds(requester);
@@ -1121,8 +1124,12 @@ export class LeadsService {
                 }
               : {}),
           },
-          // Admin/gerente podem ser donos da própria carteira / vendas.
-          ...(crossTeam ? [{ id: requester.id }] : []),
+          // Admin/gerente como donos de carteira (própria ou, p/ analista, todos).
+          ...(includeCarteiraGestores
+            ? crossTeam
+              ? [{ id: requester.id }]
+              : [{ role: Role.admin }, { role: Role.gerente }]
+            : []),
         ],
       },
       select: assigneeSelect,

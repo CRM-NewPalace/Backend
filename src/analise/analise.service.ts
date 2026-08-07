@@ -51,6 +51,7 @@ const analiseSelect = {
         select: {
           id: true,
           name: true,
+          role: true,
           whatsapp: true,
           equipe: {
             select: {
@@ -80,9 +81,13 @@ export class AnaliseService {
     const tenantId = requireTenantId(requester);
     await this.backfillMissing(requester);
 
+    // Admin/analista: visão global (inclui carteira de gerente/admin).
+    const isGlobal =
+      requester.role === Role.admin || requester.role === Role.analista;
+
     const leadFilter: Prisma.LeadWhereInput = {
       perdidoAt: null,
-      ...(await this.teamScope.leadScope(requester)),
+      ...(isGlobal ? {} : await this.teamScope.leadScope(requester)),
     };
 
     if (query.corretorId) {
@@ -388,22 +393,27 @@ export class AnaliseService {
 
   private async backfillMissing(requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    const leadScope = await this.teamScope.leadScope(requester);
-    const analiseSlug = await this.funis.getSlugByPapel(
+    const analiseSlugs = await this.funis.getSlugsByPapel(
       tenantId,
       FunilEtapaPapel.analise,
     );
-    if (!analiseSlug) return;
+    if (analiseSlugs.length === 0) return;
+
+    const isGlobal =
+      requester.role === Role.admin || requester.role === Role.analista;
+    const leadScope = isGlobal
+      ? { tenantId }
+      : await this.teamScope.leadScope(requester);
 
     const leads = await this.prisma.lead.findMany({
       where: {
         perdidoAt: null,
-        stage: analiseSlug,
+        stage: { in: analiseSlugs },
         analise: null,
         ...leadScope,
       },
       select: { id: true, corretorId: true },
-      take: 50,
+      take: 200,
     });
 
     for (const lead of leads) {
