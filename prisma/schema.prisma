@@ -763,6 +763,8 @@ enum AgendamentoAlvo {
   equipe
   /// Visível somente para o gerente indicado (+ admin).
   gerente
+  /// Visível para todos os gerentes (+ admin); corretores não veem.
+  gerentes
 }
 
 /// Fluxo de solicitação quando escopo = com_gerente.

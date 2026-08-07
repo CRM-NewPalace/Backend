@@ -80,7 +80,7 @@ export class AgendaService {
   ) {}
 
   /** Compromissos no calendário/tabela.
-   * - eventos do admin: conforme alvoTipo (todos / equipe / gerente)
+   * - eventos do admin: conforme alvoTipo (todos / equipe / gerente / gerentes)
    * - pessoal: só o autor
    * - com_gerente aprovado: autor + gerente/admin da equipe
    * - com_gerente pendente: corretor autor ainda vê no calendário
@@ -292,7 +292,9 @@ export class AgendaService {
               ? item.alvoGerente?.name
                 ? `Gerente: ${item.alvoGerente.name}`
                 : 'Um gerente'
-              : null;
+              : item.alvoTipo === AgendamentoAlvo.gerentes
+                ? 'Todos os gerentes'
+                : null;
 
       return {
         id: item.id,
@@ -835,7 +837,7 @@ export class AgendaService {
 
   /**
    * Visibilidade de eventos do admin (alvoTipo != nenhum).
-   * Admin sempre vê; demais conforme todos / equipe / gerente.
+   * Admin sempre vê; demais conforme todos / equipe / gerente / gerentes.
    */
   private async buildAdminEventVisibility(
     requester: AuthenticatedUser,
@@ -850,6 +852,7 @@ export class AgendaService {
               AgendamentoAlvo.todos,
               AgendamentoAlvo.equipe,
               AgendamentoAlvo.gerente,
+              AgendamentoAlvo.gerentes,
             ],
           },
         };
@@ -864,6 +867,7 @@ export class AgendaService {
       return {
         OR: [
           { alvoTipo: AgendamentoAlvo.todos },
+          { alvoTipo: AgendamentoAlvo.gerentes },
           {
             alvoTipo: AgendamentoAlvo.equipe,
             alvoEquipeId: filterEquipeId,
@@ -895,6 +899,7 @@ export class AgendaService {
         alvoTipo: AgendamentoAlvo.gerente,
         alvoGerenteId: requester.id,
       });
+      clauses.push({ alvoTipo: AgendamentoAlvo.gerentes });
     } else if (requester.role === Role.corretor) {
       const user = await this.prisma.user.findUnique({
         where: { id: requester.id },
@@ -967,7 +972,7 @@ export class AgendaService {
       (dto.alvoTipo as AgendamentoAlvo | undefined) ?? existing.alvoTipo;
     if (tipo === AgendamentoAlvo.nenhum) {
       throw new BadRequestException(
-        'Eventos do admin devem ter público: todos, equipe ou gerente.',
+        'Eventos do admin devem ter público: todos, equipe, gerente ou gerentes.',
       );
     }
 
@@ -1001,6 +1006,14 @@ export class AgendaService {
     if (tipo === AgendamentoAlvo.todos) {
       return {
         alvoTipo: AgendamentoAlvo.todos,
+        alvoEquipeId: null,
+        alvoGerenteId: null,
+      };
+    }
+
+    if (tipo === AgendamentoAlvo.gerentes) {
+      return {
+        alvoTipo: AgendamentoAlvo.gerentes,
         alvoEquipeId: null,
         alvoGerenteId: null,
       };
@@ -1065,6 +1078,12 @@ export class AgendaService {
     if (alvoTipo !== AgendamentoAlvo.nenhum) {
       if (requester.role === Role.admin) return;
       if (alvoTipo === AgendamentoAlvo.todos) return;
+      if (
+        alvoTipo === AgendamentoAlvo.gerentes &&
+        requester.role === Role.gerente
+      ) {
+        return;
+      }
       if (
         alvoTipo === AgendamentoAlvo.gerente &&
         item.alvoGerenteId === requester.id

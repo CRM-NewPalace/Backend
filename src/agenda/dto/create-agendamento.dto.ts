@@ -25,7 +25,13 @@ export const AGENDAMENTO_STATUS = [
 
 export const AGENDAMENTO_ESCOPOS = ['pessoal', 'com_gerente'] as const;
 
-export const AGENDAMENTO_ALVOS = ['nenhum', 'todos', 'equipe', 'gerente'] as const;
+export const AGENDAMENTO_ALVOS = [
+  'nenhum',
+  'todos',
+  'equipe',
+  'gerente',
+  'gerentes',
+] as const;
 
 export class CreateAgendamentoDto {
   /** Opcional em tarefa pessoal; obrigatório quando envolve o gerente. */
@@ -46,7 +52,7 @@ export class CreateAgendamentoDto {
   @IsIn(AGENDAMENTO_ESCOPOS, { message: 'Escopo inválido.' })
   escopo!: (typeof AGENDAMENTO_ESCOPOS)[number];
 
-  /** Público de eventos do admin (todos / equipe / gerente). */
+  /** Público de eventos do admin (todos / equipe / gerente / gerentes). */
   @IsOptional()
   @IsIn(AGENDAMENTO_ALVOS, { message: 'Público do evento inválido.' })
   alvoTipo?: (typeof AGENDAMENTO_ALVOS)[number];
