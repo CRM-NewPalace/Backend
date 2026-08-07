@@ -676,7 +676,11 @@ export class FinanceiroService {
     const where: Prisma.FinanceiroComissaoWhereInput = { tenantId };
     if (requester.role === Role.corretor) where.corretorId = requester.id;
     if (requester.role === Role.gerente) {
-      where.equipeRegistro = { gerenteId: requester.id };
+      // Inclui comissão sem equipe (equipeId null) se o gerente estiver no snapshot.
+      where.OR = [
+        { equipeRegistro: { gerenteId: requester.id } },
+        { gerenteId: requester.id },
+      ];
     }
     const rows = await this.prisma.financeiroComissao.findMany({
       where,
