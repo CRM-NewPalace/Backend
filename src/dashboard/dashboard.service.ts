@@ -829,16 +829,16 @@ export class DashboardService {
   }
 
   /**
-   * Vendas/VGV no período alinhadas ao funil personalizado do tenant:
-   * etapa com papel/label de venda ou documentação vendida.
-   * `incluirEstoqueAtual`: conta leads que estão agora na etapa de venda
-   * (espelha o funil; use no mês atual).
+   * Vendas/VGV no período: documentação vendida com dataVenda (ou createdAt)
+   * no intervalo, e eventos de triagem que entraram na etapa de venda no
+   * intervalo. Não conta estoque atual do funil — leads ainda em "venda"
+   * de meses anteriores não devem inflar o mês filtrado.
    */
   private async aggregateVendasPorCorretor(
     tenantId: string,
     corretorIds: string[],
     periodo: Periodo,
-    opts?: { incluirEstoqueAtual?: boolean; origem?: string },
+    opts?: { origem?: string },
   ): Promise<{ vendas: Map<string, number>; vgv: Map<string, number> }> {
     const vendas = new Map<string, number>();
     const vgv = new Map<string, number>();
@@ -941,36 +941,6 @@ export class DashboardService {
           addVgv(event.lead.corretorId, event.lead.documentacoes[0]?.vgv);
         }
       }
-
-      const leadsNaVenda = await this.prisma.lead.findMany({
-        where: {
-          tenantId,
-          stage: { in: vendaSlugs },
-          perdidoAt: null,
-          corretorId: { in: corretorIds },
-          ...origemWhere,
-          ...(opts?.incluirEstoqueAtual
-            ? {}
-            : {
-                updatedAt: { gte: periodo.inicio, lt: periodo.fim },
-              }),
-        },
-        select: {
-          id: true,
-          corretorId: true,
-          documentacoes: {
-            select: { vgv: true },
-            orderBy: { updatedAt: 'desc' },
-            take: 1,
-          },
-        },
-      });
-      for (const lead of leadsNaVenda) {
-        const isNew = markSale(lead.id, lead.corretorId);
-        if (isNew) {
-          addVgv(lead.corretorId, lead.documentacoes[0]?.vgv);
-        }
-      }
     }
 
     return { vendas, vgv };
@@ -1016,7 +986,6 @@ export class DashboardService {
           _count: { _all: true },
         }),
         this.aggregateVendasPorCorretor(tenantId, ids, mesAtual, {
-          incluirEstoqueAtual: true,
           origem,
         }),
         this.aggregateVendasPorCorretor(tenantId, ids, mesAnterior, {
@@ -1163,15 +1132,10 @@ export class DashboardService {
             },
           });
         } else {
-          const agora = new Date();
           const agg = await this.aggregateVendasPorCorretor(
             tenantId,
             [corretorId],
             { inicio: meta.inicio, fim: meta.fim },
-            {
-              incluirEstoqueAtual:
-                agora >= meta.inicio && agora < meta.fim,
-            },
           );
           atual =
             meta.tipo === MetaTipo.vendas
@@ -1431,7 +1395,6 @@ export class DashboardService {
               }));
             }),
       this.aggregateVendasPorCorretor(tenantId, ids, mesAtual, {
-        incluirEstoqueAtual: true,
         origem,
       }),
       this.aggregateVendasPorCorretor(tenantId, ids, mesAnterior, { origem }),

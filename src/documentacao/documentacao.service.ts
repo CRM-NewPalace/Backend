@@ -77,7 +77,14 @@ const docSelect = {
 function parseOptionalDate(value?: string | null): Date | null | undefined {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
-  return new Date(value);
+  const raw = value.trim();
+  // Meia-noite UTC em YYYY-MM-DD desloca o dia 1º para o mês anterior
+  // na janela BRT do dashboard; meio-dia UTC mantém o dia civil.
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? new Date(`${raw}T12:00:00.000Z`)
+    : new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
 }
 
 function parseOptionalCreatedAt(value?: string | null): Date | null {
