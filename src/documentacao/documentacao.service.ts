@@ -379,26 +379,17 @@ export class DocumentacaoService {
 
   /**
    * - Corretor: só fichas comerciais que criou
-   * - Gerente: fichas de análise da equipe + próprias comerciais (carteira/vendas)
-   * - Analista: só fichas de análise (autor analista ou admin)
-   * - Admin: fichas de análise + próprias fichas comerciais (carteira/vendas)
+   * - Gerente: fichas da equipe (qualquer autor) + próprias comerciais
+   * - Analista / Admin: visão global do tenant (todas as fichas)
    */
   private async buildVisibilityWhere(
     requester: AuthenticatedUser,
   ): Promise<Prisma.DocumentacaoWhereInput> {
     switch (requester.role) {
       case Role.admin:
-        return {
-          OR: [
-            { autor: { role: { in: [Role.analista, Role.admin] } } },
-            { autorId: requester.id },
-            { corretorId: requester.id },
-          ],
-        };
       case Role.analista:
-        return {
-          autor: { role: { in: [Role.analista, Role.admin] } },
-        };
+        // Visão global: corretores, gerentes, analistas e admin.
+        return {};
       case Role.corretor:
         return { autorId: requester.id };
       case Role.gerente: {
@@ -407,6 +398,10 @@ export class DocumentacaoService {
         const teamActorIds = [...new Set([...teamCorretorIds, requester.id])];
         return {
           OR: [
+            { autorId: { in: teamActorIds } },
+            { corretorId: { in: teamActorIds } },
+            { gerenteId: requester.id },
+            { lead: { corretorId: { in: teamActorIds } } },
             {
               AND: [
                 { autor: { role: { in: [Role.analista, Role.admin] } } },
@@ -415,12 +410,11 @@ export class DocumentacaoService {
                     { corretorId: { in: teamActorIds } },
                     { gerenteId: requester.id },
                     { lead: { corretorId: { in: teamActorIds } } },
+                    { corretorId: null },
                   ],
                 },
               ],
             },
-            { autorId: requester.id },
-            { corretorId: requester.id },
           ],
         };
       }
@@ -447,18 +441,11 @@ export class DocumentacaoService {
   private canMutateDocumentacao(
     requester: AuthenticatedUser,
     autorId: string,
-    autorRole: Role,
+    _autorRole: Role,
   ): boolean {
-    // Admin: fichas de análise + as que ele próprio criou (vendas/carteira).
-    if (requester.role === Role.admin) {
-      return (
-        autorId === requester.id ||
-        autorRole === Role.analista ||
-        autorRole === Role.admin
-      );
-    }
-    if (requester.role === Role.analista) {
-      return autorId === requester.id || autorRole === Role.admin;
+    // Admin/analista: visão global — podem editar qualquer ficha do tenant.
+    if (requester.role === Role.admin || requester.role === Role.analista) {
+      return true;
     }
     // Corretor/gerente: só as próprias fichas comerciais.
     if (

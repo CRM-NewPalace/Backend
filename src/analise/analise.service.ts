@@ -249,7 +249,7 @@ export class AnaliseService {
 
   /**
    * Espelha o parecer da análise no Status 1 (e VGV, se aprovado)
-   * das fichas de documentação (autor analista/admin) do mesmo lead.
+   * de todas as fichas de documentação do mesmo lead.
    */
   private async syncDocumentacaoFromAnalise(
     tenantId: string,
@@ -265,7 +265,6 @@ export class AnaliseService {
       where: {
         tenantId,
         leadId,
-        autor: { role: { in: [Role.analista, Role.admin] } },
       },
       data: {
         status1,
