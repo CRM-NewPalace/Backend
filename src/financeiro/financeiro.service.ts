@@ -1183,46 +1183,6 @@ export class FinanceiroService {
     return { ok: true };
   }
 
-  async demonstrativo(requester: AuthenticatedUser) {
-    this.assertAccess(requester);
-    const tenantId = resolveFinanceiroTenantId(requester);
-    const mesesResumo = await this.buildMesesResumo(tenantId, 3);
-    const meses = mesesResumo.map((m) => m.mes);
-
-    const linha = (
-      id: string,
-      grupo: 'receita' | 'custo' | 'despesa' | 'resultado',
-      label: string,
-      valores: Record<string, number>,
-      destaque?: boolean,
-    ) => ({
-      id,
-      grupo,
-      label,
-      valores,
-      ...(destaque ? { destaque: true } : {}),
-    });
-
-    const receitas: Record<string, number> = {};
-    const despesas: Record<string, number> = {};
-    const resultado: Record<string, number> = {};
-    for (const m of mesesResumo) {
-      receitas[m.mes] = m.receitas;
-      despesas[m.mes] = m.despesas;
-      resultado[m.mes] = m.receitas - m.despesas;
-    }
-
-    return {
-      meses,
-      linhas: [
-        linha('rec', 'receita', 'Receitas', receitas),
-        linha('desp', 'despesa', 'Despesas', despesas),
-        linha('res', 'resultado', 'Resultado', resultado, true),
-      ],
-      mesesResumo,
-    };
-  }
-
   // ─── Helpers ─────────────────────────────────────────────────
 
   private async buildMesesResumo(tenantId: string, qtd: number) {

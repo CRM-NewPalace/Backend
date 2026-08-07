@@ -74,12 +74,6 @@ export class FinanceiroController {
     return this.financeiroService.centrosDespesa(requester);
   }
 
-  @Get('demonstrativo')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
-  demonstrativo(@CurrentUser() requester: AuthenticatedUser) {
-    return this.financeiroService.demonstrativo(requester);
-  }
-
   // ─── Parceiros ───────────────────────────────────────────────
 
   @Get('parceiros')
