@@ -41,10 +41,8 @@ export class EquipesService {
   async list(requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
 
-    const where: Prisma.EquipeWhereInput =
-      requester.role === Role.admin
-        ? { tenantId }
-        : { tenantId, gerenteId: requester.id };
+    // Admin e gerente listam todas as equipes (gerente precisa delas para distribuir).
+    const where: Prisma.EquipeWhereInput = { tenantId };
 
     const equipes = await this.prisma.equipe.findMany({
       where,
@@ -98,14 +96,7 @@ export class EquipesService {
     if (!equipe) {
       throw new NotFoundException('Equipe não encontrada.');
     }
-    if (
-      requester.role === Role.gerente &&
-      equipe.gerenteId !== requester.id
-    ) {
-      throw new ForbiddenException(
-        'Você só pode visualizar a equipe que lidera.',
-      );
-    }
+    // Gerente pode visualizar qualquer equipe (distribuição); CRUD continua só no admin.
     return equipe;
   }
 

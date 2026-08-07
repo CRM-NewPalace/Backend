@@ -7,7 +7,7 @@ import { requireTenantId } from '../common/utils/tenant';
 /**
  * Escopo de dados por equipe, sempre aninhado ao tenant do requester:
  * - admin / analista → todos do tenant
- * - gerente → só corretores da equipe que lidera
+ * - gerente → equipe própria + carteira própria + pool do admin (leads sem dono)
  * - corretor → só o próprio
  */
 @Injectable()
@@ -60,9 +60,12 @@ export class TeamScopeService {
         tenantId,
         OR: [
           { corretorId: { in: ids } },
+          // Pool da própria equipe.
           ...(equipe
             ? [{ equipeId: equipe.id, corretorId: null as null }]
             : []),
+          // Pool do admin (leads aguardando distribuição).
+          { equipeId: null, corretorId: null },
         ],
       };
     }
@@ -81,8 +84,9 @@ export class TeamScopeService {
       if (requester.role === Role.admin || requester.role === Role.analista) {
         return true;
       }
-      // Gerente vê pool da própria equipe (sem corretor ainda).
-      if (requester.role === Role.gerente && equipeId) {
+      // Gerente: pool do admin (sem equipe) ou pool da própria equipe.
+      if (requester.role === Role.gerente) {
+        if (!equipeId) return true;
         const equipe = await this.prisma.equipe.findFirst({
           where: {
             id: equipeId,

@@ -62,7 +62,7 @@ export class LeadsController {
 
   @Post('distribuir/equipes')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.gerente)
   distribuirEquipes(
     @Body() dto: DistribuirEquipesDto,
     @CurrentUser() requester: AuthenticatedUser,
