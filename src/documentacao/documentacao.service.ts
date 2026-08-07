@@ -251,6 +251,15 @@ export class DocumentacaoService {
           select: docSelect,
         });
 
+    // Garante que o lead fique com o corretor creditado na ficha
+    // (admin pode criar venda já atribuída a outro corretor).
+    if (corretorId && lead.corretorId !== corretorId) {
+      await this.prisma.lead.update({
+        where: { id: lead.id },
+        data: { corretorId },
+      });
+    }
+
     if (isStatusVendido(status2)) {
       await this.moveLeadsToVendaStage(tenantId, [lead.id], requester.id);
     } else {
@@ -395,6 +404,19 @@ export class DocumentacaoService {
       select: docSelect,
     });
 
+    const creditedCorretorId =
+      dto.corretorId !== undefined ? dto.corretorId : updated.corretorId;
+    if (creditedCorretorId) {
+      await this.prisma.lead.updateMany({
+        where: {
+          id: existing.leadId,
+          tenantId,
+          NOT: { corretorId: creditedCorretorId },
+        },
+        data: { corretorId: creditedCorretorId },
+      });
+    }
+
     if (isStatusVendido(updated.status2)) {
       await this.moveLeadsToVendaStage(
         tenantId,
@@ -452,7 +474,7 @@ export class DocumentacaoService {
   }
 
   /**
-   * - Corretor: só fichas comerciais que criou
+   * - Corretor: fichas que criou ou em que está creditado (corretorId / lead)
    * - Gerente: fichas da equipe (qualquer autor) + próprias comerciais
    * - Analista / Admin: visão global do tenant (todas as fichas)
    */
@@ -465,7 +487,15 @@ export class DocumentacaoService {
         // Visão global: corretores, gerentes, analistas e admin.
         return {};
       case Role.corretor:
-        return { autorId: requester.id };
+        // Admin/gerente pode criar a ficha já como venda creditando o corretor;
+        // nesses casos autorId ≠ corretor, mas a venda precisa aparecer para ele.
+        return {
+          OR: [
+            { autorId: requester.id },
+            { corretorId: requester.id },
+            { lead: { corretorId: requester.id } },
+          ],
+        };
       case Role.gerente: {
         const teamCorretorIds =
           (await this.teamScope.getVisibleCorretorIds(requester)) ?? [];

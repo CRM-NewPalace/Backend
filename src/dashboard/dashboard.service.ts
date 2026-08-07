@@ -149,6 +149,14 @@ export class DashboardService {
     );
     const inicioAmanha = new Date(inicioHoje.getTime() + 24 * 60 * 60 * 1000);
     const leadWhere = { tenantId, corretorId: requester.id, perdidoAt: null };
+    // Fichas creditadas ao corretor (mesmo se o admin criou a documentação).
+    const docWhereCorretor = {
+      tenantId,
+      OR: [
+        { corretorId: requester.id },
+        { lead: { corretorId: requester.id } },
+      ],
+    };
 
     const periodoMes = { inicio: inicioMes, fim: inicioProximoMes };
     const [
@@ -184,14 +192,13 @@ export class DashboardService {
       }),
       this.prisma.documentacao.groupBy({
         by: ['status2'],
-        where: { tenantId, lead: leadWhere },
+        where: docWhereCorretor,
         _count: { _all: true },
       }),
       this.prisma.documentacao.groupBy({
         by: ['status2'],
         where: {
-          tenantId,
-          lead: leadWhere,
+          ...docWhereCorretor,
           ...documentacaoVendaNoPeriodoWhere(periodoMes),
         },
         _sum: { vgv: true },
