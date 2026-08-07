@@ -178,35 +178,78 @@ export class DocumentacaoService {
 
     const status2 = canonicalizeStatus2(dto.status2);
     const createdAt = parseOptionalCreatedAt(dto.createdAt);
-    const created = await this.prisma.documentacao.create({
-      data: {
-        tenantId,
-        leadId: lead.id,
-        autorId: requester.id,
-        tipoContato: lead.tipo,
-        stageSituacao: lead.stage,
-        nome: dto.nome.trim(),
-        construtoraId: dto.construtoraId || lead.construtoraId || null,
-        empreendimentoId:
-          dto.empreendimentoId || lead.empreendimentoId || null,
-        fonte: dto.fonte.trim(),
-        status1,
-        status2,
-        corretorId,
-        gerenteId,
-        dataAnalise,
-        dataVenda: parseOptionalDate(dto.dataVenda) ?? null,
-        vgv: dto.vgv ?? null,
-        obs: dto.obs?.trim() || null,
-        temEntrada: dto.temEntrada ?? false,
-        valorEntrada: dto.temEntrada ? (dto.valorEntrada ?? null) : null,
-        temFgts: dto.temFgts ?? false,
-        valorFgts: dto.temFgts ? (dto.valorFgts ?? null) : null,
-        temDependente: dto.temDependente ?? false,
-        ...(createdAt ? { createdAt } : {}),
-      },
-      select: docSelect,
+
+    // Uma ficha ativa por lead: evita duplicar (comercial + analista).
+    const existingLatest = await this.prisma.documentacao.findFirst({
+      where: { tenantId, leadId: lead.id },
+      select: { id: true, status2: true },
+      orderBy: { createdAt: 'desc' },
     });
+    const reuseId =
+      existingLatest && !isStatusVendido(existingLatest.status2)
+        ? existingLatest.id
+        : null;
+
+    const payload = {
+      tipoContato: lead.tipo,
+      stageSituacao: lead.stage,
+      nome: dto.nome.trim(),
+      construtoraId: dto.construtoraId || lead.construtoraId || null,
+      empreendimentoId:
+        dto.empreendimentoId || lead.empreendimentoId || null,
+      fonte: dto.fonte.trim(),
+      status1,
+      status2,
+      corretorId,
+      gerenteId,
+      dataAnalise,
+      dataVenda: parseOptionalDate(dto.dataVenda) ?? null,
+      vgv: dto.vgv ?? null,
+      obs: dto.obs?.trim() || null,
+      temEntrada: dto.temEntrada ?? false,
+      valorEntrada: dto.temEntrada ? (dto.valorEntrada ?? null) : null,
+      temFgts: dto.temFgts ?? false,
+      valorFgts: dto.temFgts ? (dto.valorFgts ?? null) : null,
+      temDependente: dto.temDependente ?? false,
+    };
+
+    const created = reuseId
+      ? await this.prisma.documentacao.update({
+          where: { id: reuseId },
+          data: {
+            tipoContato: payload.tipoContato,
+            stageSituacao: payload.stageSituacao,
+            nome: payload.nome,
+            construtoraId: payload.construtoraId,
+            empreendimentoId: payload.empreendimentoId,
+            fonte: payload.fonte,
+            status1: payload.status1,
+            status2: payload.status2,
+            dataAnalise: payload.dataAnalise,
+            dataVenda: payload.dataVenda,
+            vgv: payload.vgv,
+            obs: payload.obs,
+            temEntrada: payload.temEntrada,
+            valorEntrada: payload.valorEntrada,
+            temFgts: payload.temFgts,
+            valorFgts: payload.valorFgts,
+            temDependente: payload.temDependente,
+            // Completa vínculos; não apaga gerente/corretor já gravados.
+            ...(corretorId ? { corretorId } : {}),
+            ...(gerenteId ? { gerenteId } : {}),
+          },
+          select: docSelect,
+        })
+      : await this.prisma.documentacao.create({
+          data: {
+            tenantId,
+            leadId: lead.id,
+            autorId: requester.id,
+            ...payload,
+            ...(createdAt ? { createdAt } : {}),
+          },
+          select: docSelect,
+        });
 
     if (isStatusVendido(status2)) {
       await this.moveLeadsToVendaStage(tenantId, [lead.id], requester.id);
