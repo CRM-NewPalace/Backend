@@ -114,12 +114,14 @@ export class LeadsService {
 
   async importMany(dto: ImportLeadsDto, requester: AuthenticatedUser) {
     if (requester.role === Role.analista) {
-      throw new ForbiddenException('Analistas não podem importar leads.');
+      throw new ForbiddenException('Analistas não podem importar contatos.');
     }
 
     const tenantId = requireTenantId(requester);
     const defaultStage = await this.catalog.getDefaultStageSlug(tenantId);
     await this.ensureStageIsValid(tenantId, defaultStage);
+    const tipo =
+      dto.tipo === 'cliente' ? ContatoTipo.cliente : ContatoTipo.lead;
 
     const created: LeadEntity[] = [];
     const errors: Array<{ index: number; nome: string; message: string }> = [];
@@ -127,12 +129,20 @@ export class LeadsService {
     for (let index = 0; index < dto.leads.length; index++) {
       const item = dto.leads[index];
       try {
-        /** Importação começa sem dono; só atribui se vier corretorId explícito. */
+        /**
+         * Importação de leads começa sem dono (pool).
+         * Clientes vão para a carteira de quem importa (ou corretor explícito).
+         */
         let corretorId: string | null = null;
         if (item.corretorId) {
           await this.ensureCorretorAssignable(item.corretorId, requester);
           corretorId = item.corretorId;
         } else if (this.isCorretor(requester)) {
+          corretorId = requester.id;
+        } else if (
+          tipo === ContatoTipo.cliente &&
+          (requester.role === Role.admin || requester.role === Role.gerente)
+        ) {
           corretorId = requester.id;
         }
 
@@ -144,7 +154,7 @@ export class LeadsService {
         const lead = await this.prisma.lead.create({
           data: {
             tenantId,
-            tipo: ContatoTipo.lead,
+            tipo,
             nome: item.nome.trim(),
             telefone: item.telefone.trim(),
             email,
@@ -164,7 +174,9 @@ export class LeadsService {
         created.push(lead);
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : 'Falha ao importar este lead.';
+          err instanceof Error
+            ? err.message
+            : 'Falha ao importar este registro.';
         errors.push({
           index,
           nome: item.nome,

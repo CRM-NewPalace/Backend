@@ -16,7 +16,11 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { LEAD_INTERESSES, LEAD_PRIORIDADES } from '../lead.constants';
+import {
+  CONTATO_TIPOS,
+  LEAD_INTERESSES,
+  LEAD_PRIORIDADES,
+} from '../lead.constants';
 
 export class ImportLeadItemDto {
   @IsString()
@@ -78,9 +82,14 @@ export class ImportLeadItemDto {
 }
 
 export class ImportLeadsDto {
+  /** lead (padrão) = captação; cliente = carteira. */
+  @IsOptional()
+  @IsIn(CONTATO_TIPOS, { message: 'Tipo inválido.' })
+  tipo?: (typeof CONTATO_TIPOS)[number];
+
   @IsArray()
-  @ArrayMinSize(1, { message: 'Envie ao menos 1 lead.' })
-  @ArrayMaxSize(300, { message: 'Máximo de 300 leads por importação.' })
+  @ArrayMinSize(1, { message: 'Envie ao menos 1 registro.' })
+  @ArrayMaxSize(300, { message: 'Máximo de 300 registros por importação.' })
   @ValidateNested({ each: true })
   @Type(() => ImportLeadItemDto)
   leads!: ImportLeadItemDto[];
