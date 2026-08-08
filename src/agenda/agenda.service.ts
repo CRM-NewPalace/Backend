@@ -71,6 +71,16 @@ const agendamentoSelect = {
   },
 } as const;
 
+const ANIVERSARIO_ID_PREFIX = 'aniversario:';
+
+type AgendamentoListItem = Prisma.AgendamentoGetPayload<{
+  select: typeof agendamentoSelect;
+}> & { isAniversario?: boolean };
+
+function isAniversarioId(id: string) {
+  return id.startsWith(ANIVERSARIO_ID_PREFIX);
+}
+
 @Injectable()
 export class AgendaService {
   constructor(
@@ -85,7 +95,10 @@ export class AgendaService {
    * - com_gerente aprovado: autor + gerente/admin da equipe
    * - com_gerente pendente: corretor autor ainda vê no calendário
    */
-  async list(query: QueryAgendamentoDto, requester: AuthenticatedUser) {
+  async list(
+    query: QueryAgendamentoDto,
+    requester: AuthenticatedUser,
+  ): Promise<AgendamentoListItem[]> {
     const tenantId = requireTenantId(requester);
     const sharedAccess = await this.buildSharedAccessFilter(
       requester,
@@ -144,11 +157,30 @@ export class AgendaService {
       if (query.to) where.startsAt.lte = new Date(query.to);
     }
 
-    return this.prisma.agendamento.findMany({
-      where,
-      select: agendamentoSelect,
-      orderBy: { startsAt: 'asc' },
+    const rows: AgendamentoListItem[] =
+      await this.prisma.agendamento.findMany({
+        where,
+        select: agendamentoSelect,
+        orderBy: { startsAt: 'asc' },
+      });
+
+    const aniversarios = await this.buildCorretorAniversarios({
+      tenantId,
+      requester,
+      from: query.from ? new Date(query.from) : null,
+      to: query.to ? new Date(query.to) : null,
+      tipo: query.tipo,
+      status: query.status,
+      equipeId: query.equipeId,
+      corretorId: query.corretorId,
     });
+
+    if (aniversarios.length === 0) return rows;
+
+    return [...rows, ...aniversarios].sort(
+      (a, b) =>
+        new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+    );
   }
 
   /** Solicitações pendentes: gerente aprova da equipe; corretor acompanha as próprias. Admin não recebe. */
@@ -212,14 +244,16 @@ export class AgendaService {
     const MS_2H = 2 * MS_1H;
     const MS_1D = 24 * MS_1H;
 
-    const upcoming = await this.list(
-      {
-        status: AgendamentoStatus.agendado,
-        from: now.toISOString(),
-        to: horizon.toISOString(),
-      },
-      requester,
-    );
+    const upcoming = (
+      await this.list(
+        {
+          status: AgendamentoStatus.agendado,
+          from: now.toISOString(),
+          to: horizon.toISOString(),
+        },
+        requester,
+      )
+    ).filter((item) => !item.isAniversario && !isAniversarioId(item.id));
 
     const corretorIds = Array.from(
       new Set(
@@ -406,6 +440,11 @@ export class AgendaService {
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
+    if (isAniversarioId(id)) {
+      throw new NotFoundException(
+        'Aniversários são somente leitura e não podem ser abertos como compromisso.',
+      );
+    }
     const tenantId = requireTenantId(requester);
     const item = await this.prisma.agendamento.findFirst({
       where: { id, tenantId },
@@ -521,6 +560,11 @@ export class AgendaService {
     dto: UpdateAgendamentoDto,
     requester: AuthenticatedUser,
   ) {
+    if (isAniversarioId(id)) {
+      throw new BadRequestException(
+        'Aniversários de corretores são somente leitura.',
+      );
+    }
     const tenantId = requireTenantId(requester);
     const existing = await this.prisma.agendamento.findFirst({
       where: { id, tenantId },
@@ -728,6 +772,11 @@ export class AgendaService {
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
+    if (isAniversarioId(id)) {
+      throw new BadRequestException(
+        'Aniversários de corretores são somente leitura.',
+      );
+    }
     const tenantId = requireTenantId(requester);
     const existing = await this.prisma.agendamento.findFirst({
       where: { id, tenantId },
@@ -1144,6 +1193,107 @@ export class AgendaService {
     }
 
     throw new NotFoundException('Agendamento não encontrado.');
+  }
+
+  /**
+   * Aniversários virtuais dos corretores na agenda do admin.
+   * Projetados no intervalo from/to — não são persistidos.
+   */
+  private async buildCorretorAniversarios(opts: {
+    tenantId: string;
+    requester: AuthenticatedUser;
+    from: Date | null;
+    to: Date | null;
+    tipo?: AgendamentoTipo;
+    status?: AgendamentoStatus;
+    equipeId?: string;
+    corretorId?: string;
+  }): Promise<AgendamentoListItem[]> {
+    const { requester, from, to } = opts;
+    if (requester.role !== Role.admin) return [];
+    if (!from || !to) return [];
+    if (opts.tipo && opts.tipo !== AgendamentoTipo.outro) return [];
+    if (opts.status && opts.status !== AgendamentoStatus.agendado) return [];
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];
+    if (from.getTime() > to.getTime()) return [];
+
+    const corretores = await this.prisma.user.findMany({
+      where: {
+        tenantId: opts.tenantId,
+        role: Role.corretor,
+        status: UserStatus.ativo,
+        dataNascimento: { not: null },
+        ...(opts.corretorId ? { id: opts.corretorId } : {}),
+        ...(opts.equipeId ? { equipeId: opts.equipeId } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        dataNascimento: true,
+        equipeId: true,
+        equipe: { select: { id: true, name: true } },
+      },
+    });
+    if (corretores.length === 0) return [];
+
+    const years = new Set<number>();
+    // Usa partes UTC: dataNascimento é salva ao meio-dia UTC.
+    const fromY = from.getUTCFullYear();
+    const toY = to.getUTCFullYear();
+    for (let y = fromY; y <= toY; y += 1) years.add(y);
+    // Janela que cruza virada do ano com from/to em UTC.
+    years.add(fromY - 1);
+    years.add(toY + 1);
+
+    const now = new Date();
+    const items: AgendamentoListItem[] = [];
+    for (const corretor of corretores) {
+      const nasc = corretor.dataNascimento;
+      if (!nasc) continue;
+      const month = nasc.getUTCMonth();
+      const day = nasc.getUTCDate();
+      for (const year of years) {
+        // 09:00 BRT = 12:00 UTC — cai na grade diária da agenda.
+        const startsAt = new Date(Date.UTC(year, month, day, 12, 0, 0));
+        if (startsAt < from || startsAt > to) continue;
+        const dayKey = startsAt.toISOString().slice(0, 10);
+        items.push({
+          id: `${ANIVERSARIO_ID_PREFIX}${corretor.id}:${dayKey}`,
+          leadId: null,
+          autorId: corretor.id,
+          titulo: `Aniversário — ${corretor.name}`,
+          tipo: AgendamentoTipo.outro,
+          status: AgendamentoStatus.agendado,
+          escopo: AgendamentoEscopo.pessoal,
+          solicitacaoStatus: AgendamentoSolicitacaoStatus.nenhuma,
+          alvoTipo: AgendamentoAlvo.todos,
+          alvoEquipeId: corretor.equipeId,
+          alvoGerenteId: null,
+          startsAt,
+          endsAt: null,
+          local: null,
+          observacoes: 'Aniversário do corretor (somente leitura).',
+          motivoRecusa: null,
+          aprovadoAt: null,
+          createdAt: now,
+          updatedAt: now,
+          autor: {
+            id: corretor.id,
+            name: corretor.name,
+            role: corretor.role,
+          },
+          aprovadoPor: null,
+          alvoEquipe: corretor.equipe
+            ? { id: corretor.equipe.id, name: corretor.equipe.name }
+            : null,
+          alvoGerente: null,
+          lead: null,
+          isAniversario: true,
+        });
+      }
+    }
+    return items;
   }
 
   /** Compromissos do admin só podem ser alterados por admin. */
