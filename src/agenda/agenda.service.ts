@@ -164,7 +164,7 @@ export class AgendaService {
         orderBy: { startsAt: 'asc' },
       });
 
-    const aniversarios = await this.buildCorretorAniversarios({
+    const aniversarios = await this.buildUsuarioAniversarios({
       tenantId,
       requester,
       from: query.from ? new Date(query.from) : null,
@@ -1196,10 +1196,10 @@ export class AgendaService {
   }
 
   /**
-   * Aniversários virtuais dos corretores na agenda do admin.
-   * Projetados no intervalo from/to — não são persistidos.
+   * Aniversários virtuais da equipe (admin, gerente, analista, corretor)
+   * na agenda do admin. Projetados no intervalo from/to — não são persistidos.
    */
-  private async buildCorretorAniversarios(opts: {
+  private async buildUsuarioAniversarios(opts: {
     tenantId: string;
     requester: AuthenticatedUser;
     from: Date | null;
@@ -1217,14 +1217,35 @@ export class AgendaService {
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];
     if (from.getTime() > to.getTime()) return [];
 
-    const corretores = await this.prisma.user.findMany({
+    const roleLabel: Record<Role, string> = {
+      [Role.admin]: 'Administrador',
+      [Role.gerente]: 'Gerente',
+      [Role.analista]: 'Analista',
+      [Role.corretor]: 'Corretor',
+      [Role.super_admin]: 'Plataforma',
+    };
+
+    // Filtro por corretor específico: só esse usuário.
+    // Filtro por equipe: membros da equipe + gerente da equipe.
+    const equipeOr = opts.equipeId
+      ? {
+          OR: [
+            { equipeId: opts.equipeId },
+            { equipeGerenciada: { id: opts.equipeId } },
+          ],
+        }
+      : {};
+
+    const usuarios = await this.prisma.user.findMany({
       where: {
         tenantId: opts.tenantId,
-        role: Role.corretor,
+        role: {
+          in: [Role.admin, Role.gerente, Role.analista, Role.corretor],
+        },
         status: UserStatus.ativo,
         dataNascimento: { not: null },
         ...(opts.corretorId ? { id: opts.corretorId } : {}),
-        ...(opts.equipeId ? { equipeId: opts.equipeId } : {}),
+        ...equipeOr,
       },
       select: {
         id: true,
@@ -1233,9 +1254,10 @@ export class AgendaService {
         dataNascimento: true,
         equipeId: true,
         equipe: { select: { id: true, name: true } },
+        equipeGerenciada: { select: { id: true, name: true } },
       },
     });
-    if (corretores.length === 0) return [];
+    if (usuarios.length === 0) return [];
 
     const years = new Set<number>();
     // Usa partes UTC: dataNascimento é salva ao meio-dia UTC.
@@ -1248,44 +1270,47 @@ export class AgendaService {
 
     const now = new Date();
     const items: AgendamentoListItem[] = [];
-    for (const corretor of corretores) {
-      const nasc = corretor.dataNascimento;
+    for (const usuario of usuarios) {
+      const nasc = usuario.dataNascimento;
       if (!nasc) continue;
       const month = nasc.getUTCMonth();
       const day = nasc.getUTCDate();
+      const perfil = roleLabel[usuario.role] ?? 'Usuário';
+      const equipe =
+        usuario.equipe ?? usuario.equipeGerenciada ?? null;
       for (const year of years) {
         // 09:00 BRT = 12:00 UTC — cai na grade diária da agenda.
         const startsAt = new Date(Date.UTC(year, month, day, 12, 0, 0));
         if (startsAt < from || startsAt > to) continue;
         const dayKey = startsAt.toISOString().slice(0, 10);
         items.push({
-          id: `${ANIVERSARIO_ID_PREFIX}${corretor.id}:${dayKey}`,
+          id: `${ANIVERSARIO_ID_PREFIX}${usuario.id}:${dayKey}`,
           leadId: null,
-          autorId: corretor.id,
-          titulo: `Aniversário — ${corretor.name}`,
+          autorId: usuario.id,
+          titulo: `Aniversário — ${usuario.name}`,
           tipo: AgendamentoTipo.outro,
           status: AgendamentoStatus.agendado,
           escopo: AgendamentoEscopo.pessoal,
           solicitacaoStatus: AgendamentoSolicitacaoStatus.nenhuma,
           alvoTipo: AgendamentoAlvo.todos,
-          alvoEquipeId: corretor.equipeId,
+          alvoEquipeId: equipe?.id ?? usuario.equipeId,
           alvoGerenteId: null,
           startsAt,
           endsAt: null,
           local: null,
-          observacoes: 'Aniversário do corretor (somente leitura).',
+          observacoes: `Aniversário · ${perfil} (somente leitura).`,
           motivoRecusa: null,
           aprovadoAt: null,
           createdAt: now,
           updatedAt: now,
           autor: {
-            id: corretor.id,
-            name: corretor.name,
-            role: corretor.role,
+            id: usuario.id,
+            name: usuario.name,
+            role: usuario.role,
           },
           aprovadoPor: null,
-          alvoEquipe: corretor.equipe
-            ? { id: corretor.equipe.id, name: corretor.equipe.name }
+          alvoEquipe: equipe
+            ? { id: equipe.id, name: equipe.name }
             : null,
           alvoGerente: null,
           lead: null,
