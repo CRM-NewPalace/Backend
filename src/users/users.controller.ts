@@ -58,6 +58,12 @@ export class UsersController {
     return this.usersService.findAll(query, requester);
   }
 
+  @Get('presence/today')
+  @Roles(Role.admin, Role.gerente)
+  presenceToday(@CurrentUser() requester: AuthenticatedUser) {
+    return this.usersService.presenceToday(requester);
+  }
+
   @Get(':id')
   @Roles(Role.admin, Role.gerente)
   findOne(

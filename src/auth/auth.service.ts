@@ -11,6 +11,7 @@ import { LoginFailureReason, Role, User, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PresenceService } from '../presence/presence.service';
 import { publicUserSelect, PublicUser } from '../common/utils/user-select';
 import {
   tenantBrandingSelect,
@@ -62,6 +63,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly presence: PresenceService,
   ) {}
 
   async login(
@@ -122,6 +124,7 @@ export class AuthService {
       },
     });
     await this.recordAttempt(normalizedEmail, true, context);
+    await this.presence.heartbeat(user.id, user.tenantId);
 
     return { ...tokens, user: await this.toPublicUser(user) };
   }
@@ -219,6 +222,12 @@ export class AuthService {
       where: { id: userId },
       data: { hashedRefreshToken: null },
     });
+    await this.presence.closeOpenSegments(userId);
+  }
+
+  /** Mantém o segmento de sessão ativo enquanto o usuário usa o CRM. */
+  async heartbeat(userId: string, tenantId: string | null): Promise<void> {
+    await this.presence.heartbeat(userId, tenantId);
   }
 
   async me(userId: string): Promise<AuthUserPayload> {

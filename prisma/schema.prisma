@@ -126,6 +126,7 @@ model Tenant {
   financeiroDespesaTipos  FinanceiroDespesaTipo[]
   financeiroDespesas      FinanceiroDespesa[]
   platformContratos       PlatformContrato[]
+  sessionSegments         UserSessionSegment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -260,6 +261,9 @@ model User {
   equipeId String?
   equipe   Equipe? @relation("EquipeMembros", fields: [equipeId], references: [id], onDelete: SetNull)
 
+  /// Segmentos de presença (tempo logado) do usuário.
+  sessionSegments UserSessionSegment[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -269,6 +273,31 @@ model User {
   @@index([equipeId])
   @@index([tenantId])
   @@map("users")
+}
+
+/// Trecho contínuo de atividade no sistema (heartbeat).
+/// Usado para calcular quanto tempo o usuário ficou logado no dia.
+model UserSessionSegment {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Dia civil em America/Sao_Paulo (YYYY-MM-DD).
+  dateKey    String
+  startedAt  DateTime
+  lastSeenAt DateTime
+  /// Null enquanto o segmento está aberto (usuário ainda ativo).
+  endedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, dateKey])
+  @@index([userId, dateKey])
+  @@index([userId, endedAt])
+  @@map("user_session_segments")
 }
 
 /// Equipe comercial: um gerente e vários corretores.

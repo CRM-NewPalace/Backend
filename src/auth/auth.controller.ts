@@ -18,6 +18,7 @@ import {
   RequestContext,
   type ClientContext,
 } from '../common/decorators/request-context.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   clearAuthCookies,
   COOKIE,
@@ -94,6 +95,12 @@ export class AuthController {
   ) {
     await this.authService.logout(userId);
     clearAuthCookies(res, this.config);
+  }
+
+  @Post('heartbeat')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async heartbeat(@CurrentUser() user: AuthenticatedUser) {
+    await this.authService.heartbeat(user.id, user.tenantId);
   }
 
   @Get('me')

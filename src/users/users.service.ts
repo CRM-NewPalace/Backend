@@ -10,6 +10,10 @@ import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
+import {
+  PresenceService,
+  type UserPresenceToday,
+} from '../presence/presence.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { publicUserSelect, PublicUser } from '../common/utils/user-select';
@@ -46,6 +50,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teamScope: TeamScopeService,
+    private readonly presence: PresenceService,
   ) {}
 
   async create(
@@ -200,6 +205,23 @@ export class UsersService {
     };
   }
 
+  /** Tempo logado no dia (America/Sao_Paulo) dos usuários visíveis ao requester. */
+  async presenceToday(
+    requester: AuthenticatedUser,
+  ): Promise<{ data: UserPresenceToday[] }> {
+    const tenantId = requireTenantId(requester);
+    const teamFilter = await this.teamUserFilter(requester);
+    const users = await this.prisma.user.findMany({
+      where: teamFilter,
+      select: { id: true },
+    });
+    const data = await this.presence.summarizeToday(
+      tenantId,
+      users.map((u) => u.id),
+    );
+    return { data };
+  }
+
   async findOne(
     id: string,
     requester: AuthenticatedUser,
@@ -309,6 +331,10 @@ export class UsersService {
       throw new ForbiddenException('Você não pode inativar a própria conta.');
     }
     await this.ensureExists(id, tenantId);
+
+    if (status === UserStatus.inativo) {
+      await this.presence.closeOpenSegments(id);
+    }
 
     return this.prisma.user.update({
       where: { id },
