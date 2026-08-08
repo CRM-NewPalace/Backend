@@ -448,6 +448,7 @@ export class AuthService {
       email: user.email,
       phone: user.phone,
       whatsapp: user.whatsapp,
+      dataNascimento: user.dataNascimento,
       cargo: user.cargo,
       cor: user.cor,
       role: user.role,

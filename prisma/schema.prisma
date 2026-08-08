@@ -177,6 +177,8 @@ model User {
   phone     String?
   /// WhatsApp do corretor (admin cadastra; usado para enviar resultado da análise).
   whatsapp  String?
+  /// Data de nascimento (útil no cadastro de corretor e demais usuários).
+  dataNascimento DateTime?
   cargo     String?
   /// Cor de destaque em hex (#RRGGBB) para badges (ex.: Documentação).
   cor       String?

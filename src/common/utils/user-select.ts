@@ -8,6 +8,7 @@ export const publicUserSelect = {
   email: true,
   phone: true,
   whatsapp: true,
+  dataNascimento: true,
   cargo: true,
   cor: true,
   role: true,

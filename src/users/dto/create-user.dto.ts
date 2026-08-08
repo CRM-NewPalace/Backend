@@ -1,5 +1,6 @@
 import { Role, UserStatus } from '@prisma/client';
 import {
+  IsDateString,
   IsEmail,
   IsEnum,
   IsIn,
@@ -39,6 +40,11 @@ export class CreateUserDto {
   @IsString()
   @MaxLength(30)
   whatsapp?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsDateString({}, { message: 'Data de nascimento inválida.' })
+  dataNascimento?: string | null;
 
   @IsOptional()
   @IsString()

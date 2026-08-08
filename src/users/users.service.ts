@@ -25,6 +25,22 @@ export interface PaginatedUsers {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+/** YYYY-MM-DD → meio-dia UTC (evita deslocar o dia em BRT). */
+function parseDataNascimento(
+  value?: string | null,
+): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const raw = value.trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? new Date(`${raw}T12:00:00.000Z`)
+    : new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException('Data de nascimento inválida.');
+  }
+  return date;
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -58,6 +74,7 @@ export class UsersService {
         password: await bcrypt.hash(dto.password, SALT_ROUNDS),
         phone: dto.phone,
         whatsapp: dto.whatsapp,
+        dataNascimento: parseDataNascimento(dto.dataNascimento) ?? null,
         cargo: dto.cargo,
         cor: normalizeCor(dto.cor),
         role: dto.role,
@@ -218,6 +235,11 @@ export class UsersService {
       await this.assertRoleAllowed(tenantId, dto.role);
     }
 
+    const dataNascimento =
+      dto.dataNascimento !== undefined
+        ? parseDataNascimento(dto.dataNascimento)
+        : undefined;
+
     return this.prisma.user.update({
       where: { id },
       data: {
@@ -225,6 +247,7 @@ export class UsersService {
         ...(email ? { email } : {}),
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.whatsapp !== undefined ? { whatsapp: dto.whatsapp } : {}),
+        ...(dataNascimento !== undefined ? { dataNascimento } : {}),
         ...(dto.cargo !== undefined ? { cargo: dto.cargo } : {}),
         ...(dto.cor !== undefined ? { cor: normalizeCor(dto.cor) } : {}),
         ...(dto.role !== undefined ? { role: dto.role } : {}),
