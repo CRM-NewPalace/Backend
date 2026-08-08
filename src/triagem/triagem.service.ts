@@ -204,7 +204,13 @@ export class TriagemService {
         if (from && from !== targetStage) {
           stageAnterior = from;
         }
+      } else {
+        // Mesma etapa (manual): registra que a etapa foi mantida.
+        stageNovo = targetStage;
       }
+    } else {
+      // Sem mudança de etapa: grava a etapa atual no histórico.
+      stageNovo = lead.stage;
     }
 
     const event = await this.prisma.$transaction(async (tx) => {
