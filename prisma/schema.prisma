@@ -582,7 +582,7 @@ model Documentacao {
   valorFgts     Int?
   temDependente Boolean @default(false)
 
-  comissao FinanceiroComissao?
+  comissoes FinanceiroComissao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1157,7 +1157,7 @@ model FinanceiroComissao {
   id              String                   @id @default(uuid())
   tenantId        String
   tenant          Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  documentacaoId  String                   @unique
+  documentacaoId  String
   documentacao    Documentacao             @relation(fields: [documentacaoId], references: [id], onDelete: Restrict)
   corretorId      String
   corretorUsuario User                     @relation("ComissaoCorretor", fields: [corretorId], references: [id], onDelete: Restrict)
@@ -1192,6 +1192,7 @@ model FinanceiroComissao {
 
   @@index([tenantId])
   @@index([tenantId, dataVenda])
+  @@index([documentacaoId])
   @@index([corretorId])
   @@index([gerenteId])
   @@index([equipeId])

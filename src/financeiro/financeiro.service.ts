@@ -642,7 +642,6 @@ export class FinanceiroService {
       where: {
         tenantId,
         vgv: { gt: 0 },
-        comissao: null,
         AND: [status2VendidoWhere()],
       },
       include: {
@@ -712,7 +711,6 @@ export class FinanceiroService {
     const doc = await this.prisma.documentacao.findFirst({
       where: { id: dto.documentacaoId, tenantId },
       include: {
-        comissao: { select: { id: true } },
         corretor: { select: corretorSelect },
         lead: { select: { corretor: { select: corretorSelect } } },
         gerente: { select: { id: true, name: true } },
@@ -722,9 +720,6 @@ export class FinanceiroService {
     if (!doc || !isStatusVendido(doc.status2) || !doc.vgv || doc.vgv <= 0) {
       throw new BadRequestException('Documentação não é uma venda elegível.');
     }
-    if (doc.comissao) {
-      throw new BadRequestException('Esta documentação já possui comissão.');
-    }
     const corretor = doc.corretor ?? doc.lead.corretor;
     if (!corretor) {
       throw new BadRequestException('A documentação precisa ter um corretor.');
@@ -733,34 +728,24 @@ export class FinanceiroService {
     const gerenteNome =
       doc.gerente?.name ?? corretor.equipe?.gerente.name ?? '';
     const values = this.calculateComissao(doc.vgv, dto);
-    try {
-      const row = await this.prisma.financeiroComissao.create({
-        data: {
-          tenantId,
-          documentacaoId: doc.id,
-          corretorId: corretor.id,
-          gerenteId,
-          equipeId: corretor.equipeId,
-          corretor: corretor.name,
-          gerente: gerenteNome,
-          equipe: corretor.equipe?.name ?? '',
-          empreendimento: doc.empreendimento?.nome ?? '',
-          cliente: doc.nome,
-          dataVenda: doc.dataVenda ?? doc.createdAt,
-          status: FinanceiroComissaoStatus.pendente,
-          ...values,
-        },
-      });
-      return this.mapComissao(row, requester);
-    } catch (err) {
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        throw new BadRequestException('Esta documentação já possui comissão.');
-      }
-      throw err;
-    }
+    const row = await this.prisma.financeiroComissao.create({
+      data: {
+        tenantId,
+        documentacaoId: doc.id,
+        corretorId: corretor.id,
+        gerenteId,
+        equipeId: corretor.equipeId,
+        corretor: corretor.name,
+        gerente: gerenteNome,
+        equipe: corretor.equipe?.name ?? '',
+        empreendimento: doc.empreendimento?.nome ?? '',
+        cliente: doc.nome,
+        dataVenda: doc.dataVenda ?? doc.createdAt,
+        status: FinanceiroComissaoStatus.pendente,
+        ...values,
+      },
+    });
+    return this.mapComissao(row, requester);
   }
 
   async updateComissao(
