@@ -128,13 +128,19 @@ export class TriagemService {
     };
   }
 
-  /** Só corretor cria relatos; opcionalmente avança a etapa do lead. */
+  /**
+   * Corretor e gerente criam relatos; opcionalmente avançam a etapa do lead.
+   * Corretor: só da própria carteira. Gerente: leads da equipe.
+   */
   async create(dto: CreateTriagemDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
 
-    if (requester.role !== Role.corretor) {
+    if (
+      requester.role !== Role.corretor &&
+      requester.role !== Role.gerente
+    ) {
       throw new ForbiddenException(
-        'Apenas corretores podem registrar relatos na triagem.',
+        'Apenas corretores e gerentes podem registrar relatos na triagem.',
       );
     }
 
@@ -142,7 +148,9 @@ export class TriagemService {
       where: { id: dto.leadId, tenantId },
       select: {
         id: true,
+        tipo: true,
         corretorId: true,
+        equipeId: true,
         perdidoAt: true,
         stage: true,
       },
@@ -151,8 +159,24 @@ export class TriagemService {
     if (!lead || lead.perdidoAt) {
       throw new NotFoundException('Lead não encontrado.');
     }
-    if (lead.corretorId !== requester.id) {
-      throw new NotFoundException('Lead não encontrado.');
+
+    if (requester.role === Role.corretor) {
+      if (lead.corretorId !== requester.id) {
+        throw new NotFoundException('Lead não encontrado.');
+      }
+    } else {
+      // Gerente: só leads (não clientes) no escopo da equipe.
+      if (lead.tipo === ContatoTipo.cliente) {
+        throw new NotFoundException('Lead não encontrado.');
+      }
+      const allowed = await this.teamScope.canAccessCorretor(
+        requester,
+        lead.corretorId,
+        lead.equipeId,
+      );
+      if (!allowed) {
+        throw new NotFoundException('Lead não encontrado.');
+      }
     }
 
     const texto = dto.texto.trim();

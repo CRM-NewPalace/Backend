@@ -23,7 +23,7 @@ export class TriagemController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.corretor)
+  @Roles(Role.corretor, Role.gerente)
   create(
     @Body() dto: CreateTriagemDto,
     @CurrentUser() requester: AuthenticatedUser,
