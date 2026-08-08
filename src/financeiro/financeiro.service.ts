@@ -626,28 +626,28 @@ export class FinanceiroService {
   async listVendasElegiveis(requester: AuthenticatedUser) {
     this.assertComissaoAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
+    const corretorSelect = {
+      id: true,
+      name: true,
+      equipeId: true,
+      equipe: {
+        select: {
+          name: true,
+          gerenteId: true,
+          gerente: { select: { name: true } },
+        },
+      },
+    } as const;
     const rows = await this.prisma.documentacao.findMany({
       where: {
         tenantId,
         vgv: { gt: 0 },
         comissao: null,
-        ...status2VendidoWhere(),
+        AND: [status2VendidoWhere()],
       },
       include: {
-        corretor: {
-          select: {
-            id: true,
-            name: true,
-            equipeId: true,
-            equipe: {
-              select: {
-                name: true,
-                gerenteId: true,
-                gerente: { select: { name: true } },
-              },
-            },
-          },
-        },
+        corretor: { select: corretorSelect },
+        lead: { select: { corretor: { select: corretorSelect } } },
         gerente: { select: { id: true, name: true } },
         empreendimento: { select: { nome: true } },
       },
@@ -655,19 +655,24 @@ export class FinanceiroService {
     });
     return rows
       .filter((row) => isStatusVendido(row.status2))
-      .map((row) => ({
-        documentacaoId: row.id,
-        cliente: row.nome,
-        empreendimento: row.empreendimento?.nome ?? '',
-        dataVenda: isoDateOnly(row.dataVenda ?? row.createdAt),
-        vgv: row.vgv!,
-        corretorId: row.corretor?.id ?? null,
-        corretor: row.corretor?.name ?? '',
-        equipeId: row.corretor?.equipeId ?? null,
-        equipe: row.corretor?.equipe?.name ?? '',
-        gerenteId: row.gerente?.id ?? row.corretor?.equipe?.gerenteId ?? null,
-        gerente: row.gerente?.name ?? row.corretor?.equipe?.gerente.name ?? '',
-      }));
+      .map((row) => {
+        const corretor = row.corretor ?? row.lead.corretor;
+        return {
+          documentacaoId: row.id,
+          cliente: row.nome,
+          empreendimento: row.empreendimento?.nome ?? '',
+          dataVenda: isoDateOnly(row.dataVenda ?? row.createdAt),
+          vgv: row.vgv!,
+          corretorId: corretor?.id ?? null,
+          corretor: corretor?.name ?? '',
+          equipeId: corretor?.equipeId ?? null,
+          equipe: corretor?.equipe?.name ?? '',
+          gerenteId: row.gerente?.id ?? corretor?.equipe?.gerenteId ?? null,
+          gerente: row.gerente?.name ?? corretor?.equipe?.gerente.name ?? '',
+        };
+      })
+      // createComissao exige corretor — não oferece venda sem dono.
+      .filter((row) => Boolean(row.corretorId));
   }
 
   async listComissoes(requester: AuthenticatedUser) {
@@ -692,24 +697,24 @@ export class FinanceiroService {
   async createComissao(dto: CreateComissaoDto, requester: AuthenticatedUser) {
     this.assertComissaoWrite(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
+    const corretorSelect = {
+      id: true,
+      name: true,
+      equipeId: true,
+      equipe: {
+        select: {
+          name: true,
+          gerenteId: true,
+          gerente: { select: { name: true } },
+        },
+      },
+    } as const;
     const doc = await this.prisma.documentacao.findFirst({
       where: { id: dto.documentacaoId, tenantId },
       include: {
         comissao: { select: { id: true } },
-        corretor: {
-          select: {
-            id: true,
-            name: true,
-            equipeId: true,
-            equipe: {
-              select: {
-                name: true,
-                gerenteId: true,
-                gerente: { select: { name: true } },
-              },
-            },
-          },
-        },
+        corretor: { select: corretorSelect },
+        lead: { select: { corretor: { select: corretorSelect } } },
         gerente: { select: { id: true, name: true } },
         empreendimento: { select: { nome: true } },
       },
@@ -720,24 +725,25 @@ export class FinanceiroService {
     if (doc.comissao) {
       throw new BadRequestException('Esta documentação já possui comissão.');
     }
-    if (!doc.corretor) {
+    const corretor = doc.corretor ?? doc.lead.corretor;
+    if (!corretor) {
       throw new BadRequestException('A documentação precisa ter um corretor.');
     }
-    const gerenteId = doc.gerente?.id ?? doc.corretor.equipe?.gerenteId ?? null;
+    const gerenteId = doc.gerente?.id ?? corretor.equipe?.gerenteId ?? null;
     const gerenteNome =
-      doc.gerente?.name ?? doc.corretor.equipe?.gerente.name ?? '';
+      doc.gerente?.name ?? corretor.equipe?.gerente.name ?? '';
     const values = this.calculateComissao(doc.vgv, dto);
     try {
       const row = await this.prisma.financeiroComissao.create({
         data: {
           tenantId,
           documentacaoId: doc.id,
-          corretorId: doc.corretor.id,
+          corretorId: corretor.id,
           gerenteId,
-          equipeId: doc.corretor.equipeId,
-          corretor: doc.corretor.name,
+          equipeId: corretor.equipeId,
+          corretor: corretor.name,
           gerente: gerenteNome,
-          equipe: doc.corretor.equipe?.name ?? '',
+          equipe: corretor.equipe?.name ?? '',
           empreendimento: doc.empreendimento?.nome ?? '',
           cliente: doc.nome,
           dataVenda: doc.dataVenda ?? doc.createdAt,
