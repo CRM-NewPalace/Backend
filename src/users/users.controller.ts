@@ -73,6 +73,15 @@ export class UsersController {
     return this.usersService.findOne(id, requester);
   }
 
+  @Get(':id/presence/week')
+  @Roles(Role.admin, Role.gerente)
+  presenceWeek(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.usersService.presenceWeek(id, requester);
+  }
+
   @Patch(':id')
   @Roles(Role.admin)
   update(

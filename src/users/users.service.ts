@@ -13,6 +13,7 @@ import { TeamScopeService } from '../equipes/team-scope.service';
 import {
   PresenceService,
   type UserPresenceToday,
+  type UserPresenceWeek,
 } from '../presence/presence.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
@@ -220,6 +221,23 @@ export class UsersService {
       users.map((u) => u.id),
     );
     return { data };
+  }
+
+  /** Tempo logado na semana (seg–dom) de um usuário visível ao requester. */
+  async presenceWeek(
+    id: string,
+    requester: AuthenticatedUser,
+  ): Promise<UserPresenceWeek> {
+    const tenantId = requireTenantId(requester);
+    const user = await this.prisma.user.findFirst({
+      where: { id, tenantId },
+      select: publicUserSelect,
+    });
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+    await this.ensureCanViewUser(requester, user);
+    return this.presence.summarizeWeekByDay(tenantId, id);
   }
 
   async findOne(
