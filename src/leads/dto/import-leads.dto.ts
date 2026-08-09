@@ -73,6 +73,11 @@ export class ImportLeadItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(60)
+  tipoRenda?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(40)
   estadoCivil?: string | null;
 

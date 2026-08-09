@@ -80,6 +80,13 @@ export class UpdateLeadDto {
   @Min(0, { message: 'Renda não pode ser negativa.' })
   renda?: number | null;
 
+  /** Tipo de renda do cliente (opcional). null limpa o valor. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString()
+  @MaxLength(60)
+  tipoRenda?: string | null;
+
   /** Estado civil do cliente (opcional). null limpa o valor. */
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)

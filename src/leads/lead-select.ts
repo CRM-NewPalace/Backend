@@ -14,6 +14,7 @@ export const leadSelect = {
   stage: true,
   prioridade: true,
   renda: true,
+  tipoRenda: true,
   estadoCivil: true,
   tags: true,
   corretorId: true,

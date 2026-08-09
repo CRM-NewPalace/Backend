@@ -102,6 +102,7 @@ export class LeadsService {
         stage,
         prioridade: dto.prioridade ?? 'Média',
         renda: dto.renda ?? null,
+        tipoRenda: dto.tipoRenda?.trim() || null,
         estadoCivil: dto.estadoCivil?.trim() || null,
         tags: dto.tags ?? [],
         corretorId: assignment.corretorId,
@@ -165,6 +166,7 @@ export class LeadsService {
             stage: defaultStage,
             prioridade: item.prioridade ?? 'Média',
             renda: item.renda ?? null,
+            tipoRenda: item.tipoRenda?.trim() || null,
             estadoCivil: item.estadoCivil?.trim() || null,
             tags: ['Importação'],
             corretorId,
@@ -860,6 +862,12 @@ export class LeadsService {
         ...(dto.stage !== undefined ? { stage: dto.stage } : {}),
         ...(dto.prioridade !== undefined ? { prioridade: dto.prioridade } : {}),
         ...(dto.renda !== undefined ? { renda: dto.renda } : {}),
+        ...(dto.tipoRenda !== undefined
+          ? {
+              tipoRenda:
+                dto.tipoRenda === null ? null : dto.tipoRenda.trim() || null,
+            }
+          : {}),
         ...(dto.estadoCivil !== undefined
           ? {
               estadoCivil:

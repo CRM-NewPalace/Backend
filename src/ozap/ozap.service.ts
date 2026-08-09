@@ -385,11 +385,7 @@ export class OzapService {
       return renda ? { renda } : {};
     }
     if (campo === 'tipo_renda') {
-      return {
-        tags: {
-          push: `Renda: ${resposta.trim().slice(0, 80)}`,
-        },
-      };
+      return { tipoRenda: resposta.trim().slice(0, 60) };
     }
     if (campo === 'estado_civil') {
       return { estadoCivil: resposta.trim().slice(0, 40) };
