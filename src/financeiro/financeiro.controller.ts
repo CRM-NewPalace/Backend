@@ -33,6 +33,7 @@ import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
+import { UpdateTitulosGrupoDto } from './dto/update-titulos-grupo.dto';
 import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { RenovarDespesasDto } from './dto/renovar-despesas.dto';
 import { FinanceiroService } from './financeiro.service';
@@ -175,6 +176,20 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.createTitulosParcelado(dto, requester);
+  }
+
+  @Patch('titulos/grupo/:grupoParcelasId')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  updateTitulosGrupo(
+    @Param('grupoParcelasId', ParseUUIDPipe) grupoParcelasId: string,
+    @Body() dto: UpdateTitulosGrupoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.updateTitulosGrupo(
+      grupoParcelasId,
+      dto,
+      requester,
+    );
   }
 
   @Patch('titulos/:id')

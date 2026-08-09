@@ -39,6 +39,7 @@ import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
+import { UpdateTitulosGrupoDto } from './dto/update-titulos-grupo.dto';
 import { RenovarDespesasDto } from './dto/renovar-despesas.dto';
 import { randomUUID } from 'crypto';
 
@@ -578,6 +579,123 @@ export class FinanceiroService {
       },
     });
     return this.mapTitulo(row);
+  }
+
+  async updateTitulosGrupo(
+    grupoParcelasId: string,
+    dto: UpdateTitulosGrupoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const rows = await this.prisma.financeiroTitulo.findMany({
+      where: { tenantId, grupoParcelasId },
+      orderBy: { vencimento: 'asc' },
+    });
+    if (rows.length === 0) {
+      throw new NotFoundException('Grupo de parcelas não encontrado.');
+    }
+
+    const editaveis = rows.filter(
+      (r) => r.status !== FinanceiroTituloStatus.pago,
+    );
+    if (editaveis.length === 0) {
+      throw new BadRequestException(
+        'Todas as parcelas já estão baixadas. Não é possível editar o grupo.',
+      );
+    }
+
+    let sharedParceiroId: string | null | undefined;
+    let sharedParceiroNome: string | undefined;
+    if (dto.parceiroId !== undefined || dto.parceiroNome !== undefined) {
+      const nextId =
+        dto.parceiroId === undefined
+          ? editaveis[0].parceiroId
+          : dto.parceiroId;
+      sharedParceiroId = nextId || null;
+      sharedParceiroNome = await this.resolveParceiroNome(
+        tenantId,
+        nextId || undefined,
+        dto.parceiroNome ?? undefined,
+      );
+    }
+
+    const parcelaUpdates = new Map(
+      (dto.parcelas ?? []).map((p) => [p.id, p] as const),
+    );
+    for (const item of parcelaUpdates.values()) {
+      const found = rows.find((r) => r.id === item.id);
+      if (!found) {
+        throw new BadRequestException(
+          'Uma ou mais parcelas não pertencem a este grupo.',
+        );
+      }
+      if (found.status === FinanceiroTituloStatus.pago) {
+        throw new BadRequestException(
+          `Parcela ${found.parcela || found.id} já baixada não pode ser editada.`,
+        );
+      }
+      if (item.status === FinanceiroTituloStatus.pago) {
+        throw new BadRequestException(
+          'Use a baixa para marcar parcela como paga.',
+        );
+      }
+    }
+
+    const sharedData: Prisma.FinanceiroTituloUpdateManyMutationInput = {
+      ...(dto.descricao !== undefined
+        ? { descricao: dto.descricao.trim() }
+        : {}),
+      ...(sharedParceiroId !== undefined
+        ? { parceiroId: sharedParceiroId, parceiroNome: sharedParceiroNome ?? '' }
+        : {}),
+      ...(dto.categoria !== undefined
+        ? { categoria: dto.categoria?.trim() || '' }
+        : {}),
+      ...(dto.centro !== undefined ? { centro: dto.centro?.trim() || '' } : {}),
+    };
+
+    const hasShared = Object.keys(sharedData).length > 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (hasShared) {
+        await tx.financeiroTitulo.updateMany({
+          where: {
+            tenantId,
+            grupoParcelasId,
+            status: { not: FinanceiroTituloStatus.pago },
+          },
+          data: sharedData,
+        });
+      }
+
+      for (const row of editaveis) {
+        const item = parcelaUpdates.get(row.id);
+        if (!item) continue;
+        await tx.financeiroTitulo.update({
+          where: { id: row.id },
+          data: {
+            ...(item.vencimento !== undefined
+              ? { vencimento: parseDayStart(item.vencimento) }
+              : {}),
+            ...(item.valor !== undefined ? { valor: item.valor } : {}),
+            ...(item.status !== undefined ? { status: item.status } : {}),
+          },
+        });
+      }
+    });
+
+    const updated = await this.prisma.financeiroTitulo.findMany({
+      where: { tenantId, grupoParcelasId },
+      include: { movimento: { select: { formaPagamento: true } } },
+      orderBy: { vencimento: 'asc' },
+    });
+
+    return {
+      updated: editaveis.length,
+      skippedPago: rows.length - editaveis.length,
+      titulos: updated.map((r) => this.mapTitulo(r)),
+    };
   }
 
   async removeTitulo(id: string, requester: AuthenticatedUser) {
