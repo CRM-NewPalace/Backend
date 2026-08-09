@@ -135,6 +135,7 @@ model Tenant {
   financeiroComissoes     FinanceiroComissao[]
   financeiroDespesaTipos  FinanceiroDespesaTipo[]
   financeiroDespesas      FinanceiroDespesa[]
+  financeiroCategorias    FinanceiroCategoria[]
   platformContratos       PlatformContrato[]
   sessionSegments         UserSessionSegment[]
 
@@ -1154,6 +1155,25 @@ model FinanceiroTitulo {
   @@index([tenantId, grupoParcelasId])
   @@index([parceiroId])
   @@map("financeiro_titulos")
+}
+
+/// Categoria de título / movimento (entrada = a receber, saida = a pagar).
+model FinanceiroCategoria {
+  id       String                   @id @default(uuid())
+  tenantId String
+  tenant   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome     String
+  tipo     FinanceiroMovimentoTipo
+  ativo    Boolean                  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, nome, tipo])
+  @@index([tenantId])
+  @@index([tenantId, tipo])
+  @@index([tenantId, ativo])
+  @@map("financeiro_categorias")
 }
 
 /// Tipo / centro de despesa (fixa ou variável).

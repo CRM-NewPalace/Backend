@@ -22,6 +22,7 @@ import {
 import { resolveFinanceiroTenantId } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
 import { BaixarTituloDto } from './dto/baixar-titulo.dto';
+import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { CreateDespesaDto } from './dto/create-despesa.dto';
 import { CreateDespesaTipoDto } from './dto/create-despesa-tipo.dto';
@@ -33,6 +34,7 @@ import {
   FluxoGranularidade,
   QueryFluxoCaixaDto,
 } from './dto/query-fluxo-caixa.dto';
+import { UpdateCategoriaDto } from './dto/update-categoria.dto';
 import { UpdateDespesaDto } from './dto/update-despesa.dto';
 import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
@@ -79,6 +81,24 @@ function dataFromCompetencia(competencia: string, day = 1): Date {
 }
 
 const DEFAULT_DESPESA_CATEGORIAS = ['Estrutural', 'Marketing', 'Operacional'];
+
+const DEFAULT_CATEGORIAS_ENTRADA = [
+  'Comissão de venda',
+  'Taxa de corretagem',
+  'Consultoria',
+  'Outras receitas',
+];
+
+const DEFAULT_CATEGORIAS_SAIDA = [
+  'Aluguel',
+  'Folha de pagamento',
+  'Marketing digital',
+  'Software / SaaS',
+  'Impostos',
+  'Comissão corretor',
+  'Despesas gerais',
+  'Energia / utilidades',
+];
 
 function isoDateOnly(d: Date): string {
   const brasil = new Date(d.getTime() - BRASIL_UTC_OFFSET_MS);
@@ -316,6 +336,89 @@ export class FinanceiroService {
     this.assertWrite(requester);
     await this.findParceiroOrFail(id, requester);
     await this.prisma.financeiroParceiro.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // ─── Categorias ──────────────────────────────────────────────
+
+  async listCategorias(
+    requester: AuthenticatedUser,
+    tipo?: FinanceiroMovimentoTipo,
+  ) {
+    this.assertAccess(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    await this.ensureDefaultCategorias(tenantId);
+    const rows = await this.prisma.financeiroCategoria.findMany({
+      where: {
+        tenantId,
+        ...(tipo ? { tipo } : {}),
+      },
+      orderBy: [{ tipo: 'asc' }, { nome: 'asc' }],
+    });
+    return rows.map((r) => this.mapCategoria(r));
+  }
+
+  async createCategoria(dto: CreateCategoriaDto, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const nome = dto.nome.trim();
+    try {
+      const row = await this.prisma.financeiroCategoria.create({
+        data: {
+          tenantId,
+          nome,
+          tipo: dto.tipo,
+          ativo: dto.ativo ?? true,
+        },
+      });
+      return this.mapCategoria(row);
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          'Já existe uma categoria com este nome neste tipo.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async updateCategoria(
+    id: string,
+    dto: UpdateCategoriaDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    await this.findCategoriaOrFail(id, requester);
+    try {
+      const row = await this.prisma.financeiroCategoria.update({
+        where: { id },
+        data: {
+          ...(dto.nome !== undefined ? { nome: dto.nome.trim() } : {}),
+          ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
+          ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
+        },
+      });
+      return this.mapCategoria(row);
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          'Já existe uma categoria com este nome neste tipo.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async removeCategoria(id: string, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    await this.findCategoriaOrFail(id, requester);
+    await this.prisma.financeiroCategoria.delete({ where: { id } });
     return { ok: true };
   }
 
@@ -1728,6 +1831,39 @@ export class FinanceiroService {
     return { gte, lt };
   }
 
+  private async ensureDefaultCategorias(tenantId: string) {
+    const count = await this.prisma.financeiroCategoria.count({
+      where: { tenantId },
+    });
+    if (count > 0) return;
+    await this.prisma.financeiroCategoria.createMany({
+      data: [
+        ...DEFAULT_CATEGORIAS_ENTRADA.map((nome) => ({
+          tenantId,
+          nome,
+          tipo: FinanceiroMovimentoTipo.entrada,
+          ativo: true,
+        })),
+        ...DEFAULT_CATEGORIAS_SAIDA.map((nome) => ({
+          tenantId,
+          nome,
+          tipo: FinanceiroMovimentoTipo.saida,
+          ativo: true,
+        })),
+      ],
+      skipDuplicates: true,
+    });
+  }
+
+  private async findCategoriaOrFail(id: string, requester: AuthenticatedUser) {
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const row = await this.prisma.financeiroCategoria.findFirst({
+      where: { id, tenantId },
+    });
+    if (!row) throw new NotFoundException('Categoria não encontrada.');
+    return row;
+  }
+
   private async ensureDefaultDespesaCategorias(tenantId: string) {
     const count = await this.prisma.financeiroDespesaTipo.count({
       where: { tenantId },
@@ -2022,6 +2158,22 @@ export class FinanceiroService {
       where: { id: parceiroId, tenantId },
       data: { saldoAberto },
     });
+  }
+
+  private mapCategoria(row: {
+    id: string;
+    nome: string;
+    tipo: FinanceiroMovimentoTipo;
+    ativo: boolean;
+    createdAt: Date;
+  }) {
+    return {
+      id: row.id,
+      nome: row.nome,
+      tipo: row.tipo,
+      ativo: row.ativo,
+      createdAt: row.createdAt.toISOString(),
+    };
   }
 
   private mapParceiro(row: {

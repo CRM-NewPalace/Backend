@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   FinanceiroDespesaNatureza,
+  FinanceiroMovimentoTipo,
   FinanceiroTituloTipo,
   Role,
 } from '@prisma/client';
@@ -19,6 +20,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { CreateDespesaDto } from './dto/create-despesa.dto';
 import { CreateDespesaTipoDto } from './dto/create-despesa-tipo.dto';
@@ -28,6 +30,7 @@ import { BaixarTituloDto } from './dto/baixar-titulo.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { CreateTitulosParceladoDto } from './dto/create-titulos-parcelado.dto';
 import { QueryFluxoCaixaDto } from './dto/query-fluxo-caixa.dto';
+import { UpdateCategoriaDto } from './dto/update-categoria.dto';
 import { UpdateDespesaDto } from './dto/update-despesa.dto';
 import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
@@ -110,6 +113,45 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.removeParceiro(id, requester);
+  }
+
+  // ─── Categorias ──────────────────────────────────────────────
+
+  @Get('categorias')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  listCategorias(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query('tipo') tipo?: FinanceiroMovimentoTipo,
+  ) {
+    return this.financeiroService.listCategorias(requester, tipo);
+  }
+
+  @Post('categorias')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  createCategoria(
+    @Body() dto: CreateCategoriaDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.createCategoria(dto, requester);
+  }
+
+  @Patch('categorias/:id')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  updateCategoria(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCategoriaDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.updateCategoria(id, dto, requester);
+  }
+
+  @Delete('categorias/:id')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  removeCategoria(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.removeCategoria(id, requester);
   }
 
   // ─── Movimentos ──────────────────────────────────────────────
