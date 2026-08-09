@@ -147,6 +147,13 @@ export class CreatePropostaDto {
   financiamento?: number | null;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(toOptionalInt)
+  @IsInt({ message: 'Desconto inválido.' })
+  @Min(0)
+  desconto?: number | null;
+
+  @IsOptional()
   @IsEnum(PropostaStatus, { message: 'Status inválido.' })
   status?: PropostaStatus;
 

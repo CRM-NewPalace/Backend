@@ -36,6 +36,7 @@ const propostaSelect = {
   mcmv: true,
   parcelaCaixa: true,
   financiamento: true,
+  desconto: true,
   status: true,
   validade: true,
   enviadaEm: true,
@@ -168,6 +169,7 @@ export class PropostasService {
         mcmv: dto.mcmv ?? null,
         parcelaCaixa: dto.parcelaCaixa ?? null,
         financiamento: dto.financiamento ?? null,
+        desconto: dto.desconto ?? null,
         status,
         validade: parseOptionalDate(dto.validade) ?? null,
         enviadaEm:
@@ -219,6 +221,7 @@ export class PropostasService {
     if (dto.mcmv !== undefined) data.mcmv = dto.mcmv;
     if (dto.parcelaCaixa !== undefined) data.parcelaCaixa = dto.parcelaCaixa;
     if (dto.financiamento !== undefined) data.financiamento = dto.financiamento;
+    if (dto.desconto !== undefined) data.desconto = dto.desconto;
     if (dto.observacao !== undefined) {
       data.observacao = dto.observacao?.trim() || null;
     }

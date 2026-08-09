@@ -694,6 +694,8 @@ model Proposta {
   mcmv           Int?
   parcelaCaixa   Int?
   financiamento  Int?
+  /// Desconto do empreendimento (R$), à parte da composição.
+  desconto       Int?
 
   status    PropostaStatus @default(rascunho)
   validade  DateTime?
