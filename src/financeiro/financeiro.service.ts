@@ -422,6 +422,10 @@ export class FinanceiroService {
     return { ok: true };
   }
 
+  /**
+   * Resumo analítico por categoria = nomes do Centro de despesas (despesa-tipos).
+   * `tipo` filtra só os lançamentos (entrada/saída); o cadastro é único.
+   */
   async resumoCategorias(
     requester: AuthenticatedUser,
     opts?: {
@@ -431,7 +435,8 @@ export class FinanceiroService {
   ) {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
-    await this.ensureDefaultCategorias(tenantId);
+    await this.ensureDefaultDespesaCategorias(tenantId);
+    await this.unifyCentroIntoCategoria(tenantId);
 
     const periodo = opts?.periodo ?? 'mes';
     const { gte, lt } = this.periodoDateBounds(periodo);
@@ -443,13 +448,10 @@ export class FinanceiroService {
           }
         : undefined;
 
-    const [categorias, movimentos, titulosAbertos] = await Promise.all([
-      this.prisma.financeiroCategoria.findMany({
-        where: {
-          tenantId,
-          ...(opts?.tipo ? { tipo: opts.tipo } : {}),
-        },
-        orderBy: [{ tipo: 'asc' }, { nome: 'asc' }],
+    const [tipos, movimentos, titulosAbertos] = await Promise.all([
+      this.prisma.financeiroDespesaTipo.findMany({
+        where: { tenantId },
+        orderBy: [{ nome: 'asc' }, { natureza: 'asc' }],
       }),
       this.prisma.financeiroMovimento.findMany({
         where: {
@@ -458,7 +460,7 @@ export class FinanceiroService {
           ...(opts?.tipo ? { tipo: opts.tipo } : {}),
           ...(dataFilter ? { data: dataFilter } : {}),
         },
-        select: { categoria: true, tipo: true, valor: true },
+        select: { categoria: true, centro: true, tipo: true, valor: true },
       }),
       this.prisma.financeiroTitulo.findMany({
         where: {
@@ -479,80 +481,125 @@ export class FinanceiroService {
             : {}),
           ...(dataFilter ? { vencimento: dataFilter } : {}),
         },
-        select: { categoria: true, tipo: true, valor: true },
+        select: { categoria: true, centro: true, tipo: true, valor: true },
       }),
     ]);
 
     type Acc = {
       nome: string;
-      tipo: FinanceiroMovimentoTipo;
       total: number;
       quantidade: number;
       emAberto: number;
       qtdAberto: number;
+      totalEntradas: number;
+      totalSaidas: number;
     };
-    const keyOf = (nome: string, tipo: FinanceiroMovimentoTipo | string) =>
-      `${tipo}::${nome.trim().toLowerCase()}`;
-
     const realized = new Map<string, Acc>();
-    const bump = (
-      nome: string,
-      tipo: FinanceiroMovimentoTipo,
-      field: 'total' | 'emAberto',
-      valor: number,
-    ) => {
-      const key = keyOf(nome, tipo);
-      const cur = realized.get(key) ?? {
+    const norm = (nome: string) => nome.trim().toLowerCase();
+    const resolveNome = (categoria: string, centro: string) => {
+      const cat = categoria?.trim() || '';
+      const cen = centro?.trim() || '';
+      return cat || cen || 'Sem categoria';
+    };
+    const ensureAcc = (nome: string) => {
+      const key = norm(nome);
+      const cur = realized.get(key);
+      if (cur) return cur;
+      const created: Acc = {
         nome,
-        tipo,
         total: 0,
         quantidade: 0,
         emAberto: 0,
         qtdAberto: 0,
+        totalEntradas: 0,
+        totalSaidas: 0,
       };
-      if (field === 'total') {
-        cur.total += valor;
-        cur.quantidade += 1;
-      } else {
-        cur.emAberto += valor;
-        cur.qtdAberto += 1;
-      }
-      realized.set(key, cur);
+      realized.set(key, created);
+      return created;
     };
 
     for (const m of movimentos) {
-      const nome = m.categoria?.trim() || 'Sem categoria';
-      bump(nome, m.tipo, 'total', m.valor);
+      const nome = resolveNome(m.categoria, m.centro);
+      const cur = ensureAcc(nome);
+      cur.total += m.valor;
+      cur.quantidade += 1;
+      if (m.tipo === FinanceiroMovimentoTipo.entrada) cur.totalEntradas += m.valor;
+      else cur.totalSaidas += m.valor;
     }
     for (const t of titulosAbertos) {
-      const nome = t.categoria?.trim() || 'Sem categoria';
-      const tipoMov =
-        t.tipo === FinanceiroTituloTipo.receber
-          ? FinanceiroMovimentoTipo.entrada
-          : FinanceiroMovimentoTipo.saida;
-      bump(nome, tipoMov, 'emAberto', t.valor);
+      const nome = resolveNome(t.categoria, t.centro);
+      const cur = ensureAcc(nome);
+      cur.emAberto += t.valor;
+      cur.qtdAberto += 1;
     }
 
-    const catalogKeys = new Set(
-      categorias.map((c) => keyOf(c.nome, c.tipo)),
-    );
+    // Cadastro único: um registro por nome (prioriza tipo ativo).
+    const byName = new Map<
+      string,
+      {
+        id: string;
+        nome: string;
+        ativo: boolean;
+        createdAt: string;
+        natureza: FinanceiroDespesaNatureza;
+      }
+    >();
+    for (const t of tipos) {
+      const key = norm(t.nome);
+      const prev = byName.get(key);
+      if (!prev) {
+        byName.set(key, {
+          id: t.id,
+          nome: t.nome,
+          ativo: t.ativo,
+          createdAt: t.createdAt.toISOString(),
+          natureza: t.natureza,
+        });
+        continue;
+      }
+      if (!prev.ativo && t.ativo) {
+        byName.set(key, {
+          id: t.id,
+          nome: t.nome,
+          ativo: t.ativo,
+          createdAt: t.createdAt.toISOString(),
+          natureza: t.natureza,
+        });
+      }
+    }
 
-    const emptyAcc = (): Omit<Acc, 'nome' | 'tipo'> => ({
+    const pickTotal = (acc: {
+      total: number;
+      totalEntradas: number;
+      totalSaidas: number;
+    }) =>
+      opts?.tipo === FinanceiroMovimentoTipo.entrada
+        ? acc.totalEntradas
+        : opts?.tipo === FinanceiroMovimentoTipo.saida
+          ? acc.totalSaidas
+          : acc.total;
+
+    const emptyTotals = {
       total: 0,
+      totalEntradas: 0,
+      totalSaidas: 0,
       quantidade: 0,
       emAberto: 0,
       qtdAberto: 0,
-    });
+    };
 
-    const rows = categorias.map((c) => {
-      const acc = realized.get(keyOf(c.nome, c.tipo)) ?? emptyAcc();
+    const rows = [...byName.values()].map((c) => {
+      const acc = realized.get(norm(c.nome)) ?? emptyTotals;
       return {
         id: c.id,
         nome: c.nome,
-        tipo: c.tipo,
+        tipo: opts?.tipo ?? null,
+        natureza: c.natureza,
         ativo: c.ativo,
-        createdAt: c.createdAt.toISOString(),
-        total: acc.total,
+        createdAt: c.createdAt,
+        total: pickTotal(acc),
+        totalEntradas: acc.totalEntradas,
+        totalSaidas: acc.totalSaidas,
         quantidade: acc.quantidade,
         emAberto: acc.emAberto,
         qtdAberto: acc.qtdAberto,
@@ -560,16 +607,19 @@ export class FinanceiroService {
       };
     });
 
-    // Inclui categorias usadas em lançamentos que não estão no cadastro.
+    // Nomes só em lançamentos (órfãos).
     for (const [key, acc] of realized) {
-      if (catalogKeys.has(key)) continue;
+      if (byName.has(key)) continue;
       rows.push({
         id: '',
         nome: acc.nome,
-        tipo: acc.tipo,
+        tipo: opts?.tipo ?? null,
+        natureza: FinanceiroDespesaNatureza.variavel,
         ativo: true,
         createdAt: '',
-        total: acc.total,
+        total: pickTotal(acc),
+        totalEntradas: acc.totalEntradas,
+        totalSaidas: acc.totalSaidas,
         quantidade: acc.quantidade,
         emAberto: acc.emAberto,
         qtdAberto: acc.qtdAberto,
@@ -577,25 +627,23 @@ export class FinanceiroService {
       });
     }
 
-    const totalEntradas = rows
-      .filter((r) => r.tipo === FinanceiroMovimentoTipo.entrada)
-      .reduce((s, r) => s + r.total, 0);
-    const totalSaidas = rows
-      .filter((r) => r.tipo === FinanceiroMovimentoTipo.saida)
-      .reduce((s, r) => s + r.total, 0);
+    const totalEntradas = rows.reduce((s, r) => s + r.totalEntradas, 0);
+    const totalSaidas = rows.reduce((s, r) => s + r.totalSaidas, 0);
+    const baseTotal =
+      opts?.tipo === FinanceiroMovimentoTipo.entrada
+        ? totalEntradas
+        : opts?.tipo === FinanceiroMovimentoTipo.saida
+          ? totalSaidas
+          : totalEntradas + totalSaidas;
 
     for (const r of rows) {
-      const base =
-        r.tipo === FinanceiroMovimentoTipo.entrada
-          ? totalEntradas
-          : totalSaidas;
-      r.percentual = base > 0 ? Number(((r.total / base) * 100).toFixed(1)) : 0;
+      r.percentual =
+        baseTotal > 0 ? Number(((r.total / baseTotal) * 100).toFixed(1)) : 0;
     }
 
-    rows.sort((a, b) => {
-      if (a.tipo !== b.tipo) return a.tipo.localeCompare(b.tipo);
-      return b.total - a.total || a.nome.localeCompare(b.nome, 'pt-BR');
-    });
+    rows.sort(
+      (a, b) => b.total - a.total || a.nome.localeCompare(b.nome, 'pt-BR'),
+    );
 
     return {
       periodo,
@@ -626,6 +674,7 @@ export class FinanceiroService {
       dto.parceiroId,
       dto.parceiroNome,
     );
+    const categoria = dto.categoria.trim();
     const row = await this.prisma.financeiroMovimento.create({
       data: {
         tenantId,
@@ -633,8 +682,9 @@ export class FinanceiroService {
         descricao: dto.descricao.trim(),
         parceiroId: dto.parceiroId || null,
         parceiroNome,
-        categoria: dto.categoria.trim(),
-        centro: dto.centro?.trim() || '',
+        categoria,
+        // Categoria unificada (= centro de despesas); mantém centro espelhado.
+        centro: categoria,
         tipo: dto.tipo,
         valor: dto.valor,
         status: dto.status ?? FinanceiroTituloStatus.aberto,
@@ -679,11 +729,16 @@ export class FinanceiroService {
           ? { parceiroId, parceiroNome }
           : {}),
         ...(dto.categoria !== undefined
-          ? { categoria: dto.categoria.trim() }
-          : {}),
-        ...(dto.centro !== undefined
-          ? { centro: dto.centro?.trim() || '' }
-          : {}),
+          ? {
+              categoria: dto.categoria.trim(),
+              centro: dto.categoria.trim(),
+            }
+          : dto.centro !== undefined
+            ? {
+                categoria: dto.centro?.trim() || '',
+                centro: dto.centro?.trim() || '',
+              }
+            : {}),
         ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
         ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
@@ -746,8 +801,8 @@ export class FinanceiroService {
     const vencimento = parseDayStart(dto.vencimento);
     const jaPago = status === FinanceiroTituloStatus.pago;
     const descricao = dto.descricao.trim();
-    const categoria = dto.categoria?.trim() || '';
-    const centro = dto.centro?.trim() || '';
+    const categoria = dto.categoria?.trim() || dto.centro?.trim() || '';
+    const centro = categoria;
     const parceiroId = dto.parceiroId || null;
 
     const row = await this.prisma.$transaction(async (tx) => {
@@ -825,8 +880,8 @@ export class FinanceiroService {
     const grupoParcelasId = randomUUID();
     const n = dto.parcelas.length;
     const descricao = dto.descricao.trim();
-    const categoria = dto.categoria?.trim() || '';
-    const centro = dto.centro?.trim() || '';
+    const categoria = dto.categoria?.trim() || dto.centro?.trim() || '';
+    const centro = categoria;
 
     const rows = await this.prisma.$transaction(
       dto.parcelas.map((p, i) =>
@@ -903,11 +958,18 @@ export class FinanceiroService {
           ...(dto.parceiroId !== undefined || dto.parceiroNome !== undefined
             ? { parceiroId, parceiroNome }
             : {}),
-          ...(dto.categoria !== undefined
-            ? { categoria: dto.categoria?.trim() || '' }
-            : {}),
-          ...(dto.centro !== undefined
-            ? { centro: dto.centro?.trim() || '' }
+          ...(dto.categoria !== undefined || dto.centro !== undefined
+            ? (() => {
+                const unified =
+                  (dto.categoria !== undefined
+                    ? dto.categoria?.trim() || ''
+                    : undefined) ??
+                  (dto.centro !== undefined
+                    ? dto.centro?.trim() || ''
+                    : '') ??
+                  '';
+                return { categoria: unified, centro: unified };
+              })()
             : {}),
           ...(dto.vencimento !== undefined
             ? { vencimento: parseDayStart(dto.vencimento) }
@@ -933,7 +995,7 @@ export class FinanceiroService {
             parceiroId: updated.parceiroId,
             parceiroNome: updated.parceiroNome,
             categoria: updated.categoria || 'Título',
-            centro: updated.centro,
+            centro: updated.categoria || 'Título',
             tipo: tipoMov,
             valor: updated.valor,
           },
@@ -1011,10 +1073,17 @@ export class FinanceiroService {
             parceiroNome: sharedParceiroNome ?? '',
           }
         : {}),
-      ...(dto.categoria !== undefined
-        ? { categoria: dto.categoria?.trim() || '' }
+      ...(dto.categoria !== undefined || dto.centro !== undefined
+        ? (() => {
+            const unified =
+              (dto.categoria !== undefined
+                ? dto.categoria?.trim() || ''
+                : undefined) ??
+              (dto.centro !== undefined ? dto.centro?.trim() || '' : '') ??
+              '';
+            return { categoria: unified, centro: unified };
+          })()
         : {}),
-      ...(dto.centro !== undefined ? { centro: dto.centro?.trim() || '' } : {}),
     };
 
     const hasShared = Object.keys(sharedData).length > 0;
@@ -1070,7 +1139,7 @@ export class FinanceiroService {
               parceiroId: updated.parceiroId,
               parceiroNome: updated.parceiroNome,
               categoria: updated.categoria || 'Título',
-              centro: updated.centro,
+              centro: updated.categoria || 'Título',
               tipo: tipoMov,
               valor: updated.valor,
             },
@@ -1571,6 +1640,7 @@ export class FinanceiroService {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.ensureDefaultDespesaCategorias(tenantId);
+    await this.unifyCentroIntoCategoria(tenantId);
     const competencia = competenciaAtualBrasil();
     const { gte, lt } = this.competenciaDateBounds(competencia);
     const rows = await this.prisma.financeiroDespesaTipo.findMany({
@@ -2075,22 +2145,129 @@ export class FinanceiroService {
     const count = await this.prisma.financeiroDespesaTipo.count({
       where: { tenantId },
     });
-    if (count > 0) return;
-    const naturezas: FinanceiroDespesaNatureza[] = [
-      FinanceiroDespesaNatureza.fixa,
-      FinanceiroDespesaNatureza.fixa_variavel,
-      FinanceiroDespesaNatureza.variavel,
+    if (count === 0) {
+      const naturezas: FinanceiroDespesaNatureza[] = [
+        FinanceiroDespesaNatureza.fixa,
+        FinanceiroDespesaNatureza.fixa_variavel,
+        FinanceiroDespesaNatureza.variavel,
+      ];
+      await this.prisma.financeiroDespesaTipo.createMany({
+        data: naturezas.flatMap((natureza) =>
+          DEFAULT_DESPESA_CATEGORIAS.map((nome) => ({
+            tenantId,
+            nome,
+            natureza,
+            orcadoMensal: 0,
+            ativo: true,
+          })),
+        ),
+        skipDuplicates: true,
+      });
+    }
+
+    // Categorias financeiras legadas passam a existir como tipos (variável).
+    const legacyNomes = [
+      ...DEFAULT_CATEGORIAS_ENTRADA,
+      ...DEFAULT_CATEGORIAS_SAIDA,
     ];
     await this.prisma.financeiroDespesaTipo.createMany({
-      data: naturezas.flatMap((natureza) =>
-        DEFAULT_DESPESA_CATEGORIAS.map((nome) => ({
+      data: legacyNomes.map((nome) => ({
+        tenantId,
+        nome,
+        natureza: FinanceiroDespesaNatureza.variavel,
+        orcadoMensal: 0,
+        ativo: true,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  /**
+   * Unifica centro → categoria (saídas/pagar) e garante tipos órfãos no cadastro.
+   * Idempotente; seguro chamar em listagens.
+   */
+  private async unifyCentroIntoCategoria(tenantId: string) {
+    const [titulos, movimentos] = await Promise.all([
+      this.prisma.financeiroTitulo.findMany({
+        where: {
           tenantId,
-          nome,
-          natureza,
-          orcadoMensal: 0,
-          ativo: true,
-        })),
-      ),
+          OR: [{ centro: { not: '' } }, { categoria: { not: '' } }],
+        },
+        select: { id: true, tipo: true, categoria: true, centro: true },
+      }),
+      this.prisma.financeiroMovimento.findMany({
+        where: {
+          tenantId,
+          OR: [{ centro: { not: '' } }, { categoria: { not: '' } }],
+        },
+        select: { id: true, tipo: true, categoria: true, centro: true },
+      }),
+    ]);
+
+    const nomes = new Set<string>();
+    const tituloUpdates: { id: string; categoria: string; centro: string }[] =
+      [];
+    for (const t of titulos) {
+      const cat = t.categoria?.trim() || '';
+      const cen = t.centro?.trim() || '';
+      const unified =
+        t.tipo === FinanceiroTituloTipo.pagar
+          ? cen || cat
+          : cat || cen;
+      if (!unified) continue;
+      nomes.add(unified);
+      if (cat !== unified || cen !== unified) {
+        tituloUpdates.push({
+          id: t.id,
+          categoria: unified,
+          centro: unified,
+        });
+      }
+    }
+
+    const movUpdates: { id: string; categoria: string; centro: string }[] = [];
+    for (const m of movimentos) {
+      const cat = m.categoria?.trim() || '';
+      const cen = m.centro?.trim() || '';
+      const unified =
+        m.tipo === FinanceiroMovimentoTipo.saida ? cen || cat : cat || cen;
+      if (!unified) continue;
+      nomes.add(unified);
+      if (cat !== unified || cen !== unified) {
+        movUpdates.push({
+          id: m.id,
+          categoria: unified,
+          centro: unified,
+        });
+      }
+    }
+
+    if (tituloUpdates.length || movUpdates.length) {
+      await this.prisma.$transaction([
+        ...tituloUpdates.map((u) =>
+          this.prisma.financeiroTitulo.update({
+            where: { id: u.id },
+            data: { categoria: u.categoria, centro: u.centro },
+          }),
+        ),
+        ...movUpdates.map((u) =>
+          this.prisma.financeiroMovimento.update({
+            where: { id: u.id },
+            data: { categoria: u.categoria, centro: u.centro },
+          }),
+        ),
+      ]);
+    }
+
+    if (nomes.size === 0) return;
+    await this.prisma.financeiroDespesaTipo.createMany({
+      data: [...nomes].map((nome) => ({
+        tenantId,
+        nome,
+        natureza: FinanceiroDespesaNatureza.variavel,
+        orcadoMensal: 0,
+        ativo: true,
+      })),
       skipDuplicates: true,
     });
   }
