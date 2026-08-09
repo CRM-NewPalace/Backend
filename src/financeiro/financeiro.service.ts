@@ -772,12 +772,16 @@ export class FinanceiroService {
   async removeTitulo(id: string, requester: AuthenticatedUser) {
     this.assertWrite(requester);
     const existing = await this.findTituloOrFail(id, requester);
-    if (existing.status === FinanceiroTituloStatus.pago) {
-      throw new BadRequestException(
-        'Título baixado não pode ser excluído. Cancele o movimento vinculado se necessário.',
-      );
-    }
-    await this.prisma.financeiroTitulo.delete({ where: { id } });
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const parceiroId = existing.parceiroId;
+
+    // Remove movimento de baixa junto, para zerar KPIs / fluxo de caixa.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.financeiroMovimento.deleteMany({ where: { tituloId: id } });
+      await tx.financeiroTitulo.delete({ where: { id } });
+    });
+
+    await this.recalcSaldoParceiro(tenantId, parceiroId);
     return { ok: true };
   }
 
