@@ -532,12 +532,16 @@ export class FinanceiroService {
   ) {
     this.assertWrite(requester);
     const existing = await this.findTituloOrFail(id, requester);
-    if (existing.status === FinanceiroTituloStatus.pago) {
+    const tenantId = resolveFinanceiroTenantId(requester);
+
+    if (
+      dto.status === FinanceiroTituloStatus.pago &&
+      existing.status !== FinanceiroTituloStatus.pago
+    ) {
       throw new BadRequestException(
-        'Título já baixado. Não é possível editar.',
+        'Use a baixa para marcar o título como pago.',
       );
     }
-    const tenantId = resolveFinanceiroTenantId(requester);
 
     let parceiroId = existing.parceiroId;
     let parceiroNome = existing.parceiroNome;
@@ -552,32 +556,73 @@ export class FinanceiroService {
       );
     }
 
-    const row = await this.prisma.financeiroTitulo.update({
-      where: { id },
-      data: {
-        ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
-        ...(dto.descricao !== undefined
-          ? { descricao: dto.descricao.trim() }
-          : {}),
-        ...(dto.parceiroId !== undefined || dto.parceiroNome !== undefined
-          ? { parceiroId, parceiroNome }
-          : {}),
-        ...(dto.categoria !== undefined
-          ? { categoria: dto.categoria?.trim() || '' }
-          : {}),
-        ...(dto.centro !== undefined
-          ? { centro: dto.centro?.trim() || '' }
-          : {}),
-        ...(dto.vencimento !== undefined
-          ? { vencimento: parseDayStart(dto.vencimento) }
-          : {}),
-        ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
-        ...(dto.status !== undefined ? { status: dto.status } : {}),
-        ...(dto.parcela !== undefined
-          ? { parcela: dto.parcela?.trim() || '' }
-          : {}),
-      },
+    const nextStatus = dto.status ?? existing.status;
+    const estornar =
+      existing.status === FinanceiroTituloStatus.pago &&
+      nextStatus !== FinanceiroTituloStatus.pago;
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      if (estornar) {
+        await tx.financeiroMovimento.deleteMany({ where: { tituloId: id } });
+      }
+
+      const updated = await tx.financeiroTitulo.update({
+        where: { id },
+        data: {
+          ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
+          ...(dto.descricao !== undefined
+            ? { descricao: dto.descricao.trim() }
+            : {}),
+          ...(dto.parceiroId !== undefined || dto.parceiroNome !== undefined
+            ? { parceiroId, parceiroNome }
+            : {}),
+          ...(dto.categoria !== undefined
+            ? { categoria: dto.categoria?.trim() || '' }
+            : {}),
+          ...(dto.centro !== undefined
+            ? { centro: dto.centro?.trim() || '' }
+            : {}),
+          ...(dto.vencimento !== undefined
+            ? { vencimento: parseDayStart(dto.vencimento) }
+            : {}),
+          ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
+          ...(dto.parcela !== undefined
+            ? { parcela: dto.parcela?.trim() || '' }
+            : {}),
+          ...(estornar ? { dataPagamento: null } : {}),
+        },
+      });
+
+      if (!estornar && nextStatus === FinanceiroTituloStatus.pago) {
+        const tipoMov =
+          updated.tipo === FinanceiroTituloTipo.receber
+            ? FinanceiroMovimentoTipo.entrada
+            : FinanceiroMovimentoTipo.saida;
+        await tx.financeiroMovimento.updateMany({
+          where: { tituloId: id },
+          data: {
+            descricao: updated.descricao,
+            parceiroId: updated.parceiroId,
+            parceiroNome: updated.parceiroNome,
+            categoria: updated.categoria || 'Título',
+            centro: updated.centro,
+            tipo: tipoMov,
+            valor: updated.valor,
+          },
+        });
+      }
+
+      return updated;
     });
+
+    const parceiroIds = new Set<string>();
+    if (existing.parceiroId) parceiroIds.add(existing.parceiroId);
+    if (row.parceiroId) parceiroIds.add(row.parceiroId);
+    for (const pid of parceiroIds) {
+      await this.recalcSaldoParceiro(tenantId, pid);
+    }
+
     return this.mapTitulo(row);
   }
 
@@ -596,22 +641,11 @@ export class FinanceiroService {
       throw new NotFoundException('Grupo de parcelas não encontrado.');
     }
 
-    const editaveis = rows.filter(
-      (r) => r.status !== FinanceiroTituloStatus.pago,
-    );
-    if (editaveis.length === 0) {
-      throw new BadRequestException(
-        'Todas as parcelas já estão baixadas. Não é possível editar o grupo.',
-      );
-    }
-
     let sharedParceiroId: string | null | undefined;
     let sharedParceiroNome: string | undefined;
     if (dto.parceiroId !== undefined || dto.parceiroNome !== undefined) {
       const nextId =
-        dto.parceiroId === undefined
-          ? editaveis[0].parceiroId
-          : dto.parceiroId;
+        dto.parceiroId === undefined ? rows[0].parceiroId : dto.parceiroId;
       sharedParceiroId = nextId || null;
       sharedParceiroNome = await this.resolveParceiroNome(
         tenantId,
@@ -630,12 +664,10 @@ export class FinanceiroService {
           'Uma ou mais parcelas não pertencem a este grupo.',
         );
       }
-      if (found.status === FinanceiroTituloStatus.pago) {
-        throw new BadRequestException(
-          `Parcela ${found.parcela || found.id} já baixada não pode ser editada.`,
-        );
-      }
-      if (item.status === FinanceiroTituloStatus.pago) {
+      if (
+        item.status === FinanceiroTituloStatus.pago &&
+        found.status !== FinanceiroTituloStatus.pago
+      ) {
         throw new BadRequestException(
           'Use a baixa para marcar parcela como paga.',
         );
@@ -647,7 +679,10 @@ export class FinanceiroService {
         ? { descricao: dto.descricao.trim() }
         : {}),
       ...(sharedParceiroId !== undefined
-        ? { parceiroId: sharedParceiroId, parceiroNome: sharedParceiroNome ?? '' }
+        ? {
+            parceiroId: sharedParceiroId,
+            parceiroNome: sharedParceiroNome ?? '',
+          }
         : {}),
       ...(dto.categoria !== undefined
         ? { categoria: dto.categoria?.trim() || '' }
@@ -656,32 +691,64 @@ export class FinanceiroService {
     };
 
     const hasShared = Object.keys(sharedData).length > 0;
+    const parceiroIds = new Set(
+      rows.map((r) => r.parceiroId).filter((id): id is string => Boolean(id)),
+    );
+    if (sharedParceiroId) parceiroIds.add(sharedParceiroId);
 
     await this.prisma.$transaction(async (tx) => {
       if (hasShared) {
         await tx.financeiroTitulo.updateMany({
-          where: {
-            tenantId,
-            grupoParcelasId,
-            status: { not: FinanceiroTituloStatus.pago },
-          },
+          where: { tenantId, grupoParcelasId },
           data: sharedData,
         });
       }
 
-      for (const row of editaveis) {
+      for (const row of rows) {
         const item = parcelaUpdates.get(row.id);
-        if (!item) continue;
-        await tx.financeiroTitulo.update({
+        if (!item && !hasShared) continue;
+
+        const nextStatus = item?.status ?? row.status;
+        const estornar =
+          row.status === FinanceiroTituloStatus.pago &&
+          nextStatus !== FinanceiroTituloStatus.pago;
+
+        if (estornar) {
+          await tx.financeiroMovimento.deleteMany({
+            where: { tituloId: row.id },
+          });
+        }
+
+        const updated = await tx.financeiroTitulo.update({
           where: { id: row.id },
           data: {
-            ...(item.vencimento !== undefined
+            ...(item?.vencimento !== undefined
               ? { vencimento: parseDayStart(item.vencimento) }
               : {}),
-            ...(item.valor !== undefined ? { valor: item.valor } : {}),
-            ...(item.status !== undefined ? { status: item.status } : {}),
+            ...(item?.valor !== undefined ? { valor: item.valor } : {}),
+            ...(item?.status !== undefined ? { status: item.status } : {}),
+            ...(estornar ? { dataPagamento: null } : {}),
           },
         });
+
+        if (!estornar && updated.status === FinanceiroTituloStatus.pago) {
+          const tipoMov =
+            updated.tipo === FinanceiroTituloTipo.receber
+              ? FinanceiroMovimentoTipo.entrada
+              : FinanceiroMovimentoTipo.saida;
+          await tx.financeiroMovimento.updateMany({
+            where: { tituloId: row.id },
+            data: {
+              descricao: updated.descricao,
+              parceiroId: updated.parceiroId,
+              parceiroNome: updated.parceiroNome,
+              categoria: updated.categoria || 'Título',
+              centro: updated.centro,
+              tipo: tipoMov,
+              valor: updated.valor,
+            },
+          });
+        }
       }
     });
 
@@ -691,9 +758,13 @@ export class FinanceiroService {
       orderBy: { vencimento: 'asc' },
     });
 
+    for (const pid of parceiroIds) {
+      await this.recalcSaldoParceiro(tenantId, pid);
+    }
+
     return {
-      updated: editaveis.length,
-      skippedPago: rows.length - editaveis.length,
+      updated: rows.length,
+      skippedPago: 0,
       titulos: updated.map((r) => this.mapTitulo(r)),
     };
   }
