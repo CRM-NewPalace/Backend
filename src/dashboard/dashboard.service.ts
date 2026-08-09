@@ -401,11 +401,15 @@ export class DashboardService {
       }),
       this.prisma.lead.count({ where: leadCriadoWhere(mesAtual) }),
       this.prisma.lead.count({ where: leadCriadoWhere(mesAnterior) }),
+      // Pool ainda não distribuído (mesmo critério de /leads "Chegaram"
+      // e do dialog Distribuir): sem equipe e sem corretor.
       this.prisma.lead.count({
         where: {
           tenantId,
+          tipo: ContatoTipo.lead,
           perdidoAt: null,
           corretorId: null,
+          equipeId: null,
           ...origemWhere,
         },
       }),
