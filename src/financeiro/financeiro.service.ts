@@ -456,21 +456,62 @@ export class FinanceiroService {
       dto.parceiroId,
       dto.parceiroNome,
     );
-    const row = await this.prisma.financeiroTitulo.create({
-      data: {
-        tenantId,
-        tipo: dto.tipo,
-        descricao: dto.descricao.trim(),
-        parceiroId: dto.parceiroId || null,
-        parceiroNome,
-        categoria: dto.categoria?.trim() || '',
-        centro: dto.centro?.trim() || '',
-        vencimento: parseDayStart(dto.vencimento),
-        valor: dto.valor,
-        status: dto.status ?? FinanceiroTituloStatus.aberto,
-        parcela: dto.parcela?.trim() || '',
-      },
+    const status = dto.status ?? FinanceiroTituloStatus.aberto;
+    const vencimento = parseDayStart(dto.vencimento);
+    const jaPago = status === FinanceiroTituloStatus.pago;
+    const descricao = dto.descricao.trim();
+    const categoria = dto.categoria?.trim() || '';
+    const centro = dto.centro?.trim() || '';
+    const parceiroId = dto.parceiroId || null;
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      const titulo = await tx.financeiroTitulo.create({
+        data: {
+          tenantId,
+          tipo: dto.tipo,
+          descricao,
+          parceiroId,
+          parceiroNome,
+          categoria,
+          centro,
+          vencimento,
+          valor: dto.valor,
+          status,
+          parcela: dto.parcela?.trim() || '',
+          ...(jaPago ? { dataPagamento: vencimento } : {}),
+        },
+      });
+
+      if (jaPago) {
+        const tipoMov =
+          dto.tipo === FinanceiroTituloTipo.receber
+            ? FinanceiroMovimentoTipo.entrada
+            : FinanceiroMovimentoTipo.saida;
+        await tx.financeiroMovimento.create({
+          data: {
+            tenantId,
+            data: vencimento,
+            descricao,
+            parceiroId,
+            parceiroNome,
+            categoria: categoria || 'Título',
+            centro,
+            tipo: tipoMov,
+            valor: dto.valor,
+            status: FinanceiroTituloStatus.pago,
+            formaPagamento: '',
+            tituloId: titulo.id,
+          },
+        });
+      }
+
+      return titulo;
     });
+
+    if (jaPago) {
+      await this.recalcSaldoParceiro(tenantId, parceiroId);
+    }
+
     return this.mapTitulo(row);
   }
 
