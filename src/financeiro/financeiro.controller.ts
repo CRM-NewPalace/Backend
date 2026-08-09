@@ -34,6 +34,7 @@ import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
 import { UpdateComissaoDto } from './dto/update-comissao.dto';
+import { RenovarDespesasDto } from './dto/renovar-despesas.dto';
 import { FinanceiroService } from './financeiro.service';
 
 @Controller('financeiro')
@@ -302,6 +303,15 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.createDespesa(dto, requester);
+  }
+
+  @Post('despesas/renovar-mes')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  renovarDespesasMes(
+    @Body() dto: RenovarDespesasDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.renovarDespesasMes(dto, requester);
   }
 
   @Patch('despesas/:id')

@@ -1061,6 +1061,8 @@ enum FinanceiroComissaoStatus {
 /// Natureza do tipo de despesa no centro de custos.
 enum FinanceiroDespesaNatureza {
   fixa
+  /// Recorrente todo mês, mas com valor que muda.
+  fixa_variavel
   variavel
 }
 
@@ -1185,6 +1187,14 @@ model FinanceiroDespesa {
   descricao   String
   valor       Float
   data        DateTime
+  /// Competência contábil (YYYY-MM).
+  competencia String                @default("")
+  /// Se true, entra no botão "Renovar mês".
+  recorrente  Boolean               @default(false)
+  /// Despesa-raiz da série recorrente (null = esta é a raiz).
+  origemId    String?
+  origem      FinanceiroDespesa?    @relation("DespesaSerie", fields: [origemId], references: [id], onDelete: SetNull)
+  renovacoes  FinanceiroDespesa[]   @relation("DespesaSerie")
   observacao  String                @default("")
   ativo       Boolean               @default(true)
 
@@ -1193,7 +1203,9 @@ model FinanceiroDespesa {
 
   @@index([tenantId])
   @@index([tenantId, data])
+  @@index([tenantId, competencia])
   @@index([tipoId])
+  @@index([origemId])
   @@map("financeiro_despesas")
 }
 

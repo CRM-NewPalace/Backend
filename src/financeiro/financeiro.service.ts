@@ -39,6 +39,7 @@ import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
+import { RenovarDespesasDto } from './dto/renovar-despesas.dto';
 import { randomUUID } from 'crypto';
 
 const MESES_CURTOS = [
@@ -57,6 +58,26 @@ const MESES_CURTOS = [
 ] as const;
 
 const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+function competenciaFromIsoDate(iso: string): string {
+  return iso.slice(0, 7);
+}
+
+function competenciaAtualBrasil(): string {
+  const brasil = new Date(Date.now() - BRASIL_UTC_OFFSET_MS);
+  const y = brasil.getUTCFullYear();
+  const m = String(brasil.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+function dataFromCompetencia(competencia: string, day = 1): Date {
+  const [ys, ms] = competencia.split('-');
+  const y = Number(ys);
+  const m = Number(ms);
+  return new Date(Date.UTC(y, m - 1, day) + BRASIL_UTC_OFFSET_MS);
+}
+
+const DEFAULT_DESPESA_CATEGORIAS = ['Estrutural', 'Marketing', 'Operacional'];
 
 function isoDateOnly(d: Date): string {
   const brasil = new Date(d.getTime() - BRASIL_UTC_OFFSET_MS);
@@ -988,28 +1009,36 @@ export class FinanceiroService {
 
   // ─── Tipos de despesa (fixa / variável) ─────────────────────
 
-  listDespesaTipos(
+  async listDespesaTipos(
     requester: AuthenticatedUser,
     natureza?: FinanceiroDespesaNatureza,
   ) {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
-    return this.prisma.financeiroDespesaTipo
-      .findMany({
-        where: {
-          tenantId,
-          ...(natureza ? { natureza } : {}),
-        },
-        include: {
-          _count: { select: { despesas: true } },
-          despesas: {
-            where: { ativo: true },
-            select: { valor: true },
+    await this.ensureDefaultDespesaCategorias(tenantId);
+    const competencia = competenciaAtualBrasil();
+    const { gte, lt } = this.competenciaDateBounds(competencia);
+    const rows = await this.prisma.financeiroDespesaTipo.findMany({
+      where: {
+        tenantId,
+        ...(natureza ? { natureza } : {}),
+      },
+      include: {
+        _count: { select: { despesas: true } },
+        despesas: {
+          where: {
+            ativo: true,
+            OR: [
+              { competencia },
+              { competencia: '', data: { gte, lt } },
+            ],
           },
+          select: { valor: true },
         },
-        orderBy: [{ natureza: 'asc' }, { nome: 'asc' }],
-      })
-      .then((rows) => rows.map((r) => this.mapDespesaTipo(r)));
+      },
+      orderBy: [{ natureza: 'asc' }, { nome: 'asc' }],
+    });
+    return rows.map((r) => this.mapDespesaTipo(r));
   }
 
   async createDespesaTipo(
@@ -1120,6 +1149,20 @@ export class FinanceiroService {
     if (!tipo.ativo) {
       throw new BadRequestException('Tipo de despesa inativo.');
     }
+    const competencia =
+      dto.competencia?.trim() || competenciaFromIsoDate(dto.data);
+    const recorrentePadrao =
+      tipo.natureza === FinanceiroDespesaNatureza.fixa ||
+      tipo.natureza === FinanceiroDespesaNatureza.fixa_variavel;
+    const recorrente = dto.recorrente ?? recorrentePadrao;
+    if (
+      recorrente &&
+      tipo.natureza === FinanceiroDespesaNatureza.variavel
+    ) {
+      throw new BadRequestException(
+        'Despesas variáveis não podem ser marcadas como recorrentes.',
+      );
+    }
     const row = await this.prisma.financeiroDespesa.create({
       data: {
         tenantId,
@@ -1127,6 +1170,8 @@ export class FinanceiroService {
         descricao: dto.descricao.trim(),
         valor: dto.valor,
         data: parseDayStart(dto.data),
+        competencia,
+        recorrente,
         observacao: dto.observacao?.trim() || '',
         ativo: dto.ativo ?? true,
       },
@@ -1143,13 +1188,28 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
-    await this.findDespesaOrFail(id, requester);
+    const existing = await this.findDespesaOrFail(id, requester);
+    let tipoNatureza = existing.tipo.natureza;
     if (dto.tipoId) {
       const tipo = await this.findDespesaTipoOrFail(dto.tipoId, requester);
       if (!tipo.ativo) {
         throw new BadRequestException('Tipo de despesa inativo.');
       }
+      tipoNatureza = tipo.natureza;
     }
+    if (
+      dto.recorrente === true &&
+      tipoNatureza === FinanceiroDespesaNatureza.variavel
+    ) {
+      throw new BadRequestException(
+        'Despesas variáveis não podem ser marcadas como recorrentes.',
+      );
+    }
+    const dataIso =
+      dto.data !== undefined ? dto.data.slice(0, 10) : isoDateOnly(existing.data);
+    const competencia =
+      dto.competencia?.trim() ||
+      (dto.data !== undefined ? competenciaFromIsoDate(dataIso) : undefined);
     const row = await this.prisma.financeiroDespesa.update({
       where: { id },
       data: {
@@ -1159,6 +1219,8 @@ export class FinanceiroService {
           : {}),
         ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
         ...(dto.data !== undefined ? { data: parseDayStart(dto.data) } : {}),
+        ...(competencia !== undefined ? { competencia } : {}),
+        ...(dto.recorrente !== undefined ? { recorrente: dto.recorrente } : {}),
         ...(dto.observacao !== undefined
           ? { observacao: dto.observacao.trim() }
           : {}),
@@ -1176,6 +1238,98 @@ export class FinanceiroService {
     await this.findDespesaOrFail(id, requester);
     await this.prisma.financeiroDespesa.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async renovarDespesasMes(
+    dto: RenovarDespesasDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const competencia = dto.competencia.trim();
+    const [y, m] = competencia.split('-').map(Number);
+    if (!y || !m) {
+      throw new BadRequestException('Competência inválida.');
+    }
+
+    const raizes = await this.prisma.financeiroDespesa.findMany({
+      where: {
+        tenantId,
+        ativo: true,
+        recorrente: true,
+        origemId: null,
+        tipo: {
+          natureza: {
+            in: [
+              FinanceiroDespesaNatureza.fixa,
+              FinanceiroDespesaNatureza.fixa_variavel,
+            ],
+          },
+        },
+      },
+      include: {
+        tipo: { select: { id: true, nome: true, natureza: true, ativo: true } },
+      },
+      orderBy: { data: 'desc' },
+    });
+
+    const criadas = [];
+    let ignoradas = 0;
+
+    for (const raiz of raizes) {
+      if (!raiz.tipo.ativo) {
+        ignoradas += 1;
+        continue;
+      }
+      const serieIds = { OR: [{ id: raiz.id }, { origemId: raiz.id }] };
+      const jaExiste = await this.prisma.financeiroDespesa.findFirst({
+        where: {
+          tenantId,
+          competencia,
+          ...serieIds,
+        },
+        select: { id: true },
+      });
+      if (jaExiste) {
+        ignoradas += 1;
+        continue;
+      }
+
+      const ultima = await this.prisma.financeiroDespesa.findFirst({
+        where: { tenantId, ...serieIds },
+        orderBy: [{ competencia: 'desc' }, { data: 'desc' }],
+      });
+      const template = ultima ?? raiz;
+      const day = Math.min(
+        Number(isoDateOnly(template.data).slice(8, 10)) || 1,
+        28,
+      );
+      const row = await this.prisma.financeiroDespesa.create({
+        data: {
+          tenantId,
+          tipoId: template.tipoId,
+          descricao: template.descricao,
+          valor: template.valor,
+          data: dataFromCompetencia(competencia, day),
+          competencia,
+          recorrente: true,
+          origemId: raiz.id,
+          observacao: template.observacao,
+          ativo: true,
+        },
+        include: {
+          tipo: { select: { id: true, nome: true, natureza: true } },
+        },
+      });
+      criadas.push(this.mapDespesa(row));
+    }
+
+    return {
+      competencia,
+      criadas: criadas.length,
+      ignoradas,
+      despesas: criadas,
+    };
   }
 
   // ─── Helpers ─────────────────────────────────────────────────
@@ -1214,11 +1368,20 @@ export class FinanceiroService {
   }
 
   private async buildCentros(tenantId: string) {
+    await this.ensureDefaultDespesaCategorias(tenantId);
+    const competencia = competenciaAtualBrasil();
+    const { gte, lt } = this.competenciaDateBounds(competencia);
     const tipos = await this.prisma.financeiroDespesaTipo.findMany({
       where: { tenantId, ativo: true },
       include: {
         despesas: {
-          where: { ativo: true },
+          where: {
+            ativo: true,
+            OR: [
+              { competencia },
+              { competencia: '', data: { gte, lt } },
+            ],
+          },
           select: { valor: true },
         },
       },
@@ -1226,22 +1389,42 @@ export class FinanceiroService {
     });
 
     if (tipos.length > 0) {
-      return tipos
-        .map((t) => {
-          const realizado = t.despesas.reduce((s, d) => s + d.valor, 0);
-          const orcado = t.orcadoMensal;
-          return {
+      // Agrega por nome de categoria (soma naturezas do mesmo centro).
+      const byName = new Map<
+        string,
+        {
+          centro: string;
+          natureza: FinanceiroDespesaNatureza | null;
+          orcado: number;
+          realizado: number;
+        }
+      >();
+      for (const t of tipos) {
+        const realizado = t.despesas.reduce((s, d) => s + d.valor, 0);
+        const cur = byName.get(t.nome);
+        if (cur) {
+          cur.orcado += t.orcadoMensal;
+          cur.realizado += realizado;
+          if (cur.natureza !== t.natureza) cur.natureza = null;
+        } else {
+          byName.set(t.nome, {
             centro: t.nome,
             natureza: t.natureza,
-            orcado,
+            orcado: t.orcadoMensal,
             realizado,
-            percentual: orcado
-              ? (realizado / orcado) * 100
-              : realizado > 0
-                ? 100
-                : 0,
-          };
-        })
+          });
+        }
+      }
+      return [...byName.values()]
+        .map((c) => ({
+          ...c,
+          percentual: c.orcado
+            ? (c.realizado / c.orcado) * 100
+            : c.realizado > 0
+              ? 100
+              : 0,
+        }))
+        .filter((c) => c.realizado > 0 || c.orcado > 0)
         .sort((a, b) => b.realizado - a.realizado);
     }
 
@@ -1250,6 +1433,7 @@ export class FinanceiroService {
         tenantId,
         tipo: FinanceiroMovimentoTipo.saida,
         status: { not: FinanceiroTituloStatus.cancelado },
+        data: { gte, lt },
       },
     });
     const map = new Map<string, number>();
@@ -1266,6 +1450,37 @@ export class FinanceiroService {
         percentual: 100,
       }))
       .sort((a, b) => b.realizado - a.realizado);
+  }
+
+  private competenciaDateBounds(competencia: string) {
+    const [ys, ms] = competencia.split('-').map(Number);
+    const gte = new Date(Date.UTC(ys, ms - 1, 1) + BRASIL_UTC_OFFSET_MS);
+    const lt = new Date(Date.UTC(ys, ms, 1) + BRASIL_UTC_OFFSET_MS);
+    return { gte, lt };
+  }
+
+  private async ensureDefaultDespesaCategorias(tenantId: string) {
+    const count = await this.prisma.financeiroDespesaTipo.count({
+      where: { tenantId },
+    });
+    if (count > 0) return;
+    const naturezas: FinanceiroDespesaNatureza[] = [
+      FinanceiroDespesaNatureza.fixa,
+      FinanceiroDespesaNatureza.fixa_variavel,
+      FinanceiroDespesaNatureza.variavel,
+    ];
+    await this.prisma.financeiroDespesaTipo.createMany({
+      data: naturezas.flatMap((natureza) =>
+        DEFAULT_DESPESA_CATEGORIAS.map((nome) => ({
+          tenantId,
+          nome,
+          natureza,
+          orcadoMensal: 0,
+          ativo: true,
+        })),
+      ),
+      skipDuplicates: true,
+    });
   }
 
   private async findMovimentoOrFail(id: string, requester: AuthenticatedUser) {
@@ -1462,6 +1677,9 @@ export class FinanceiroService {
     const tenantId = resolveFinanceiroTenantId(requester);
     const row = await this.prisma.financeiroDespesa.findFirst({
       where: { id, tenantId },
+      include: {
+        tipo: { select: { id: true, nome: true, natureza: true, ativo: true } },
+      },
     });
     if (!row) throw new NotFoundException('Despesa não encontrada.');
     return row;
@@ -1592,6 +1810,9 @@ export class FinanceiroService {
     descricao: string;
     valor: number;
     data: Date;
+    competencia?: string | null;
+    recorrente?: boolean;
+    origemId?: string | null;
     observacao: string;
     ativo: boolean;
     createdAt: Date;
@@ -1605,6 +1826,10 @@ export class FinanceiroService {
       descricao: row.descricao,
       valor: row.valor,
       data: isoDateOnly(row.data),
+      competencia:
+        row.competencia?.trim() || competenciaFromIsoDate(isoDateOnly(row.data)),
+      recorrente: row.recorrente ?? false,
+      origemId: row.origemId ?? null,
       observacao: row.observacao,
       ativo: row.ativo,
       createdAt: row.createdAt.toISOString(),
