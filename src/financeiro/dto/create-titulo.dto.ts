@@ -57,4 +57,8 @@ export class CreateTituloDto {
   @IsString()
   @MaxLength(40)
   parcela?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  platformContratoId?: string;
 }

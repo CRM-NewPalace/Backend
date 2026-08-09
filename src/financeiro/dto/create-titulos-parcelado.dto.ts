@@ -58,4 +58,8 @@ export class CreateTitulosParceladoDto {
   @ValidateNested({ each: true })
   @Type(() => ParcelaItemDto)
   parcelas!: ParcelaItemDto[];
+
+  @IsOptional()
+  @IsUUID('4')
+  platformContratoId?: string;
 }

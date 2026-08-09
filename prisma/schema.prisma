@@ -133,10 +133,12 @@ model Tenant {
   financeiroMovimentos    FinanceiroMovimento[]
   financeiroTitulos       FinanceiroTitulo[]
   financeiroComissoes     FinanceiroComissao[]
-  financeiroDespesaTipos  FinanceiroDespesaTipo[]
-  financeiroDespesas      FinanceiroDespesa[]
-  financeiroCategorias    FinanceiroCategoria[]
-  platformContratos       PlatformContrato[]
+  financeiroDespesaTipos       FinanceiroDespesaTipo[]
+  financeiroDespesas           FinanceiroDespesa[]
+  financeiroRecebimentoTipos   FinanceiroRecebimentoTipo[]
+  financeiroRecebimentos       FinanceiroRecebimento[]
+  financeiroCategorias         FinanceiroCategoria[]
+  platformContratos            PlatformContrato[]
   sessionSegments         UserSessionSegment[]
 
   createdAt DateTime @default(now())
@@ -1144,6 +1146,9 @@ model FinanceiroTitulo {
   parcela         String                 @default("")
   /// Liga parcelas do mesmo contrato (N títulos com o mesmo UUID).
   grupoParcelasId String?
+  /// Contrato da plataforma que originou este título (adesão/mensalidade).
+  platformContratoId String?
+  platformContrato   PlatformContrato?   @relation(fields: [platformContratoId], references: [id], onDelete: SetNull)
   movimento       FinanceiroMovimento?
 
   createdAt DateTime @default(now())
@@ -1154,6 +1159,7 @@ model FinanceiroTitulo {
   @@index([tenantId, vencimento])
   @@index([tenantId, grupoParcelasId])
   @@index([parceiroId])
+  @@index([platformContratoId])
   @@map("financeiro_titulos")
 }
 
@@ -1227,6 +1233,55 @@ model FinanceiroDespesa {
   @@index([tipoId])
   @@index([origemId])
   @@map("financeiro_despesas")
+}
+
+/// Tipo / categoria de recebimento (centro de recebimentos).
+model FinanceiroRecebimentoTipo {
+  id           String                     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome         String
+  natureza     FinanceiroDespesaNatureza
+  orcadoMensal Float                      @default(0)
+  ativo        Boolean                    @default(true)
+  recebimentos FinanceiroRecebimento[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, nome, natureza])
+  @@index([tenantId])
+  @@index([tenantId, natureza])
+  @@map("financeiro_recebimento_tipos")
+}
+
+/// Lançamento de recebimento vinculado a um tipo.
+model FinanceiroRecebimento {
+  id          String                     @id @default(uuid())
+  tenantId    String
+  tenant      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tipoId      String
+  tipo        FinanceiroRecebimentoTipo  @relation(fields: [tipoId], references: [id], onDelete: Cascade)
+  descricao   String
+  valor       Float
+  data        DateTime
+  competencia String                     @default("")
+  recorrente  Boolean                    @default(false)
+  origemId    String?
+  origem      FinanceiroRecebimento?     @relation("RecebimentoSerie", fields: [origemId], references: [id], onDelete: SetNull)
+  renovacoes  FinanceiroRecebimento[]    @relation("RecebimentoSerie")
+  observacao  String                     @default("")
+  ativo       Boolean                    @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, data])
+  @@index([tenantId, competencia])
+  @@index([tipoId])
+  @@index([origemId])
+  @@map("financeiro_recebimentos")
 }
 
 /// Comissão originada de uma documentação vendida.
@@ -1305,13 +1360,18 @@ model PlatformContrato {
   /// Plano da assinatura (quando tipo = assinatura).
   plano TenantPlano?
 
-  valor      Float
+  valor            Float
+  /// Valor fechado da adesão (entrada).
+  valorAdesao      Float                  @default(0)
+  /// Valor fechado da mensalidade.
+  valorMensalidade Float                  @default(0)
   dataInicio DateTime
   vencimento DateTime?
   status     PlatformContratoStatus @default(proposta)
   observacao String                 @default("")
 
   parcelas PlatformContratoParcela[]
+  titulos  FinanceiroTitulo[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

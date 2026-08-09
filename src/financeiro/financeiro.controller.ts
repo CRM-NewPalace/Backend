@@ -26,6 +26,8 @@ import { CreateDespesaDto } from './dto/create-despesa.dto';
 import { CreateDespesaTipoDto } from './dto/create-despesa-tipo.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
+import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
+import { CreateRecebimentoTipoDto } from './dto/create-recebimento-tipo.dto';
 import { BaixarTituloDto } from './dto/baixar-titulo.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { CreateTitulosParceladoDto } from './dto/create-titulos-parcelado.dto';
@@ -35,10 +37,13 @@ import { UpdateDespesaDto } from './dto/update-despesa.dto';
 import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
+import { UpdateRecebimentoDto } from './dto/update-recebimento.dto';
+import { UpdateRecebimentoTipoDto } from './dto/update-recebimento-tipo.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
 import { UpdateTitulosGrupoDto } from './dto/update-titulos-grupo.dto';
 import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { RenovarDespesasDto } from './dto/renovar-despesas.dto';
+import { RenovarRecebimentosDto } from './dto/renovar-recebimentos.dto';
 import { FinanceiroService } from './financeiro.service';
 
 @Controller('financeiro')
@@ -413,5 +418,90 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.removeDespesa(id, requester);
+  }
+
+  // ─── Centro de recebimentos ──────────────────────────────────
+
+  @Get('recebimento-tipos')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  listRecebimentoTipos(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query('natureza') natureza?: FinanceiroDespesaNatureza,
+  ) {
+    return this.financeiroService.listRecebimentoTipos(requester, natureza);
+  }
+
+  @Post('recebimento-tipos')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  createRecebimentoTipo(
+    @Body() dto: CreateRecebimentoTipoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.createRecebimentoTipo(dto, requester);
+  }
+
+  @Patch('recebimento-tipos/:id')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  updateRecebimentoTipo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateRecebimentoTipoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.updateRecebimentoTipo(id, dto, requester);
+  }
+
+  @Delete('recebimento-tipos/:id')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  removeRecebimentoTipo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.removeRecebimentoTipo(id, requester);
+  }
+
+  @Get('recebimentos')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  listRecebimentos(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query('natureza') natureza?: FinanceiroDespesaNatureza,
+  ) {
+    return this.financeiroService.listRecebimentos(requester, natureza);
+  }
+
+  @Post('recebimentos')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  createRecebimento(
+    @Body() dto: CreateRecebimentoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.createRecebimento(dto, requester);
+  }
+
+  @Post('recebimentos/renovar-mes')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  renovarRecebimentosMes(
+    @Body() dto: RenovarRecebimentosDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.renovarRecebimentosMes(dto, requester);
+  }
+
+  @Patch('recebimentos/:id')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  updateRecebimento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateRecebimentoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.updateRecebimento(id, dto, requester);
+  }
+
+  @Delete('recebimentos/:id')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  removeRecebimento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.removeRecebimento(id, requester);
   }
 }

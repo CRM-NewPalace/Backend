@@ -1,17 +1,16 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
-  IsArray,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   MinLength,
-  ValidateNested,
 } from 'class-validator';
 import {
   PlatformContratoStatus,
@@ -19,22 +18,7 @@ import {
   TenantPlano,
 } from '@prisma/client';
 
-export class CreatePlatformContratoParcelaDto {
-  @Type(() => Number)
-  @IsNumber({}, { message: 'Número da parcela inválido.' })
-  @Min(1)
-  numero!: number;
-
-  @Type(() => Number)
-  @IsNumber({}, { message: 'Valor da parcela inválido.' })
-  @Min(0.01)
-  valor!: number;
-
-  @IsDateString({}, { message: 'Vencimento da parcela inválido.' })
-  vencimento!: string;
-}
-
-export class CreatePlatformContratoDto {
+export class CreatePlatformContratoComTitulosDto {
   @IsUUID('4', { message: 'Imobiliária inválida.' })
   tenantId!: string;
 
@@ -51,28 +35,28 @@ export class CreatePlatformContratoDto {
   plano?: TenantPlano | null;
 
   @Type(() => Number)
-  @IsNumber({}, { message: 'Valor inválido.' })
-  @Min(0)
-  valor!: number;
-
-  @IsOptional()
-  @Type(() => Number)
   @IsNumber({}, { message: 'Valor de adesão inválido.' })
-  @Min(0)
-  valorAdesao?: number;
+  @Min(0.01, { message: 'Informe o valor de adesão.' })
+  valorAdesao!: number;
 
-  @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: 'Valor de mensalidade inválido.' })
-  @Min(0)
-  valorMensalidade?: number;
+  @Min(0.01, { message: 'Informe o valor da mensalidade.' })
+  valorMensalidade!: number;
+
+  /** Quantidade de mensalidades (mín. 1). */
+  @Type(() => Number)
+  @IsInt({ message: 'Quantidade de mensalidades inválida.' })
+  @Min(1)
+  @Max(120)
+  qtdMensalidades!: number;
 
   @IsDateString({}, { message: 'Data de início inválida.' })
   dataInicio!: string;
 
-  @IsOptional()
+  /** Vencimento da adesão / 1ª mensalidade. */
   @IsDateString({}, { message: 'Vencimento inválido.' })
-  vencimento?: string | null;
+  vencimento!: string;
 
   @IsOptional()
   @IsEnum(PlatformContratoStatus, { message: 'Status inválido.' })
@@ -83,10 +67,18 @@ export class CreatePlatformContratoDto {
   @MaxLength(2000)
   observacao?: string;
 
+  /** Categoria de recebimento (nome) nos títulos gerados. */
   @IsOptional()
-  @IsArray()
-  @ArrayMinSize(1)
-  @ValidateNested({ each: true })
-  @Type(() => CreatePlatformContratoParcelaDto)
-  parcelas?: CreatePlatformContratoParcelaDto[];
+  @IsString()
+  @MaxLength(120)
+  categoria?: string;
+
+  @IsOptional()
+  @IsUUID()
+  parceiroId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  parceiroNome?: string;
 }

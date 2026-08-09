@@ -6,16 +6,32 @@ import {
 } from '@nestjs/common';
 import {
   FinanceiroTituloStatus,
+  FinanceiroTituloTipo,
   PlatformContratoStatus,
   Prisma,
   Role,
 } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { PLATFORM_TENANT_ID } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
 import { BaixarParcelaDto } from './dto/baixar-parcela.dto';
+import { CreatePlatformContratoComTitulosDto } from './dto/create-platform-contrato-com-titulos.dto';
 import { CreatePlatformContratoDto } from './dto/create-platform-contrato.dto';
 import { UpdatePlatformContratoDto } from './dto/update-platform-contrato.dto';
+
+function addMonthsIso(iso: string, months: number): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const base = new Date(Date.UTC(y, m - 1 + months, 1));
+  const dim = new Date(
+    Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  const day = Math.min(d || 1, dim);
+  const yy = base.getUTCFullYear();
+  const mm = String(base.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(day).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
 
 const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
 
@@ -75,6 +91,8 @@ export class PlatformContratosService {
 
     const codigo = await this.nextCodigo();
     const parcelas = dto.parcelas ?? [];
+    const valorAdesao = dto.valorAdesao ?? 0;
+    const valorMensalidade = dto.valorMensalidade ?? 0;
 
     const row = await this.prisma.platformContrato.create({
       data: {
@@ -84,6 +102,8 @@ export class PlatformContratosService {
         tipo: dto.tipo,
         plano: dto.tipo === 'assinatura' ? (dto.plano ?? null) : null,
         valor: dto.valor,
+        valorAdesao,
+        valorMensalidade,
         dataInicio: parseDayStart(dto.dataInicio),
         vencimento: dto.vencimento ? parseDayStart(dto.vencimento) : null,
         status: dto.status ?? PlatformContratoStatus.proposta,
@@ -102,6 +122,124 @@ export class PlatformContratosService {
       include: contratoInclude,
     });
     return this.mapContrato(row);
+  }
+
+  /**
+   * Cria contrato + 1 título de adesão + N mensalidades no financeiro da plataforma.
+   */
+  async createComTitulos(
+    dto: CreatePlatformContratoComTitulosDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertSuperAdmin(requester);
+    await this.ensureTenant(dto.tenantId);
+    if (dto.tipo === 'assinatura' && !dto.plano) {
+      throw new BadRequestException(
+        'Informe o plano da assinatura (bronze, prata ou ouro).',
+      );
+    }
+
+    const valorAdesao = dto.valorAdesao;
+    const valorMensalidade = dto.valorMensalidade;
+    const qtd = dto.qtdMensalidades;
+    const valorTotal = valorAdesao + valorMensalidade * qtd;
+    const vencimentoBase = dto.vencimento.slice(0, 10);
+    const categoria = dto.categoria?.trim() || 'Assinatura';
+    const parceiroNome =
+      dto.parceiroNome?.trim() ||
+      (await this.resolveParceiroNome(dto.parceiroId));
+    const codigo = await this.nextCodigo();
+    const grupoParcelasId = randomUUID();
+
+    const parcelasContrato = [
+      {
+        numero: 1,
+        valor: valorAdesao,
+        vencimento: parseDayStart(vencimentoBase),
+      },
+      ...Array.from({ length: qtd }, (_, i) => ({
+        numero: i + 2,
+        valor: valorMensalidade,
+        vencimento: parseDayStart(addMonthsIso(vencimentoBase, i)),
+      })),
+    ];
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const contrato = await tx.platformContrato.create({
+        data: {
+          tenantId: dto.tenantId,
+          codigo,
+          titulo: dto.titulo.trim(),
+          tipo: dto.tipo,
+          plano: dto.tipo === 'assinatura' ? (dto.plano ?? null) : null,
+          valor: valorTotal,
+          valorAdesao,
+          valorMensalidade,
+          dataInicio: parseDayStart(dto.dataInicio),
+          vencimento: parseDayStart(vencimentoBase),
+          status: dto.status ?? PlatformContratoStatus.ativo,
+          observacao: dto.observacao?.trim() || '',
+          parcelas: { create: parcelasContrato },
+        },
+        include: contratoInclude,
+      });
+
+      const titulosData = [
+        {
+          tenantId: PLATFORM_TENANT_ID,
+          tipo: FinanceiroTituloTipo.receber,
+          descricao: `${dto.titulo.trim()} — Adesão`,
+          parceiroId: dto.parceiroId || null,
+          parceiroNome,
+          categoria,
+          centro: '',
+          vencimento: parseDayStart(vencimentoBase),
+          valor: valorAdesao,
+          status: FinanceiroTituloStatus.aberto,
+          parcela: 'Adesão',
+          grupoParcelasId,
+          platformContratoId: contrato.id,
+        },
+        ...Array.from({ length: qtd }, (_, i) => ({
+          tenantId: PLATFORM_TENANT_ID,
+          tipo: FinanceiroTituloTipo.receber,
+          descricao: `${dto.titulo.trim()} — Mensalidade`,
+          parceiroId: dto.parceiroId || null,
+          parceiroNome,
+          categoria,
+          centro: '',
+          vencimento: parseDayStart(addMonthsIso(vencimentoBase, i)),
+          valor: valorMensalidade,
+          status: FinanceiroTituloStatus.aberto,
+          parcela: `${i + 1}/${qtd}`,
+          grupoParcelasId,
+          platformContratoId: contrato.id,
+        })),
+      ];
+
+      await tx.financeiroTitulo.createMany({ data: titulosData });
+
+      const titulos = await tx.financeiroTitulo.findMany({
+        where: { grupoParcelasId },
+        orderBy: { vencimento: 'asc' },
+      });
+
+      return { contrato, titulos };
+    });
+
+    return {
+      ...this.mapContrato(result.contrato),
+      grupoParcelasId,
+      titulos: result.titulos.map((t) => ({
+        id: t.id,
+        descricao: t.descricao,
+        parcela: t.parcela,
+        valor: t.valor,
+        vencimento: isoDateOnly(t.vencimento),
+        status: t.status,
+        platformContratoId: t.platformContratoId,
+      })),
+    };
   }
 
   async update(
@@ -149,6 +287,12 @@ export class PlatformContratosService {
           ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
           plano: tipo === 'assinatura' ? plano : null,
           ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
+          ...(dto.valorAdesao !== undefined
+            ? { valorAdesao: dto.valorAdesao }
+            : {}),
+          ...(dto.valorMensalidade !== undefined
+            ? { valorMensalidade: dto.valorMensalidade }
+            : {}),
           ...(dto.dataInicio !== undefined
             ? { dataInicio: parseDayStart(dto.dataInicio) }
             : {}),
@@ -240,6 +384,15 @@ export class PlatformContratosService {
     if (count === 0) throw new NotFoundException('Imobiliária não encontrada.');
   }
 
+  private async resolveParceiroNome(parceiroId?: string) {
+    if (!parceiroId) return '';
+    const p = await this.prisma.financeiroParceiro.findFirst({
+      where: { id: parceiroId, tenantId: PLATFORM_TENANT_ID },
+      select: { nome: true },
+    });
+    return p?.nome ?? '';
+  }
+
   private async findRawOrFail(id: string) {
     const row = await this.prisma.platformContrato.findUnique({
       where: { id },
@@ -277,6 +430,8 @@ export class PlatformContratosService {
       tipo: row.tipo,
       plano: row.plano,
       valor: row.valor,
+      valorAdesao: row.valorAdesao,
+      valorMensalidade: row.valorMensalidade,
       dataInicio: isoDateOnly(row.dataInicio),
       vencimento: row.vencimento ? isoDateOnly(row.vencimento) : null,
       status: row.status,

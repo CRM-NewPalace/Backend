@@ -28,6 +28,8 @@ import { CreateDespesaDto } from './dto/create-despesa.dto';
 import { CreateDespesaTipoDto } from './dto/create-despesa-tipo.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { CreateParceiroDto } from './dto/create-parceiro.dto';
+import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
+import { CreateRecebimentoTipoDto } from './dto/create-recebimento-tipo.dto';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { CreateTitulosParceladoDto } from './dto/create-titulos-parcelado.dto';
 import {
@@ -40,9 +42,12 @@ import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
 import { UpdateMovimentoDto } from './dto/update-movimento.dto';
 import { UpdateParceiroDto } from './dto/update-parceiro.dto';
+import { UpdateRecebimentoDto } from './dto/update-recebimento.dto';
+import { UpdateRecebimentoTipoDto } from './dto/update-recebimento-tipo.dto';
 import { UpdateTituloDto } from './dto/update-titulo.dto';
 import { UpdateTitulosGrupoDto } from './dto/update-titulos-grupo.dto';
 import { RenovarDespesasDto } from './dto/renovar-despesas.dto';
+import { RenovarRecebimentosDto } from './dto/renovar-recebimentos.dto';
 import { randomUUID } from 'crypto';
 
 const MESES_CURTOS = [
@@ -423,8 +428,10 @@ export class FinanceiroService {
   }
 
   /**
-   * Resumo analítico por categoria = nomes do Centro de despesas (despesa-tipos).
-   * `tipo` filtra só os lançamentos (entrada/saída); o cadastro é único.
+   * Resumo analítico:
+   * - entrada → Centro de recebimentos
+   * - saída → Centro de despesas
+   * - sem tipo → ambos (nomes unificados)
    */
   async resumoCategorias(
     requester: AuthenticatedUser,
@@ -436,6 +443,8 @@ export class FinanceiroService {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.ensureDefaultDespesaCategorias(tenantId);
+    await this.ensureDefaultRecebimentoCategorias(tenantId);
+    await this.cleanupReceitaTiposFromDespesas(tenantId);
     await this.unifyCentroIntoCategoria(tenantId);
 
     const periodo = opts?.periodo ?? 'mes';
@@ -448,42 +457,61 @@ export class FinanceiroService {
           }
         : undefined;
 
-    const [tipos, movimentos, titulosAbertos] = await Promise.all([
-      this.prisma.financeiroDespesaTipo.findMany({
-        where: { tenantId },
-        orderBy: [{ nome: 'asc' }, { natureza: 'asc' }],
-      }),
-      this.prisma.financeiroMovimento.findMany({
-        where: {
-          tenantId,
-          status: { not: FinanceiroTituloStatus.cancelado },
-          ...(opts?.tipo ? { tipo: opts.tipo } : {}),
-          ...(dataFilter ? { data: dataFilter } : {}),
-        },
-        select: { categoria: true, centro: true, tipo: true, valor: true },
-      }),
-      this.prisma.financeiroTitulo.findMany({
-        where: {
-          tenantId,
-          status: {
-            in: [
-              FinanceiroTituloStatus.aberto,
-              FinanceiroTituloStatus.atrasado,
-            ],
+    const useRecebimentos =
+      !opts?.tipo || opts.tipo === FinanceiroMovimentoTipo.entrada;
+    const useDespesas =
+      !opts?.tipo || opts.tipo === FinanceiroMovimentoTipo.saida;
+
+    const [recebimentoTipos, despesaTipos, movimentos, titulosAbertos] =
+      await Promise.all([
+        useRecebimentos
+          ? this.prisma.financeiroRecebimentoTipo.findMany({
+              where: { tenantId },
+              orderBy: [{ nome: 'asc' }, { natureza: 'asc' }],
+            })
+          : Promise.resolve([]),
+        useDespesas
+          ? this.prisma.financeiroDespesaTipo.findMany({
+              where: { tenantId, ativo: true },
+              orderBy: [{ nome: 'asc' }, { natureza: 'asc' }],
+            })
+          : Promise.resolve([]),
+        this.prisma.financeiroMovimento.findMany({
+          where: {
+            tenantId,
+            status: { not: FinanceiroTituloStatus.cancelado },
+            ...(opts?.tipo ? { tipo: opts.tipo } : {}),
+            ...(dataFilter ? { data: dataFilter } : {}),
           },
-          ...(opts?.tipo
-            ? {
-                tipo:
-                  opts.tipo === FinanceiroMovimentoTipo.entrada
-                    ? FinanceiroTituloTipo.receber
-                    : FinanceiroTituloTipo.pagar,
-              }
-            : {}),
-          ...(dataFilter ? { vencimento: dataFilter } : {}),
-        },
-        select: { categoria: true, centro: true, tipo: true, valor: true },
-      }),
-    ]);
+          select: { categoria: true, centro: true, tipo: true, valor: true },
+        }),
+        this.prisma.financeiroTitulo.findMany({
+          where: {
+            tenantId,
+            status: {
+              in: [
+                FinanceiroTituloStatus.aberto,
+                FinanceiroTituloStatus.atrasado,
+              ],
+            },
+            ...(opts?.tipo
+              ? {
+                  tipo:
+                    opts.tipo === FinanceiroMovimentoTipo.entrada
+                      ? FinanceiroTituloTipo.receber
+                      : FinanceiroTituloTipo.pagar,
+                }
+              : {}),
+            ...(dataFilter ? { vencimento: dataFilter } : {}),
+          },
+          select: { categoria: true, centro: true, tipo: true, valor: true },
+        }),
+      ]);
+
+    const tipos = [
+      ...recebimentoTipos.map((t) => ({ ...t, _origem: 'recebimento' as const })),
+      ...despesaTipos.map((t) => ({ ...t, _origem: 'despesa' as const })),
+    ];
 
     type Acc = {
       nome: string;
@@ -674,7 +702,11 @@ export class FinanceiroService {
       dto.parceiroId,
       dto.parceiroNome,
     );
-    const categoria = dto.categoria.trim();
+    const label = dto.categoria.trim() || dto.centro?.trim() || '';
+    const categoria =
+      dto.tipo === FinanceiroMovimentoTipo.entrada ? label : label;
+    const centro =
+      dto.tipo === FinanceiroMovimentoTipo.saida ? label : '';
     const row = await this.prisma.financeiroMovimento.create({
       data: {
         tenantId,
@@ -683,8 +715,7 @@ export class FinanceiroService {
         parceiroId: dto.parceiroId || null,
         parceiroNome,
         categoria,
-        // Categoria unificada (= centro de despesas); mantém centro espelhado.
-        centro: categoria,
+        centro,
         tipo: dto.tipo,
         valor: dto.valor,
         status: dto.status ?? FinanceiroTituloStatus.aberto,
@@ -728,17 +759,20 @@ export class FinanceiroService {
         ...(dto.parceiroId !== undefined || dto.parceiroNome !== undefined
           ? { parceiroId, parceiroNome }
           : {}),
-        ...(dto.categoria !== undefined
-          ? {
-              categoria: dto.categoria.trim(),
-              centro: dto.categoria.trim(),
-            }
-          : dto.centro !== undefined
-            ? {
-                categoria: dto.centro?.trim() || '',
-                centro: dto.centro?.trim() || '',
-              }
-            : {}),
+        ...(dto.categoria !== undefined || dto.centro !== undefined
+          ? (() => {
+              const tipoMov = dto.tipo ?? existing.tipo;
+              const label =
+                (dto.categoria !== undefined
+                  ? dto.categoria.trim()
+                  : undefined) ??
+                (dto.centro !== undefined ? dto.centro?.trim() || '' : '') ??
+                '';
+              return tipoMov === FinanceiroMovimentoTipo.saida
+                ? { categoria: label, centro: label }
+                : { categoria: label, centro: '' };
+            })()
+          : {}),
         ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
         ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
@@ -801,8 +835,11 @@ export class FinanceiroService {
     const vencimento = parseDayStart(dto.vencimento);
     const jaPago = status === FinanceiroTituloStatus.pago;
     const descricao = dto.descricao.trim();
-    const categoria = dto.categoria?.trim() || dto.centro?.trim() || '';
-    const centro = categoria;
+    const { categoria, centro } = this.resolveTituloCategoriaCentro(
+      dto.tipo,
+      dto.categoria,
+      dto.centro,
+    );
     const parceiroId = dto.parceiroId || null;
 
     const row = await this.prisma.$transaction(async (tx) => {
@@ -819,6 +856,9 @@ export class FinanceiroService {
           valor: dto.valor,
           status,
           parcela: dto.parcela?.trim() || '',
+          ...(dto.platformContratoId
+            ? { platformContratoId: dto.platformContratoId }
+            : {}),
           ...(jaPago ? { dataPagamento: vencimento } : {}),
         },
       });
@@ -880,8 +920,11 @@ export class FinanceiroService {
     const grupoParcelasId = randomUUID();
     const n = dto.parcelas.length;
     const descricao = dto.descricao.trim();
-    const categoria = dto.categoria?.trim() || dto.centro?.trim() || '';
-    const centro = categoria;
+    const { categoria, centro } = this.resolveTituloCategoriaCentro(
+      dto.tipo,
+      dto.categoria,
+      dto.centro,
+    );
 
     const rows = await this.prisma.$transaction(
       dto.parcelas.map((p, i) =>
@@ -899,6 +942,9 @@ export class FinanceiroService {
             status: FinanceiroTituloStatus.aberto,
             parcela: `${i + 1}/${n}`,
             grupoParcelasId,
+            ...(dto.platformContratoId
+              ? { platformContratoId: dto.platformContratoId }
+              : {}),
           },
         }),
       ),
@@ -959,17 +1005,13 @@ export class FinanceiroService {
             ? { parceiroId, parceiroNome }
             : {}),
           ...(dto.categoria !== undefined || dto.centro !== undefined
-            ? (() => {
-                const unified =
-                  (dto.categoria !== undefined
-                    ? dto.categoria?.trim() || ''
-                    : undefined) ??
-                  (dto.centro !== undefined
-                    ? dto.centro?.trim() || ''
-                    : '') ??
-                  '';
-                return { categoria: unified, centro: unified };
-              })()
+            ? this.resolveTituloCategoriaCentro(
+                dto.tipo ?? existing.tipo,
+                dto.categoria !== undefined
+                  ? dto.categoria
+                  : existing.categoria,
+                dto.centro !== undefined ? dto.centro : existing.centro,
+              )
             : {}),
           ...(dto.vencimento !== undefined
             ? { vencimento: parseDayStart(dto.vencimento) }
@@ -995,7 +1037,10 @@ export class FinanceiroService {
             parceiroId: updated.parceiroId,
             parceiroNome: updated.parceiroNome,
             categoria: updated.categoria || 'Título',
-            centro: updated.categoria || 'Título',
+            centro:
+              updated.tipo === FinanceiroTituloTipo.pagar
+                ? updated.centro || updated.categoria || 'Título'
+                : '',
             tipo: tipoMov,
             valor: updated.valor,
           },
@@ -1074,15 +1119,11 @@ export class FinanceiroService {
           }
         : {}),
       ...(dto.categoria !== undefined || dto.centro !== undefined
-        ? (() => {
-            const unified =
-              (dto.categoria !== undefined
-                ? dto.categoria?.trim() || ''
-                : undefined) ??
-              (dto.centro !== undefined ? dto.centro?.trim() || '' : '') ??
-              '';
-            return { categoria: unified, centro: unified };
-          })()
+        ? this.resolveTituloCategoriaCentro(
+            rows[0]?.tipo ?? FinanceiroTituloTipo.receber,
+            dto.categoria,
+            dto.centro,
+          )
         : {}),
     };
 
@@ -1640,6 +1681,7 @@ export class FinanceiroService {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.ensureDefaultDespesaCategorias(tenantId);
+    await this.cleanupReceitaTiposFromDespesas(tenantId);
     await this.unifyCentroIntoCategoria(tenantId);
     const competencia = competenciaAtualBrasil();
     const { gte, lt } = this.competenciaDateBounds(competencia);
@@ -1957,7 +1999,350 @@ export class FinanceiroService {
     };
   }
 
+  // ─── Tipos de recebimento ────────────────────────────────────
+
+  async listRecebimentoTipos(
+    requester: AuthenticatedUser,
+    natureza?: FinanceiroDespesaNatureza,
+  ) {
+    this.assertAccess(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    await this.ensureDefaultRecebimentoCategorias(tenantId);
+    const competencia = competenciaAtualBrasil();
+    const { gte, lt } = this.competenciaDateBounds(competencia);
+    const rows = await this.prisma.financeiroRecebimentoTipo.findMany({
+      where: {
+        tenantId,
+        ...(natureza ? { natureza } : {}),
+      },
+      include: {
+        _count: { select: { recebimentos: true } },
+        recebimentos: {
+          where: {
+            ativo: true,
+            OR: [
+              { competencia },
+              { competencia: '', data: { gte, lt } },
+            ],
+          },
+          select: { valor: true },
+        },
+      },
+      orderBy: [{ natureza: 'asc' }, { nome: 'asc' }],
+    });
+    return rows.map((r) => this.mapRecebimentoTipo(r));
+  }
+
+  async createRecebimentoTipo(
+    dto: CreateRecebimentoTipoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const nome = dto.nome.trim();
+    try {
+      const row = await this.prisma.financeiroRecebimentoTipo.create({
+        data: {
+          tenantId,
+          nome,
+          natureza: dto.natureza,
+          orcadoMensal: dto.orcadoMensal ?? 0,
+          ativo: dto.ativo ?? true,
+        },
+        include: {
+          _count: { select: { recebimentos: true } },
+          recebimentos: { where: { ativo: true }, select: { valor: true } },
+        },
+      });
+      return this.mapRecebimentoTipo(row);
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          'Já existe um tipo com este nome nesta natureza.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async updateRecebimentoTipo(
+    id: string,
+    dto: UpdateRecebimentoTipoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    await this.findRecebimentoTipoOrFail(id, requester);
+    try {
+      const row = await this.prisma.financeiroRecebimentoTipo.update({
+        where: { id },
+        data: {
+          ...(dto.nome !== undefined ? { nome: dto.nome.trim() } : {}),
+          ...(dto.natureza !== undefined ? { natureza: dto.natureza } : {}),
+          ...(dto.orcadoMensal !== undefined
+            ? { orcadoMensal: dto.orcadoMensal }
+            : {}),
+          ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
+        },
+        include: {
+          _count: { select: { recebimentos: true } },
+          recebimentos: { where: { ativo: true }, select: { valor: true } },
+        },
+      });
+      return this.mapRecebimentoTipo(row);
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          'Já existe um tipo com este nome nesta natureza.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async removeRecebimentoTipo(id: string, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    await this.findRecebimentoTipoOrFail(id, requester);
+    await this.prisma.financeiroRecebimentoTipo.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // ─── Recebimentos ────────────────────────────────────────────
+
+  listRecebimentos(
+    requester: AuthenticatedUser,
+    natureza?: FinanceiroDespesaNatureza,
+  ) {
+    this.assertAccess(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    return this.prisma.financeiroRecebimento
+      .findMany({
+        where: {
+          tenantId,
+          ...(natureza ? { tipo: { natureza } } : {}),
+        },
+        include: {
+          tipo: { select: { id: true, nome: true, natureza: true } },
+        },
+        orderBy: { data: 'desc' },
+      })
+      .then((rows) => rows.map((r) => this.mapRecebimento(r)));
+  }
+
+  async createRecebimento(
+    dto: CreateRecebimentoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const tipo = await this.findRecebimentoTipoOrFail(dto.tipoId, requester);
+    if (!tipo.ativo) {
+      throw new BadRequestException('Tipo de recebimento inativo.');
+    }
+    const competencia =
+      dto.competencia?.trim() || competenciaFromIsoDate(dto.data);
+    const recorrentePadrao =
+      tipo.natureza === FinanceiroDespesaNatureza.fixa ||
+      tipo.natureza === FinanceiroDespesaNatureza.fixa_variavel;
+    const recorrente = dto.recorrente ?? recorrentePadrao;
+    if (
+      recorrente &&
+      tipo.natureza === FinanceiroDespesaNatureza.variavel
+    ) {
+      throw new BadRequestException(
+        'Recebimentos variáveis não podem ser marcados como recorrentes.',
+      );
+    }
+    const row = await this.prisma.financeiroRecebimento.create({
+      data: {
+        tenantId,
+        tipoId: dto.tipoId,
+        descricao: dto.descricao.trim(),
+        valor: dto.valor,
+        data: parseDayStart(dto.data),
+        competencia,
+        recorrente,
+        observacao: dto.observacao?.trim() || '',
+        ativo: dto.ativo ?? true,
+      },
+      include: {
+        tipo: { select: { id: true, nome: true, natureza: true } },
+      },
+    });
+    return this.mapRecebimento(row);
+  }
+
+  async updateRecebimento(
+    id: string,
+    dto: UpdateRecebimentoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const existing = await this.findRecebimentoOrFail(id, requester);
+    let tipoNatureza = existing.tipo.natureza;
+    if (dto.tipoId) {
+      const tipo = await this.findRecebimentoTipoOrFail(dto.tipoId, requester);
+      if (!tipo.ativo) {
+        throw new BadRequestException('Tipo de recebimento inativo.');
+      }
+      tipoNatureza = tipo.natureza;
+    }
+    if (
+      dto.recorrente === true &&
+      tipoNatureza === FinanceiroDespesaNatureza.variavel
+    ) {
+      throw new BadRequestException(
+        'Recebimentos variáveis não podem ser marcados como recorrentes.',
+      );
+    }
+    const dataIso =
+      dto.data !== undefined ? dto.data.slice(0, 10) : isoDateOnly(existing.data);
+    const competencia =
+      dto.competencia?.trim() ||
+      (dto.data !== undefined ? competenciaFromIsoDate(dataIso) : undefined);
+    const row = await this.prisma.financeiroRecebimento.update({
+      where: { id },
+      data: {
+        ...(dto.tipoId !== undefined ? { tipoId: dto.tipoId } : {}),
+        ...(dto.descricao !== undefined
+          ? { descricao: dto.descricao.trim() }
+          : {}),
+        ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
+        ...(dto.data !== undefined ? { data: parseDayStart(dto.data) } : {}),
+        ...(competencia !== undefined ? { competencia } : {}),
+        ...(dto.recorrente !== undefined ? { recorrente: dto.recorrente } : {}),
+        ...(dto.observacao !== undefined
+          ? { observacao: dto.observacao.trim() }
+          : {}),
+        ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
+      },
+      include: {
+        tipo: { select: { id: true, nome: true, natureza: true } },
+      },
+    });
+    return this.mapRecebimento(row);
+  }
+
+  async removeRecebimento(id: string, requester: AuthenticatedUser) {
+    this.assertWrite(requester);
+    await this.findRecebimentoOrFail(id, requester);
+    await this.prisma.financeiroRecebimento.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async renovarRecebimentosMes(
+    dto: RenovarRecebimentosDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const competencia = dto.competencia.trim();
+    const [y, m] = competencia.split('-').map(Number);
+    if (!y || !m) {
+      throw new BadRequestException('Competência inválida.');
+    }
+
+    const raizes = await this.prisma.financeiroRecebimento.findMany({
+      where: {
+        tenantId,
+        ativo: true,
+        recorrente: true,
+        origemId: null,
+        tipo: {
+          natureza: {
+            in: [
+              FinanceiroDespesaNatureza.fixa,
+              FinanceiroDespesaNatureza.fixa_variavel,
+            ],
+          },
+        },
+      },
+      include: {
+        tipo: { select: { id: true, nome: true, natureza: true, ativo: true } },
+      },
+      orderBy: { data: 'desc' },
+    });
+
+    const criadas = [];
+    let ignoradas = 0;
+
+    for (const raiz of raizes) {
+      if (!raiz.tipo.ativo) {
+        ignoradas += 1;
+        continue;
+      }
+      const serieIds = { OR: [{ id: raiz.id }, { origemId: raiz.id }] };
+      const jaExiste = await this.prisma.financeiroRecebimento.findFirst({
+        where: {
+          tenantId,
+          competencia,
+          ...serieIds,
+        },
+        select: { id: true },
+      });
+      if (jaExiste) {
+        ignoradas += 1;
+        continue;
+      }
+
+      const ultima = await this.prisma.financeiroRecebimento.findFirst({
+        where: { tenantId, ...serieIds },
+        orderBy: [{ competencia: 'desc' }, { data: 'desc' }],
+      });
+      const template = ultima ?? raiz;
+      const day = Math.min(
+        Number(isoDateOnly(template.data).slice(8, 10)) || 1,
+        28,
+      );
+      const row = await this.prisma.financeiroRecebimento.create({
+        data: {
+          tenantId,
+          tipoId: template.tipoId,
+          descricao: template.descricao,
+          valor: template.valor,
+          data: dataFromCompetencia(competencia, day),
+          competencia,
+          recorrente: true,
+          origemId: raiz.id,
+          observacao: template.observacao,
+          ativo: true,
+        },
+        include: {
+          tipo: { select: { id: true, nome: true, natureza: true } },
+        },
+      });
+      criadas.push(this.mapRecebimento(row));
+    }
+
+    return {
+      competencia,
+      criadas: criadas.length,
+      ignoradas,
+      recebimentos: criadas,
+    };
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────
+
+  private resolveTituloCategoriaCentro(
+    tipo: FinanceiroTituloTipo | string,
+    categoria?: string | null,
+    centro?: string | null,
+  ) {
+    const cat = categoria?.trim() || '';
+    const cen = centro?.trim() || '';
+    if (tipo === FinanceiroTituloTipo.pagar) {
+      const label = cen || cat;
+      return { categoria: label, centro: label };
+    }
+    const label = cat || cen;
+    return { categoria: label, centro: '' };
+  }
 
   private async buildMesesResumo(tenantId: string, qtd: number) {
     const now = new Date();
@@ -2164,14 +2549,41 @@ export class FinanceiroService {
         skipDuplicates: true,
       });
     }
+  }
 
-    // Categorias financeiras legadas passam a existir como tipos (variável).
-    const legacyNomes = [
-      ...DEFAULT_CATEGORIAS_ENTRADA,
-      ...DEFAULT_CATEGORIAS_SAIDA,
-    ];
-    await this.prisma.financeiroDespesaTipo.createMany({
-      data: legacyNomes.map((nome) => ({
+  private async ensureDefaultRecebimentoCategorias(tenantId: string) {
+    const count = await this.prisma.financeiroRecebimentoTipo.count({
+      where: { tenantId },
+    });
+    if (count === 0) {
+      await this.prisma.financeiroRecebimentoTipo.createMany({
+        data: DEFAULT_CATEGORIAS_ENTRADA.map((nome) => ({
+          tenantId,
+          nome,
+          natureza: FinanceiroDespesaNatureza.variavel,
+          orcadoMensal: 0,
+          ativo: true,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    // Nomes órfãos de títulos a receber → tipos de recebimento.
+    const titulos = await this.prisma.financeiroTitulo.findMany({
+      where: {
+        tenantId,
+        tipo: FinanceiroTituloTipo.receber,
+        categoria: { not: '' },
+      },
+      select: { categoria: true },
+      distinct: ['categoria'],
+    });
+    const nomes = titulos
+      .map((t) => t.categoria.trim())
+      .filter(Boolean);
+    if (nomes.length === 0) return;
+    await this.prisma.financeiroRecebimentoTipo.createMany({
+      data: nomes.map((nome) => ({
         tenantId,
         nome,
         natureza: FinanceiroDespesaNatureza.variavel,
@@ -2183,8 +2595,36 @@ export class FinanceiroService {
   }
 
   /**
-   * Unifica centro → categoria (saídas/pagar) e garante tipos órfãos no cadastro.
-   * Idempotente; seguro chamar em listagens.
+   * Remove/desativa tipos de receita legados do Centro de despesas.
+   */
+  private async cleanupReceitaTiposFromDespesas(tenantId: string) {
+    const legacyReceita = new Set(
+      DEFAULT_CATEGORIAS_ENTRADA.map((n) => n.trim().toLowerCase()),
+    );
+    const rows = await this.prisma.financeiroDespesaTipo.findMany({
+      where: { tenantId },
+      include: { _count: { select: { despesas: true } } },
+    });
+    for (const row of rows) {
+      if (!legacyReceita.has(row.nome.trim().toLowerCase())) continue;
+      if (row._count.despesas === 0) {
+        await this.prisma.financeiroDespesaTipo.delete({
+          where: { id: row.id },
+        });
+      } else if (row.ativo) {
+        await this.prisma.financeiroDespesaTipo.update({
+          where: { id: row.id },
+          data: { ativo: false },
+        });
+      }
+    }
+  }
+
+  /**
+   * Unifica rótulos:
+   * - pagar/saída: categoria = centro (centro de custo)
+   * - receber/entrada: categoria preenchida, centro vazio
+   * Órfãos de saída → despesa-tipos; órfãos de entrada → recebimento-tipos.
    */
   private async unifyCentroIntoCategoria(tenantId: string) {
     const [titulos, movimentos] = await Promise.all([
@@ -2204,23 +2644,30 @@ export class FinanceiroService {
       }),
     ]);
 
-    const nomes = new Set<string>();
+    const nomesDespesa = new Set<string>();
+    const nomesRecebimento = new Set<string>();
     const tituloUpdates: { id: string; categoria: string; centro: string }[] =
       [];
     for (const t of titulos) {
-      const cat = t.categoria?.trim() || '';
-      const cen = t.centro?.trim() || '';
-      const unified =
-        t.tipo === FinanceiroTituloTipo.pagar
-          ? cen || cat
-          : cat || cen;
-      if (!unified) continue;
-      nomes.add(unified);
-      if (cat !== unified || cen !== unified) {
+      const resolved = this.resolveTituloCategoriaCentro(
+        t.tipo,
+        t.categoria,
+        t.centro,
+      );
+      if (!resolved.categoria && !resolved.centro) continue;
+      if (t.tipo === FinanceiroTituloTipo.pagar) {
+        if (resolved.centro) nomesDespesa.add(resolved.centro);
+      } else if (resolved.categoria) {
+        nomesRecebimento.add(resolved.categoria);
+      }
+      if (
+        t.categoria !== resolved.categoria ||
+        t.centro !== resolved.centro
+      ) {
         tituloUpdates.push({
           id: t.id,
-          categoria: unified,
-          centro: unified,
+          categoria: resolved.categoria,
+          centro: resolved.centro,
         });
       }
     }
@@ -2229,15 +2676,21 @@ export class FinanceiroService {
     for (const m of movimentos) {
       const cat = m.categoria?.trim() || '';
       const cen = m.centro?.trim() || '';
-      const unified =
-        m.tipo === FinanceiroMovimentoTipo.saida ? cen || cat : cat || cen;
-      if (!unified) continue;
-      nomes.add(unified);
-      if (cat !== unified || cen !== unified) {
+      const isSaida = m.tipo === FinanceiroMovimentoTipo.saida;
+      const resolved = isSaida
+        ? { categoria: cen || cat, centro: cen || cat }
+        : { categoria: cat || cen, centro: '' };
+      if (!resolved.categoria && !resolved.centro) continue;
+      if (isSaida) {
+        if (resolved.centro) nomesDespesa.add(resolved.centro);
+      } else if (resolved.categoria) {
+        nomesRecebimento.add(resolved.categoria);
+      }
+      if (cat !== resolved.categoria || cen !== resolved.centro) {
         movUpdates.push({
           id: m.id,
-          categoria: unified,
-          centro: unified,
+          categoria: resolved.categoria,
+          centro: resolved.centro,
         });
       }
     }
@@ -2259,17 +2712,30 @@ export class FinanceiroService {
       ]);
     }
 
-    if (nomes.size === 0) return;
-    await this.prisma.financeiroDespesaTipo.createMany({
-      data: [...nomes].map((nome) => ({
-        tenantId,
-        nome,
-        natureza: FinanceiroDespesaNatureza.variavel,
-        orcadoMensal: 0,
-        ativo: true,
-      })),
-      skipDuplicates: true,
-    });
+    if (nomesDespesa.size > 0) {
+      await this.prisma.financeiroDespesaTipo.createMany({
+        data: [...nomesDespesa].map((nome) => ({
+          tenantId,
+          nome,
+          natureza: FinanceiroDespesaNatureza.variavel,
+          orcadoMensal: 0,
+          ativo: true,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    if (nomesRecebimento.size > 0) {
+      await this.prisma.financeiroRecebimentoTipo.createMany({
+        data: [...nomesRecebimento].map((nome) => ({
+          tenantId,
+          nome,
+          natureza: FinanceiroDespesaNatureza.variavel,
+          orcadoMensal: 0,
+          ativo: true,
+        })),
+        skipDuplicates: true,
+      });
+    }
   }
 
   private async findMovimentoOrFail(id: string, requester: AuthenticatedUser) {
@@ -2474,6 +2940,35 @@ export class FinanceiroService {
     return row;
   }
 
+  private async findRecebimentoTipoOrFail(
+    id: string,
+    requester: AuthenticatedUser,
+  ) {
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const row = await this.prisma.financeiroRecebimentoTipo.findFirst({
+      where: { id, tenantId },
+    });
+    if (!row) {
+      throw new NotFoundException('Tipo de recebimento não encontrado.');
+    }
+    return row;
+  }
+
+  private async findRecebimentoOrFail(
+    id: string,
+    requester: AuthenticatedUser,
+  ) {
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const row = await this.prisma.financeiroRecebimento.findFirst({
+      where: { id, tenantId },
+      include: {
+        tipo: { select: { id: true, nome: true, natureza: true, ativo: true } },
+      },
+    });
+    if (!row) throw new NotFoundException('Recebimento não encontrado.');
+    return row;
+  }
+
   private async resolveParceiroNome(
     tenantId: string,
     parceiroId?: string,
@@ -2641,6 +3136,62 @@ export class FinanceiroService {
     };
   }
 
+  private mapRecebimentoTipo(row: {
+    id: string;
+    nome: string;
+    natureza: FinanceiroDespesaNatureza;
+    orcadoMensal: number;
+    ativo: boolean;
+    createdAt: Date;
+    _count?: { recebimentos: number };
+    recebimentos?: { valor: number }[];
+  }) {
+    const realizado = (row.recebimentos ?? []).reduce((s, d) => s + d.valor, 0);
+    return {
+      id: row.id,
+      nome: row.nome,
+      natureza: row.natureza,
+      orcadoMensal: row.orcadoMensal,
+      realizado,
+      qtdDespesas: row._count?.recebimentos ?? row.recebimentos?.length ?? 0,
+      qtdRecebimentos: row._count?.recebimentos ?? row.recebimentos?.length ?? 0,
+      ativo: row.ativo,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private mapRecebimento(row: {
+    id: string;
+    tipoId: string;
+    descricao: string;
+    valor: number;
+    data: Date;
+    competencia?: string | null;
+    recorrente?: boolean;
+    origemId?: string | null;
+    observacao: string;
+    ativo: boolean;
+    createdAt: Date;
+    tipo: { id: string; nome: string; natureza: FinanceiroDespesaNatureza };
+  }) {
+    return {
+      id: row.id,
+      tipoId: row.tipoId,
+      tipoNome: row.tipo.nome,
+      natureza: row.tipo.natureza,
+      descricao: row.descricao,
+      valor: row.valor,
+      data: isoDateOnly(row.data),
+      competencia:
+        row.competencia?.trim() || competenciaFromIsoDate(isoDateOnly(row.data)),
+      recorrente: row.recorrente ?? false,
+      origemId: row.origemId ?? null,
+      observacao: row.observacao,
+      ativo: row.ativo,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
   private mapMovimento(row: {
     id: string;
     data: Date;
@@ -2685,6 +3236,7 @@ export class FinanceiroService {
     status: string;
     parcela: string;
     grupoParcelasId?: string | null;
+    platformContratoId?: string | null;
     movimento?: { formaPagamento: string } | null;
   }) {
     return {
@@ -2701,6 +3253,7 @@ export class FinanceiroService {
       status: row.status,
       parcela: row.parcela,
       grupoParcelasId: row.grupoParcelasId ?? null,
+      platformContratoId: row.platformContratoId ?? null,
       formaPagamento: row.movimento?.formaPagamento || '',
     };
   }
