@@ -212,6 +212,18 @@ export class FinanceiroController {
     return this.financeiroService.baixarTitulo(id, dto, requester);
   }
 
+  @Delete('titulos/grupo/:grupoParcelasId')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  removeTitulosGrupo(
+    @Param('grupoParcelasId', ParseUUIDPipe) grupoParcelasId: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.removeTitulosGrupo(
+      grupoParcelasId,
+      requester,
+    );
+  }
+
   @Delete('titulos/:id')
   @Roles(Role.admin, Role.gerente, Role.super_admin)
   removeTitulo(

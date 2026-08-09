@@ -785,6 +785,41 @@ export class FinanceiroService {
     return { ok: true };
   }
 
+  async removeTitulosGrupo(
+    grupoParcelasId: string,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const rows = await this.prisma.financeiroTitulo.findMany({
+      where: { tenantId, grupoParcelasId },
+      select: { id: true, parceiroId: true },
+    });
+    if (rows.length === 0) {
+      throw new NotFoundException('Grupo de parcelas não encontrado.');
+    }
+
+    const ids = rows.map((r) => r.id);
+    const parceiroIds = new Set(
+      rows.map((r) => r.parceiroId).filter((id): id is string => Boolean(id)),
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.financeiroMovimento.deleteMany({
+        where: { tituloId: { in: ids } },
+      });
+      await tx.financeiroTitulo.deleteMany({
+        where: { tenantId, grupoParcelasId },
+      });
+    });
+
+    for (const pid of parceiroIds) {
+      await this.recalcSaldoParceiro(tenantId, pid);
+    }
+
+    return { ok: true, deleted: rows.length };
+  }
+
   async baixarTitulo(
     id: string,
     dto: BaixarTituloDto,
