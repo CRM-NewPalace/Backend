@@ -79,6 +79,16 @@ model Tenant {
   status UserStatus @default(ativo)
   /// CPF ou CNPJ do cliente (imobiliária).
   documento String  @default("")
+  /// CRECI da imobiliária (ex.: 18937-J).
+  creci String @default("")
+  /// E-mail institucional da imobiliária.
+  email String @default("")
+  /// Telefone/WhatsApp da imobiliária.
+  telefone String @default("")
+  /// Endereço completo (rua, bairro, cidade/UF).
+  endereco String @default("")
+  /// Cidade do contrato (ex.: Recife/PE).
+  cidade String @default("")
 
   /// Branding visual (nível 1).
   logoUrl      String?

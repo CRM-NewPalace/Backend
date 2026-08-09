@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,11 +12,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateTenantAdminDto } from './dto/create-tenant-admin.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
+import { UpdateTenantCompanyDto } from './dto/update-tenant-company.dto';
 import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
 import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
-import { tenantAdminSelect } from '../common/utils/tenant-branding';
+import {
+  tenantAdminSelect,
+  tenantBrandingSelect,
+} from '../common/utils/tenant-branding';
 import { publicUserSelect } from '../common/utils/user-select';
 import { SALT_ROUNDS } from '../config/security.constants';
 import { DEFAULT_FUNNEL_STAGES } from '../catalog/catalog.defaults';
@@ -24,7 +29,11 @@ import {
   resolvePlanoFields,
 } from './tenant-plan';
 import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
-import { PLATFORM_TENANT_ID } from '../common/utils/tenant';
+import {
+  PLATFORM_TENANT_ID,
+  requireTenantId,
+} from '../common/utils/tenant';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
 
 const tenantSelect = tenantAdminSelect;
 
@@ -715,6 +724,60 @@ export class TenantsService {
     }
 
     return chars.join('');
+  }
+
+  /** Dados da imobiliária do tenant do requester. */
+  async getCompanyProfile(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: tenantBrandingSelect,
+    });
+    if (!tenant) {
+      throw new NotFoundException('Tenant não encontrado.');
+    }
+    return tenant;
+  }
+
+  /** Atualiza nome/documento/CRECI/contato da imobiliária (admin). */
+  async updateCompanyProfile(
+    requester: AuthenticatedUser,
+    dto: UpdateTenantCompanyDto,
+  ) {
+    if (requester.role !== Role.admin) {
+      throw new ForbiddenException(
+        'Somente o administrador pode editar os dados da imobiliária.',
+      );
+    }
+    const tenantId = requireTenantId(requester);
+    if (tenantId === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser alterado por aqui.',
+      );
+    }
+    await this.ensureExists(tenantId);
+
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.documento !== undefined
+          ? { documento: this.normalizeDocumento(dto.documento) }
+          : {}),
+        ...(dto.creci !== undefined ? { creci: dto.creci.trim() } : {}),
+        ...(dto.email !== undefined
+          ? { email: dto.email.trim().toLowerCase() }
+          : {}),
+        ...(dto.telefone !== undefined
+          ? { telefone: dto.telefone.trim() }
+          : {}),
+        ...(dto.endereco !== undefined
+          ? { endereco: dto.endereco.trim() }
+          : {}),
+        ...(dto.cidade !== undefined ? { cidade: dto.cidade.trim() } : {}),
+      },
+      select: tenantBrandingSelect,
+    });
   }
 
   /** Mantém só dígitos do CPF/CNPJ (até 14). */
