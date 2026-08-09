@@ -422,6 +422,189 @@ export class FinanceiroService {
     return { ok: true };
   }
 
+  async resumoCategorias(
+    requester: AuthenticatedUser,
+    opts?: {
+      periodo?: 'mes' | 'trimestre' | 'ano' | 'tudo';
+      tipo?: FinanceiroMovimentoTipo;
+    },
+  ) {
+    this.assertAccess(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    await this.ensureDefaultCategorias(tenantId);
+
+    const periodo = opts?.periodo ?? 'mes';
+    const { gte, lt } = this.periodoDateBounds(periodo);
+    const dataFilter =
+      gte || lt
+        ? {
+            ...(gte ? { gte } : {}),
+            ...(lt ? { lt } : {}),
+          }
+        : undefined;
+
+    const [categorias, movimentos, titulosAbertos] = await Promise.all([
+      this.prisma.financeiroCategoria.findMany({
+        where: {
+          tenantId,
+          ...(opts?.tipo ? { tipo: opts.tipo } : {}),
+        },
+        orderBy: [{ tipo: 'asc' }, { nome: 'asc' }],
+      }),
+      this.prisma.financeiroMovimento.findMany({
+        where: {
+          tenantId,
+          status: { not: FinanceiroTituloStatus.cancelado },
+          ...(opts?.tipo ? { tipo: opts.tipo } : {}),
+          ...(dataFilter ? { data: dataFilter } : {}),
+        },
+        select: { categoria: true, tipo: true, valor: true },
+      }),
+      this.prisma.financeiroTitulo.findMany({
+        where: {
+          tenantId,
+          status: {
+            in: [
+              FinanceiroTituloStatus.aberto,
+              FinanceiroTituloStatus.atrasado,
+            ],
+          },
+          ...(opts?.tipo
+            ? {
+                tipo:
+                  opts.tipo === FinanceiroMovimentoTipo.entrada
+                    ? FinanceiroTituloTipo.receber
+                    : FinanceiroTituloTipo.pagar,
+              }
+            : {}),
+          ...(dataFilter ? { vencimento: dataFilter } : {}),
+        },
+        select: { categoria: true, tipo: true, valor: true },
+      }),
+    ]);
+
+    type Acc = {
+      nome: string;
+      tipo: FinanceiroMovimentoTipo;
+      total: number;
+      quantidade: number;
+      emAberto: number;
+      qtdAberto: number;
+    };
+    const keyOf = (nome: string, tipo: FinanceiroMovimentoTipo | string) =>
+      `${tipo}::${nome.trim().toLowerCase()}`;
+
+    const realized = new Map<string, Acc>();
+    const bump = (
+      nome: string,
+      tipo: FinanceiroMovimentoTipo,
+      field: 'total' | 'emAberto',
+      valor: number,
+    ) => {
+      const key = keyOf(nome, tipo);
+      const cur = realized.get(key) ?? {
+        nome,
+        tipo,
+        total: 0,
+        quantidade: 0,
+        emAberto: 0,
+        qtdAberto: 0,
+      };
+      if (field === 'total') {
+        cur.total += valor;
+        cur.quantidade += 1;
+      } else {
+        cur.emAberto += valor;
+        cur.qtdAberto += 1;
+      }
+      realized.set(key, cur);
+    };
+
+    for (const m of movimentos) {
+      const nome = m.categoria?.trim() || 'Sem categoria';
+      bump(nome, m.tipo, 'total', m.valor);
+    }
+    for (const t of titulosAbertos) {
+      const nome = t.categoria?.trim() || 'Sem categoria';
+      const tipoMov =
+        t.tipo === FinanceiroTituloTipo.receber
+          ? FinanceiroMovimentoTipo.entrada
+          : FinanceiroMovimentoTipo.saida;
+      bump(nome, tipoMov, 'emAberto', t.valor);
+    }
+
+    const catalogKeys = new Set(
+      categorias.map((c) => keyOf(c.nome, c.tipo)),
+    );
+
+    const emptyAcc = (): Omit<Acc, 'nome' | 'tipo'> => ({
+      total: 0,
+      quantidade: 0,
+      emAberto: 0,
+      qtdAberto: 0,
+    });
+
+    const rows = categorias.map((c) => {
+      const acc = realized.get(keyOf(c.nome, c.tipo)) ?? emptyAcc();
+      return {
+        id: c.id,
+        nome: c.nome,
+        tipo: c.tipo,
+        ativo: c.ativo,
+        createdAt: c.createdAt.toISOString(),
+        total: acc.total,
+        quantidade: acc.quantidade,
+        emAberto: acc.emAberto,
+        qtdAberto: acc.qtdAberto,
+        percentual: 0,
+      };
+    });
+
+    // Inclui categorias usadas em lançamentos que não estão no cadastro.
+    for (const [key, acc] of realized) {
+      if (catalogKeys.has(key)) continue;
+      rows.push({
+        id: '',
+        nome: acc.nome,
+        tipo: acc.tipo,
+        ativo: true,
+        createdAt: '',
+        total: acc.total,
+        quantidade: acc.quantidade,
+        emAberto: acc.emAberto,
+        qtdAberto: acc.qtdAberto,
+        percentual: 0,
+      });
+    }
+
+    const totalEntradas = rows
+      .filter((r) => r.tipo === FinanceiroMovimentoTipo.entrada)
+      .reduce((s, r) => s + r.total, 0);
+    const totalSaidas = rows
+      .filter((r) => r.tipo === FinanceiroMovimentoTipo.saida)
+      .reduce((s, r) => s + r.total, 0);
+
+    for (const r of rows) {
+      const base =
+        r.tipo === FinanceiroMovimentoTipo.entrada
+          ? totalEntradas
+          : totalSaidas;
+      r.percentual = base > 0 ? Number(((r.total / base) * 100).toFixed(1)) : 0;
+    }
+
+    rows.sort((a, b) => {
+      if (a.tipo !== b.tipo) return a.tipo.localeCompare(b.tipo);
+      return b.total - a.total || a.nome.localeCompare(b.nome, 'pt-BR');
+    });
+
+    return {
+      periodo,
+      totalEntradas,
+      totalSaidas,
+      categorias: rows,
+    };
+  }
+
   // ─── Movimentos ──────────────────────────────────────────────
 
   listMovimentos(requester: AuthenticatedUser) {
@@ -1829,6 +2012,30 @@ export class FinanceiroService {
     const gte = new Date(Date.UTC(ys, ms - 1, 1) + BRASIL_UTC_OFFSET_MS);
     const lt = new Date(Date.UTC(ys, ms, 1) + BRASIL_UTC_OFFSET_MS);
     return { gte, lt };
+  }
+
+  private periodoDateBounds(periodo: 'mes' | 'trimestre' | 'ano' | 'tudo') {
+    if (periodo === 'tudo') return {} as { gte?: Date; lt?: Date };
+    const today = todayIsoBrasil();
+    const y = Number(today.slice(0, 4));
+    const m = Number(today.slice(5, 7));
+    if (periodo === 'mes') {
+      return {
+        gte: new Date(Date.UTC(y, m - 1, 1) + BRASIL_UTC_OFFSET_MS),
+        lt: new Date(Date.UTC(y, m, 1) + BRASIL_UTC_OFFSET_MS),
+      };
+    }
+    if (periodo === 'trimestre') {
+      const qStart = Math.floor((m - 1) / 3) * 3;
+      return {
+        gte: new Date(Date.UTC(y, qStart, 1) + BRASIL_UTC_OFFSET_MS),
+        lt: new Date(Date.UTC(y, qStart + 3, 1) + BRASIL_UTC_OFFSET_MS),
+      };
+    }
+    return {
+      gte: new Date(Date.UTC(y, 0, 1) + BRASIL_UTC_OFFSET_MS),
+      lt: new Date(Date.UTC(y + 1, 0, 1) + BRASIL_UTC_OFFSET_MS),
+    };
   }
 
   private async ensureDefaultCategorias(tenantId: string) {

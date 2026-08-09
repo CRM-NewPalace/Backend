@@ -117,6 +117,19 @@ export class FinanceiroController {
 
   // ─── Categorias ──────────────────────────────────────────────
 
+  @Get('categorias/resumo')
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  resumoCategorias(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query('periodo') periodo?: 'mes' | 'trimestre' | 'ano' | 'tudo',
+    @Query('tipo') tipo?: FinanceiroMovimentoTipo,
+  ) {
+    return this.financeiroService.resumoCategorias(requester, {
+      periodo,
+      tipo,
+    });
+  }
+
   @Get('categorias')
   @Roles(Role.admin, Role.gerente, Role.super_admin)
   listCategorias(
