@@ -23,6 +23,9 @@ import {
   countStatusAndamento,
   countStatusVendido,
   documentacaoPipelineStatusKey,
+  isStatusAnalise,
+  isStatusAprovado,
+  isStatusReprovado,
   documentacaoVendaNoPeriodoWhere,
   isStatusVendido,
   status2VendidoWhere,
@@ -1194,7 +1197,7 @@ export class DashboardService {
       );
     }
 
-    const [corretor, funil, ranking] = await Promise.all([
+    const [corretor, ranking] = await Promise.all([
       this.prisma.user.findFirst({
         where: {
           id: corretorId,
@@ -1204,7 +1207,6 @@ export class DashboardService {
         },
         select: { id: true, name: true },
       }),
-      this.funis.getAtivo(requester),
       this.rankingCompleto(requester, filtros),
     ]);
     if (!corretor) throw new NotFoundException('Corretor não encontrado.');
@@ -1233,16 +1235,53 @@ export class DashboardService {
       orderBy: { updatedAt: 'asc' },
     });
 
-    const stages = funil.etapas
-      .filter((stage) => stage.active)
-      .map((stage) => ({
-        id: stage.id,
-        slug: stage.slug,
-        label: stage.label,
-        color: stage.color,
-        total: leads.filter((lead) => lead.stage === stage.slug).length,
-        contatos: leads.filter((lead) => lead.stage === stage.slug),
-      }));
+    const documentos = await this.prisma.documentacao.findMany({
+      where: {
+        tenantId,
+        corretorId,
+        createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+      },
+      select: {
+        id: true,
+        nome: true,
+        status1: true,
+        status2: true,
+        createdAt: true,
+        updatedAt: true,
+        empreendimento: { select: { id: true, nome: true } },
+      },
+    });
+    const etapasDocumentacao = [
+      {
+        slug: 'enviados',
+        label: 'Enviados para análise',
+        contatos: documentos,
+      },
+      {
+        slug: 'analise',
+        label: 'Em análise',
+        contatos: documentos.filter((doc) => isStatusAnalise(doc.status1)),
+      },
+      {
+        slug: 'aprovados',
+        label: 'Aprovados',
+        contatos: documentos.filter((doc) => isStatusAprovado(doc.status1)),
+      },
+      {
+        slug: 'reprovados',
+        label: 'Reprovados',
+        contatos: documentos.filter((doc) => isStatusReprovado(doc.status1)),
+      },
+      {
+        slug: 'vendidos',
+        label: 'Vendas',
+        contatos: documentos.filter((doc) => isStatusVendido(doc.status2)),
+      },
+    ].map((etapa) => ({
+      id: etapa.slug,
+      ...etapa,
+      total: etapa.contatos.length,
+    }));
     const rankingCorretor =
       ranking.corretores.find((item) => item.corretorId === corretorId) ??
       null;
@@ -1271,7 +1310,7 @@ export class DashboardService {
           ? { id: oldest.id, nome: oldest.nome, diasParado }
           : null,
       },
-      etapas: stages,
+      etapas: etapasDocumentacao,
     };
   }
 
