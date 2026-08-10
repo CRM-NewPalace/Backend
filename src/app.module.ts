@@ -25,6 +25,7 @@ import { MetaModule } from './meta/meta.module';
 import { PropostasModule } from './propostas/propostas.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { PlatformContratosModule } from './platform-contratos/platform-contratos.module';
+import { PlatformFornecedorContratosModule } from './platform-fornecedor-contratos/platform-fornecedor-contratos.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { validateEnv } from './config/env.validation';
@@ -53,6 +54,7 @@ import { THROTTLE } from './config/security.constants';
     PropostasModule,
     FinanceiroModule,
     PlatformContratosModule,
+    PlatformFornecedorContratosModule,
     EquipesModule,
     AnaliseModule,
     NotificacoesModule,

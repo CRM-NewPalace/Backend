@@ -1087,6 +1087,7 @@ model FinanceiroParceiro {
 
   movimentos FinanceiroMovimento[]
   titulos    FinanceiroTitulo[]
+  contratosFornecedor PlatformFornecedorContrato[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1149,6 +1150,9 @@ model FinanceiroTitulo {
   /// Contrato da plataforma que originou este título (adesão/mensalidade).
   platformContratoId String?
   platformContrato   PlatformContrato?   @relation(fields: [platformContratoId], references: [id], onDelete: SetNull)
+  /// Contrato de fornecedor da plataforma que originou este título a pagar.
+  platformFornecedorContratoId String?
+  platformFornecedorContrato   PlatformFornecedorContrato? @relation(fields: [platformFornecedorContratoId], references: [id], onDelete: SetNull)
   movimento       FinanceiroMovimento?
 
   createdAt DateTime @default(now())
@@ -1160,6 +1164,7 @@ model FinanceiroTitulo {
   @@index([tenantId, grupoParcelasId])
   @@index([parceiroId])
   @@index([platformContratoId])
+  @@index([platformFornecedorContratoId])
   @@map("financeiro_titulos")
 }
 
@@ -1402,6 +1407,55 @@ model PlatformContratoParcela {
   @@index([contratoId])
   @@index([vencimento])
   @@map("platform_contrato_parcelas")
+}
+
+/// Contrato recorrente da plataforma com um fornecedor, sem vínculo com imobiliária.
+model PlatformFornecedorContrato {
+  id         String @id @default(uuid())
+  codigo     String @unique
+  titulo     String
+  parceiroId String
+  parceiro   FinanceiroParceiro @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
+  centro     String
+  valorAdesao Float @default(0)
+  valorMensalidade Float
+  qtdMensalidades Int
+  dataInicio DateTime
+  vencimento DateTime
+  status PlatformContratoStatus @default(ativo)
+  observacao String @default("")
+
+  parcelas PlatformFornecedorContratoParcela[]
+  titulos FinanceiroTitulo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parceiroId])
+  @@index([status])
+  @@index([vencimento])
+  @@map("platform_fornecedor_contratos")
+}
+
+/// Parcela programada de um contrato de fornecedor.
+model PlatformFornecedorContratoParcela {
+  id String @id @default(uuid())
+  contratoId String
+  contrato PlatformFornecedorContrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  numero Int
+  descricao String
+  valor Float
+  vencimento DateTime
+  status FinanceiroTituloStatus @default(aberto)
+  dataPagamento DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contratoId, numero])
+  @@index([contratoId])
+  @@index([vencimento])
+  @@map("platform_fornecedor_contrato_parcelas")
 }
 
 /// Motivo de uma tentativa de login recusada (para auditoria).
