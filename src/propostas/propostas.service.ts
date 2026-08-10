@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { Prisma, PropostaStatus, Role } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -193,6 +195,56 @@ export class PropostasService {
       select: propostaSelect,
       orderBy: { createdAt: "desc" },
     });
+  }
+
+  async buscarCep(cep: string, requester: AuthenticatedUser) {
+    requireTenantId(requester);
+    const digits = cep.replace(/\D/g, "");
+    if (digits.length !== 8) {
+      throw new BadRequestException("Informe um CEP com 8 dígitos.");
+    }
+
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${digits}/json/`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) {
+        throw new ServiceUnavailableException(
+          "Não foi possível consultar o CEP agora.",
+        );
+      }
+      const result = (await response.json()) as {
+        erro?: boolean;
+        cep?: string;
+        logradouro?: string;
+        complemento?: string;
+        bairro?: string;
+        localidade?: string;
+        uf?: string;
+      };
+      if (result.erro) {
+        throw new NotFoundException("CEP não encontrado.");
+      }
+      return {
+        cep: result.cep ?? digits,
+        endereco: result.logradouro ?? "",
+        complemento: result.complemento ?? "",
+        bairro: result.bairro ?? "",
+        cidade: result.localidade ?? "",
+        uf: result.uf ?? "",
+      };
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ServiceUnavailableException
+      ) {
+        throw error;
+      }
+      throw new ServiceUnavailableException(
+        "Não foi possível consultar o CEP agora.",
+      );
+    }
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
