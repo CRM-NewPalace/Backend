@@ -1665,6 +1665,41 @@ export class DashboardService {
       },
       { entradas: 0, vendas: 0, vgv: 0, visitas: 0, perdidos: 0 },
     );
+    const vendasPorConstrutora = await this.prisma.documentacao.findMany({
+      where: {
+        tenantId,
+        ...documentacaoVendaNoPeriodoWhere(mesAtual),
+        ...(origem ? { lead: { origem } } : {}),
+        ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+      },
+      select: {
+        vgv: true,
+        construtora: { select: { id: true, nome: true } },
+      },
+    });
+    const construtoraMap = vendasPorConstrutora.reduce(
+      (map, item) => {
+        if (!item.construtora) return map;
+        const current = map.get(item.construtora.id) ?? {
+          construtoraId: item.construtora.id,
+          nome: item.construtora.nome,
+          vendas: 0,
+          vgv: 0,
+        };
+        current.vendas += 1;
+        current.vgv += moneyNumber(item.vgv);
+        map.set(item.construtora.id, current);
+        return map;
+      },
+      new Map<
+        string,
+        { construtoraId: string; nome: string; vendas: number; vgv: number }
+      >(),
+    );
+    const construtoras = Array.from(construtoraMap.values())
+      .sort((a, b) => b.vgv - a.vgv || b.vendas - a.vendas)
+      .slice(0, 5)
+      .map((item, index) => ({ posicao: index + 1, ...item }));
 
     return {
       periodo: {
@@ -1685,6 +1720,7 @@ export class DashboardService {
       },
       corretores: rankingCorretores,
       gerentes: rankingGerentes,
+      construtoras,
     };
   }
 }
