@@ -214,6 +214,7 @@ type FluxoEvento = {
   categoria: string;
   centro: string;
   status: string;
+  contrato?: boolean;
 };
 
 @Injectable()
@@ -1524,6 +1525,7 @@ export class FinanceiroService {
                 FinanceiroTituloStatus.atrasado,
               ],
             },
+            vencimento: { gte: inicioMes, lt: inicioProx },
           },
           _sum: { valor: true },
         }),
@@ -1537,6 +1539,7 @@ export class FinanceiroService {
                 FinanceiroTituloStatus.atrasado,
               ],
             },
+            vencimento: { gte: inicioMes, lt: inicioProx },
           },
           _sum: { valor: true },
         }),
@@ -2842,6 +2845,7 @@ export class FinanceiroService {
         categoria: t.categoria,
         centro: t.centro,
         status: t.status,
+        contrato: Boolean(t.platformContratoId),
       });
     }
 
