@@ -1,4 +1,11 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -11,6 +18,20 @@ import { QueryDashboardDto } from './dto/query-dashboard.dto';
 @UseGuards(RolesGuard)
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
+
+  @Get('corretor/:id/esteira')
+  @Roles(Role.admin, Role.gerente)
+  esteiraCorretor(
+    @Param('id', ParseUUIDPipe) corretorId: string,
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.esteiraCorretor(
+      corretorId,
+      requester,
+      query,
+    );
+  }
 
   @Get('corretor')
   @Roles(Role.corretor)

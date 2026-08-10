@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   AgendamentoAlvo,
   AgendamentoEscopo,
@@ -1168,6 +1172,109 @@ export class DashboardService {
   /**
    * Ranking mensal completo: corretores (escopo da equipe) + gerentes (só admin).
    */
+  async esteiraCorretor(
+    corretorId: string,
+    requester: AuthenticatedUser,
+    filtros: { mes?: number; ano?: number; origem?: string } = {},
+  ) {
+    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+      throw new ForbiddenException(
+        'Esteira disponível para admin e gerente.',
+      );
+    }
+
+    const tenantId = requireTenantId(requester);
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      corretorId,
+    );
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Você não tem acesso aos dados deste corretor.',
+      );
+    }
+
+    const [corretor, funil, ranking] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: {
+          id: corretorId,
+          tenantId,
+          role: Role.corretor,
+          status: UserStatus.ativo,
+        },
+        select: { id: true, name: true },
+      }),
+      this.funis.getAtivo(requester),
+      this.rankingCompleto(requester, filtros),
+    ]);
+    if (!corretor) throw new NotFoundException('Corretor não encontrado.');
+
+    const { mesAtual } = janelasBrasil({
+      mes: filtros.mes,
+      ano: filtros.ano,
+    });
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        tenantId,
+        corretorId,
+        perdidoAt: null,
+        createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
+        ...(filtros.origem?.trim() ? { origem: filtros.origem.trim() } : {}),
+      },
+      select: {
+        id: true,
+        nome: true,
+        stage: true,
+        prioridade: true,
+        createdAt: true,
+        updatedAt: true,
+        empreendimento: { select: { id: true, nome: true } },
+      },
+      orderBy: { updatedAt: 'asc' },
+    });
+
+    const stages = funil.etapas
+      .filter((stage) => stage.active)
+      .map((stage) => ({
+        id: stage.id,
+        slug: stage.slug,
+        label: stage.label,
+        color: stage.color,
+        total: leads.filter((lead) => lead.stage === stage.slug).length,
+        contatos: leads.filter((lead) => lead.stage === stage.slug),
+      }));
+    const rankingCorretor =
+      ranking.corretores.find((item) => item.corretorId === corretorId) ??
+      null;
+    const oldest = leads[0] ?? null;
+    const diasParado = oldest
+      ? Math.max(
+          0,
+          Math.floor(
+            (Date.now() - oldest.updatedAt.getTime()) / (24 * 60 * 60 * 1000),
+          ),
+        )
+      : 0;
+
+    return {
+      corretor,
+      periodo: {
+        inicio: mesAtual.inicio.toISOString(),
+        fim: mesAtual.fim.toISOString(),
+      },
+      indicadores: {
+        vgv: rankingCorretor?.vgv.valor ?? 0,
+        conversao: rankingCorretor?.taxaConversao.valor ?? 0,
+        vendas: rankingCorretor?.vendas.valor ?? 0,
+        contatos: leads.length,
+        maisAntigo: oldest
+          ? { id: oldest.id, nome: oldest.nome, diasParado }
+          : null,
+      },
+      etapas: stages,
+    };
+  }
+
   async rankingCompleto(
     requester: AuthenticatedUser,
     filtros: { mes?: number; ano?: number; origem?: string } = {},
