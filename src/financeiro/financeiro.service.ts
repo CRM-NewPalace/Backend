@@ -3,7 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   FinanceiroComissaoStatus,
   FinanceiroDespesaNatureza,
@@ -13,56 +13,56 @@ import {
   FinanceiroTituloTipo,
   Prisma,
   Role,
-} from '@prisma/client';
-import { AuthenticatedUser } from '../common/types/authenticated-user';
+} from "@prisma/client";
+import { AuthenticatedUser } from "../common/types/authenticated-user";
 import {
   isStatusVendido,
   status2VendidoWhere,
-} from '../common/utils/documentacao-status';
-import { resolveFinanceiroTenantId } from '../common/utils/tenant';
-import { PrismaService } from '../prisma/prisma.service';
-import { BaixarTituloDto } from './dto/baixar-titulo.dto';
-import { CreateCategoriaDto } from './dto/create-categoria.dto';
-import { CreateComissaoDto } from './dto/create-comissao.dto';
-import { CreateDespesaDto } from './dto/create-despesa.dto';
-import { CreateDespesaTipoDto } from './dto/create-despesa-tipo.dto';
-import { CreateMovimentoDto } from './dto/create-movimento.dto';
-import { CreateParceiroDto } from './dto/create-parceiro.dto';
-import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
-import { CreateRecebimentoTipoDto } from './dto/create-recebimento-tipo.dto';
-import { CreateTituloDto } from './dto/create-titulo.dto';
-import { CreateTitulosParceladoDto } from './dto/create-titulos-parcelado.dto';
+} from "../common/utils/documentacao-status";
+import { resolveFinanceiroTenantId } from "../common/utils/tenant";
+import { PrismaService } from "../prisma/prisma.service";
+import { BaixarTituloDto } from "./dto/baixar-titulo.dto";
+import { CreateCategoriaDto } from "./dto/create-categoria.dto";
+import { CreateComissaoDto } from "./dto/create-comissao.dto";
+import { CreateDespesaDto } from "./dto/create-despesa.dto";
+import { CreateDespesaTipoDto } from "./dto/create-despesa-tipo.dto";
+import { CreateMovimentoDto } from "./dto/create-movimento.dto";
+import { CreateParceiroDto } from "./dto/create-parceiro.dto";
+import { CreateRecebimentoDto } from "./dto/create-recebimento.dto";
+import { CreateRecebimentoTipoDto } from "./dto/create-recebimento-tipo.dto";
+import { CreateTituloDto } from "./dto/create-titulo.dto";
+import { CreateTitulosParceladoDto } from "./dto/create-titulos-parcelado.dto";
 import {
   FluxoGranularidade,
   QueryFluxoCaixaDto,
-} from './dto/query-fluxo-caixa.dto';
-import { UpdateCategoriaDto } from './dto/update-categoria.dto';
-import { UpdateDespesaDto } from './dto/update-despesa.dto';
-import { UpdateComissaoDto } from './dto/update-comissao.dto';
-import { UpdateDespesaTipoDto } from './dto/update-despesa-tipo.dto';
-import { UpdateMovimentoDto } from './dto/update-movimento.dto';
-import { UpdateParceiroDto } from './dto/update-parceiro.dto';
-import { UpdateRecebimentoDto } from './dto/update-recebimento.dto';
-import { UpdateRecebimentoTipoDto } from './dto/update-recebimento-tipo.dto';
-import { UpdateTituloDto } from './dto/update-titulo.dto';
-import { UpdateTitulosGrupoDto } from './dto/update-titulos-grupo.dto';
-import { RenovarDespesasDto } from './dto/renovar-despesas.dto';
-import { RenovarRecebimentosDto } from './dto/renovar-recebimentos.dto';
-import { randomUUID } from 'crypto';
+} from "./dto/query-fluxo-caixa.dto";
+import { UpdateCategoriaDto } from "./dto/update-categoria.dto";
+import { UpdateDespesaDto } from "./dto/update-despesa.dto";
+import { UpdateComissaoDto } from "./dto/update-comissao.dto";
+import { UpdateDespesaTipoDto } from "./dto/update-despesa-tipo.dto";
+import { UpdateMovimentoDto } from "./dto/update-movimento.dto";
+import { UpdateParceiroDto } from "./dto/update-parceiro.dto";
+import { UpdateRecebimentoDto } from "./dto/update-recebimento.dto";
+import { UpdateRecebimentoTipoDto } from "./dto/update-recebimento-tipo.dto";
+import { UpdateTituloDto } from "./dto/update-titulo.dto";
+import { UpdateTitulosGrupoDto } from "./dto/update-titulos-grupo.dto";
+import { RenovarDespesasDto } from "./dto/renovar-despesas.dto";
+import { RenovarRecebimentosDto } from "./dto/renovar-recebimentos.dto";
+import { randomUUID } from "crypto";
 
 const MESES_CURTOS = [
-  'Jan',
-  'Fev',
-  'Mar',
-  'Abr',
-  'Mai',
-  'Jun',
-  'Jul',
-  'Ago',
-  'Set',
-  'Out',
-  'Nov',
-  'Dez',
+  "Jan",
+  "Fev",
+  "Mar",
+  "Abr",
+  "Mai",
+  "Jun",
+  "Jul",
+  "Ago",
+  "Set",
+  "Out",
+  "Nov",
+  "Dez",
 ] as const;
 
 const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -74,61 +74,61 @@ function competenciaFromIsoDate(iso: string): string {
 function competenciaAtualBrasil(): string {
   const brasil = new Date(Date.now() - BRASIL_UTC_OFFSET_MS);
   const y = brasil.getUTCFullYear();
-  const m = String(brasil.getUTCMonth() + 1).padStart(2, '0');
+  const m = String(brasil.getUTCMonth() + 1).padStart(2, "0");
   return `${y}-${m}`;
 }
 
 function dataFromCompetencia(competencia: string, day = 1): Date {
-  const [ys, ms] = competencia.split('-');
+  const [ys, ms] = competencia.split("-");
   const y = Number(ys);
   const m = Number(ms);
   return new Date(Date.UTC(y, m - 1, day) + BRASIL_UTC_OFFSET_MS);
 }
 
-const DEFAULT_DESPESA_CATEGORIAS = ['Estrutural', 'Marketing', 'Operacional'];
+const DEFAULT_DESPESA_CATEGORIAS = ["Estrutural", "Marketing", "Operacional"];
 
 const DEFAULT_CATEGORIAS_ENTRADA = [
-  'Comissão de venda',
-  'Taxa de corretagem',
-  'Consultoria',
-  'Outras receitas',
+  "Comissão de venda",
+  "Taxa de corretagem",
+  "Consultoria",
+  "Outras receitas",
 ];
 
 const DEFAULT_CATEGORIAS_SAIDA = [
-  'Aluguel',
-  'Folha de pagamento',
-  'Marketing digital',
-  'Software / SaaS',
-  'Impostos',
-  'Comissão corretor',
-  'Despesas gerais',
-  'Energia / utilidades',
+  "Aluguel",
+  "Folha de pagamento",
+  "Marketing digital",
+  "Software / SaaS",
+  "Impostos",
+  "Comissão corretor",
+  "Despesas gerais",
+  "Energia / utilidades",
 ];
 
 function isoDateOnly(d: Date): string {
   const brasil = new Date(d.getTime() - BRASIL_UTC_OFFSET_MS);
   const y = brasil.getUTCFullYear();
-  const m = String(brasil.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(brasil.getUTCDate()).padStart(2, '0');
+  const m = String(brasil.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(brasil.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 
 function parseDayStart(iso: string): Date {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d) + BRASIL_UTC_OFFSET_MS);
 }
 
 function parseDayEnd(iso: string): Date {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + 1) + BRASIL_UTC_OFFSET_MS);
 }
 
 function addDaysIso(iso: string, days: number): string {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + days));
   const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
   return `${yy}-${mm}-${dd}`;
 }
 
@@ -141,21 +141,21 @@ function startOfMonthIso(iso: string): string {
 }
 
 function endOfMonthIso(iso: string): string {
-  const [y, m] = iso.slice(0, 10).split('-').map(Number);
+  const [y, m] = iso.slice(0, 10).split("-").map(Number);
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+  return `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
 }
 
 /** Segunda-feira da semana ISO (semana começa na segunda). */
 function startOfWeekIso(iso: string): string {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   const day = dt.getUTCDay(); // 0=dom
   const diff = day === 0 ? -6 : 1 - day;
   dt.setUTCDate(dt.getUTCDate() + diff);
   const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
   return `${yy}-${mm}-${dd}`;
 }
 
@@ -166,7 +166,7 @@ function isoWeekKey(iso: string): {
 } {
   const inicio = startOfWeekIso(iso);
   const fim = addDaysIso(inicio, 6);
-  const [y, m, d] = inicio.split('-').map(Number);
+  const [y, m, d] = inicio.split("-").map(Number);
   const date = new Date(Date.UTC(y, m - 1, d));
   // ISO week number
   const thursday = new Date(date);
@@ -182,7 +182,7 @@ function isoWeekKey(iso: string): {
     );
   const year = thursday.getUTCFullYear();
   return {
-    chave: `${year}-W${String(week).padStart(2, '0')}`,
+    chave: `${year}-W${String(week).padStart(2, "0")}`,
     inicio,
     fim,
   };
@@ -193,21 +193,21 @@ function quarterKey(iso: string): {
   inicio: string;
   fim: string;
 } {
-  const [y, m] = iso.slice(0, 10).split('-').map(Number);
+  const [y, m] = iso.slice(0, 10).split("-").map(Number);
   const q = Math.floor((m - 1) / 3) + 1;
   const startMonth = (q - 1) * 3 + 1;
   const endMonth = startMonth + 2;
-  const inicio = `${y}-${String(startMonth).padStart(2, '0')}-01`;
-  const fim = endOfMonthIso(`${y}-${String(endMonth).padStart(2, '0')}-01`);
+  const inicio = `${y}-${String(startMonth).padStart(2, "0")}-01`;
+  const fim = endOfMonthIso(`${y}-${String(endMonth).padStart(2, "0")}-01`);
   return { chave: `${y}-Q${q}`, inicio, fim };
 }
 
 type FluxoEvento = {
   data: string;
-  tipo: 'entrada' | 'saida';
+  tipo: "entrada" | "saida";
   valor: number;
-  natureza: 'realizado' | 'previsto';
-  origem: 'titulo' | 'movimento';
+  natureza: "realizado" | "previsto";
+  origem: "titulo" | "movimento";
   id: string;
   descricao: string;
   parceiro: string;
@@ -241,7 +241,7 @@ export class FinanceiroService {
               }
             : {}),
         },
-        orderBy: { nome: 'asc' },
+        orderBy: { nome: "asc" },
       }),
       this.prisma.financeiroMovimento.findMany({
         where: {
@@ -283,7 +283,7 @@ export class FinanceiroService {
         email: dto.email?.trim() || null,
         telefone: dto.telefone?.trim() || null,
         cidade: dto.cidade?.trim() || null,
-        imobiliaria: dto.imobiliaria?.trim() || '',
+        imobiliaria: dto.imobiliaria?.trim() || "",
         saldoAberto: 0,
         ativo: dto.ativo ?? true,
       },
@@ -321,7 +321,7 @@ export class FinanceiroService {
           ? { cidade: dto.cidade?.trim() || null }
           : {}),
         ...(dto.imobiliaria !== undefined
-          ? { imobiliaria: dto.imobiliaria?.trim() || '' }
+          ? { imobiliaria: dto.imobiliaria?.trim() || "" }
           : {}),
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },
@@ -359,7 +359,7 @@ export class FinanceiroService {
         tenantId,
         ...(tipo ? { tipo } : {}),
       },
-      orderBy: [{ tipo: 'asc' }, { nome: 'asc' }],
+      orderBy: [{ tipo: "asc" }, { nome: "asc" }],
     });
     return rows.map((r) => this.mapCategoria(r));
   }
@@ -382,10 +382,10 @@ export class FinanceiroService {
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
+        err.code === "P2002"
       ) {
         throw new BadRequestException(
-          'Já existe uma categoria com este nome neste tipo.',
+          "Já existe uma categoria com este nome neste tipo.",
         );
       }
       throw err;
@@ -413,10 +413,10 @@ export class FinanceiroService {
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
+        err.code === "P2002"
       ) {
         throw new BadRequestException(
-          'Já existe uma categoria com este nome neste tipo.',
+          "Já existe uma categoria com este nome neste tipo.",
         );
       }
       throw err;
@@ -440,7 +440,7 @@ export class FinanceiroService {
   async resumoCategorias(
     requester: AuthenticatedUser,
     opts?: {
-      periodo?: 'mes' | 'trimestre' | 'ano' | 'tudo';
+      periodo?: "mes" | "trimestre" | "ano" | "tudo";
       tipo?: FinanceiroMovimentoTipo;
     },
   ) {
@@ -452,7 +452,7 @@ export class FinanceiroService {
     await this.cleanupReceitaTiposFromDespesas(tenantId);
     await this.unifyCentroIntoCategoria(tenantId);
 
-    const periodo = opts?.periodo ?? 'mes';
+    const periodo = opts?.periodo ?? "mes";
     const { gte, lt } = this.periodoDateBounds(periodo);
     const dataFilter =
       gte || lt
@@ -472,13 +472,13 @@ export class FinanceiroService {
         useRecebimentos
           ? this.prisma.financeiroRecebimentoTipo.findMany({
               where: { tenantId },
-              orderBy: [{ nome: 'asc' }, { natureza: 'asc' }],
+              orderBy: [{ nome: "asc" }, { natureza: "asc" }],
             })
           : Promise.resolve([]),
         useDespesas
           ? this.prisma.financeiroDespesaTipo.findMany({
               where: { tenantId, ativo: true },
-              orderBy: [{ nome: 'asc' }, { natureza: 'asc' }],
+              orderBy: [{ nome: "asc" }, { natureza: "asc" }],
             })
           : Promise.resolve([]),
         this.prisma.financeiroMovimento.findMany({
@@ -514,8 +514,11 @@ export class FinanceiroService {
       ]);
 
     const tipos = [
-      ...recebimentoTipos.map((t) => ({ ...t, _origem: 'recebimento' as const })),
-      ...despesaTipos.map((t) => ({ ...t, _origem: 'despesa' as const })),
+      ...recebimentoTipos.map((t) => ({
+        ...t,
+        _origem: "recebimento" as const,
+      })),
+      ...despesaTipos.map((t) => ({ ...t, _origem: "despesa" as const })),
     ];
 
     type Acc = {
@@ -530,9 +533,9 @@ export class FinanceiroService {
     const realized = new Map<string, Acc>();
     const norm = (nome: string) => nome.trim().toLowerCase();
     const resolveNome = (categoria: string, centro: string) => {
-      const cat = categoria?.trim() || '';
-      const cen = centro?.trim() || '';
-      return cat || cen || 'Sem categoria';
+      const cat = categoria?.trim() || "";
+      const cen = centro?.trim() || "";
+      return cat || cen || "Sem categoria";
     };
     const ensureAcc = (nome: string) => {
       const key = norm(nome);
@@ -556,7 +559,8 @@ export class FinanceiroService {
       const cur = ensureAcc(nome);
       cur.total += m.valor;
       cur.quantidade += 1;
-      if (m.tipo === FinanceiroMovimentoTipo.entrada) cur.totalEntradas += m.valor;
+      if (m.tipo === FinanceiroMovimentoTipo.entrada)
+        cur.totalEntradas += m.valor;
       else cur.totalSaidas += m.valor;
     }
     for (const t of titulosAbertos) {
@@ -644,12 +648,12 @@ export class FinanceiroService {
     for (const [key, acc] of realized) {
       if (byName.has(key)) continue;
       rows.push({
-        id: '',
+        id: "",
         nome: acc.nome,
         tipo: opts?.tipo ?? null,
         natureza: FinanceiroDespesaNatureza.variavel,
         ativo: true,
-        createdAt: '',
+        createdAt: "",
         total: pickTotal(acc),
         totalEntradas: acc.totalEntradas,
         totalSaidas: acc.totalSaidas,
@@ -675,7 +679,7 @@ export class FinanceiroService {
     }
 
     rows.sort(
-      (a, b) => b.total - a.total || a.nome.localeCompare(b.nome, 'pt-BR'),
+      (a, b) => b.total - a.total || a.nome.localeCompare(b.nome, "pt-BR"),
     );
 
     return {
@@ -694,7 +698,7 @@ export class FinanceiroService {
     return this.prisma.financeiroMovimento
       .findMany({
         where: { tenantId },
-        orderBy: { data: 'desc' },
+        orderBy: { data: "desc" },
       })
       .then((rows) => rows.map((r) => this.mapMovimento(r)));
   }
@@ -707,11 +711,10 @@ export class FinanceiroService {
       dto.parceiroId,
       dto.parceiroNome,
     );
-    const label = dto.categoria.trim() || dto.centro?.trim() || '';
+    const label = dto.categoria.trim() || dto.centro?.trim() || "";
     const categoria =
       dto.tipo === FinanceiroMovimentoTipo.entrada ? label : label;
-    const centro =
-      dto.tipo === FinanceiroMovimentoTipo.saida ? label : '';
+    const centro = dto.tipo === FinanceiroMovimentoTipo.saida ? label : "";
     const row = await this.prisma.financeiroMovimento.create({
       data: {
         tenantId,
@@ -724,7 +727,7 @@ export class FinanceiroService {
         tipo: dto.tipo,
         valor: dto.valor,
         status: dto.status ?? FinanceiroTituloStatus.aberto,
-        formaPagamento: dto.formaPagamento?.trim() || '',
+        formaPagamento: dto.formaPagamento?.trim() || "",
       },
     });
     await this.recalcSaldoParceiro(tenantId, row.parceiroId);
@@ -771,18 +774,18 @@ export class FinanceiroService {
                 (dto.categoria !== undefined
                   ? dto.categoria.trim()
                   : undefined) ??
-                (dto.centro !== undefined ? dto.centro?.trim() || '' : '') ??
-                '';
+                (dto.centro !== undefined ? dto.centro?.trim() || "" : "") ??
+                "";
               return tipoMov === FinanceiroMovimentoTipo.saida
                 ? { categoria: label, centro: label }
-                : { categoria: label, centro: '' };
+                : { categoria: label, centro: "" };
             })()
           : {}),
         ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
         ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(dto.formaPagamento !== undefined
-          ? { formaPagamento: dto.formaPagamento?.trim() || '' }
+          ? { formaPagamento: dto.formaPagamento?.trim() || "" }
           : {}),
       },
     });
@@ -812,6 +815,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
     tipo?: FinanceiroTituloTipo,
     grupoParcelasId?: string,
+    origem?: "normal" | "contrato",
   ) {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
@@ -821,9 +825,14 @@ export class FinanceiroService {
           tenantId,
           ...(tipo ? { tipo } : {}),
           ...(grupoParcelasId ? { grupoParcelasId } : {}),
+          ...(origem === "contrato"
+            ? { platformContratoId: { not: null } }
+            : origem === "normal"
+              ? { platformContratoId: null }
+              : {}),
         },
         include: { movimento: { select: { formaPagamento: true } } },
-        orderBy: { vencimento: 'asc' },
+        orderBy: { vencimento: "asc" },
       })
       .then((rows) => rows.map((r) => this.mapTitulo(r)));
   }
@@ -860,7 +869,7 @@ export class FinanceiroService {
           vencimento,
           valor: dto.valor,
           status,
-          parcela: dto.parcela?.trim() || '',
+          parcela: dto.parcela?.trim() || "",
           ...(dto.platformContratoId
             ? { platformContratoId: dto.platformContratoId }
             : {}),
@@ -880,12 +889,12 @@ export class FinanceiroService {
             descricao,
             parceiroId,
             parceiroNome,
-            categoria: categoria || 'Título',
+            categoria: categoria || "Título",
             centro,
             tipo: tipoMov,
             valor: dto.valor,
             status: FinanceiroTituloStatus.pago,
-            formaPagamento: '',
+            formaPagamento: "",
             tituloId: titulo.id,
           },
         });
@@ -908,12 +917,12 @@ export class FinanceiroService {
     this.assertWrite(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     if (!dto.parcelas?.length || dto.parcelas.length < 2) {
-      throw new BadRequestException('Informe ao menos 2 parcelas.');
+      throw new BadRequestException("Informe ao menos 2 parcelas.");
     }
     for (const p of dto.parcelas) {
       if (!Number.isFinite(p.valor) || p.valor <= 0) {
         throw new BadRequestException(
-          'Todas as parcelas precisam de valor maior que zero.',
+          "Todas as parcelas precisam de valor maior que zero.",
         );
       }
     }
@@ -972,7 +981,7 @@ export class FinanceiroService {
       existing.status !== FinanceiroTituloStatus.pago
     ) {
       throw new BadRequestException(
-        'Use a baixa para marcar o título como pago.',
+        "Use a baixa para marcar o título como pago.",
       );
     }
 
@@ -1024,7 +1033,7 @@ export class FinanceiroService {
           ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
           ...(dto.status !== undefined ? { status: dto.status } : {}),
           ...(dto.parcela !== undefined
-            ? { parcela: dto.parcela?.trim() || '' }
+            ? { parcela: dto.parcela?.trim() || "" }
             : {}),
           ...(estornar ? { dataPagamento: null } : {}),
         },
@@ -1041,11 +1050,11 @@ export class FinanceiroService {
             descricao: updated.descricao,
             parceiroId: updated.parceiroId,
             parceiroNome: updated.parceiroNome,
-            categoria: updated.categoria || 'Título',
+            categoria: updated.categoria || "Título",
             centro:
               updated.tipo === FinanceiroTituloTipo.pagar
-                ? updated.centro || updated.categoria || 'Título'
-                : '',
+                ? updated.centro || updated.categoria || "Título"
+                : "",
             tipo: tipoMov,
             valor: updated.valor,
           },
@@ -1074,10 +1083,10 @@ export class FinanceiroService {
     const tenantId = resolveFinanceiroTenantId(requester);
     const rows = await this.prisma.financeiroTitulo.findMany({
       where: { tenantId, grupoParcelasId },
-      orderBy: { vencimento: 'asc' },
+      orderBy: { vencimento: "asc" },
     });
     if (rows.length === 0) {
-      throw new NotFoundException('Grupo de parcelas não encontrado.');
+      throw new NotFoundException("Grupo de parcelas não encontrado.");
     }
 
     let sharedParceiroId: string | null | undefined;
@@ -1100,7 +1109,7 @@ export class FinanceiroService {
       const found = rows.find((r) => r.id === item.id);
       if (!found) {
         throw new BadRequestException(
-          'Uma ou mais parcelas não pertencem a este grupo.',
+          "Uma ou mais parcelas não pertencem a este grupo.",
         );
       }
       if (
@@ -1108,7 +1117,7 @@ export class FinanceiroService {
         found.status !== FinanceiroTituloStatus.pago
       ) {
         throw new BadRequestException(
-          'Use a baixa para marcar parcela como paga.',
+          "Use a baixa para marcar parcela como paga.",
         );
       }
     }
@@ -1120,7 +1129,7 @@ export class FinanceiroService {
       ...(sharedParceiroId !== undefined
         ? {
             parceiroId: sharedParceiroId,
-            parceiroNome: sharedParceiroNome ?? '',
+            parceiroNome: sharedParceiroNome ?? "",
           }
         : {}),
       ...(dto.categoria !== undefined || dto.centro !== undefined
@@ -1184,8 +1193,8 @@ export class FinanceiroService {
               descricao: updated.descricao,
               parceiroId: updated.parceiroId,
               parceiroNome: updated.parceiroNome,
-              categoria: updated.categoria || 'Título',
-              centro: updated.categoria || 'Título',
+              categoria: updated.categoria || "Título",
+              centro: updated.categoria || "Título",
               tipo: tipoMov,
               valor: updated.valor,
             },
@@ -1197,7 +1206,7 @@ export class FinanceiroService {
     const updated = await this.prisma.financeiroTitulo.findMany({
       where: { tenantId, grupoParcelasId },
       include: { movimento: { select: { formaPagamento: true } } },
-      orderBy: { vencimento: 'asc' },
+      orderBy: { vencimento: "asc" },
     });
 
     for (const pid of parceiroIds) {
@@ -1238,7 +1247,7 @@ export class FinanceiroService {
       select: { id: true, parceiroId: true },
     });
     if (rows.length === 0) {
-      throw new NotFoundException('Grupo de parcelas não encontrado.');
+      throw new NotFoundException("Grupo de parcelas não encontrado.");
     }
 
     const ids = rows.map((r) => r.id);
@@ -1270,10 +1279,10 @@ export class FinanceiroService {
     this.assertWrite(requester);
     const existing = await this.findTituloOrFail(id, requester);
     if (existing.status === FinanceiroTituloStatus.pago) {
-      throw new BadRequestException('Título já está baixado.');
+      throw new BadRequestException("Título já está baixado.");
     }
     if (existing.status === FinanceiroTituloStatus.cancelado) {
-      throw new BadRequestException('Título cancelado não pode ser baixado.');
+      throw new BadRequestException("Título cancelado não pode ser baixado.");
     }
     const tenantId = resolveFinanceiroTenantId(requester);
     const dataPagamento = parseDayStart(dto.dataPagamento);
@@ -1297,12 +1306,12 @@ export class FinanceiroService {
           descricao: existing.descricao,
           parceiroId: existing.parceiroId,
           parceiroNome: existing.parceiroNome,
-          categoria: existing.categoria || 'Título',
+          categoria: existing.categoria || "Título",
           centro: existing.centro,
           tipo: tipoMov,
           valor: existing.valor,
           status: FinanceiroTituloStatus.pago,
-          formaPagamento: dto.formaPagamento?.trim() || '',
+          formaPagamento: dto.formaPagamento?.trim() || "",
           tituloId: existing.id,
         },
       }),
@@ -1341,28 +1350,30 @@ export class FinanceiroService {
         gerente: { select: { id: true, name: true } },
         empreendimento: { select: { nome: true } },
       },
-      orderBy: [{ dataVenda: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ dataVenda: "desc" }, { createdAt: "desc" }],
     });
-    return rows
-      .filter((row) => isStatusVendido(row.status2))
-      .map((row) => {
-        const corretor = row.corretor ?? row.lead.corretor;
-        return {
-          documentacaoId: row.id,
-          cliente: row.nome,
-          empreendimento: row.empreendimento?.nome ?? '',
-          dataVenda: isoDateOnly(row.dataVenda ?? row.createdAt),
-          vgv: row.vgv!,
-          corretorId: corretor?.id ?? null,
-          corretor: corretor?.name ?? '',
-          equipeId: corretor?.equipeId ?? null,
-          equipe: corretor?.equipe?.name ?? '',
-          gerenteId: row.gerente?.id ?? corretor?.equipe?.gerenteId ?? null,
-          gerente: row.gerente?.name ?? corretor?.equipe?.gerente.name ?? '',
-        };
-      })
-      // createComissao exige corretor — não oferece venda sem dono.
-      .filter((row) => Boolean(row.corretorId));
+    return (
+      rows
+        .filter((row) => isStatusVendido(row.status2))
+        .map((row) => {
+          const corretor = row.corretor ?? row.lead.corretor;
+          return {
+            documentacaoId: row.id,
+            cliente: row.nome,
+            empreendimento: row.empreendimento?.nome ?? "",
+            dataVenda: isoDateOnly(row.dataVenda ?? row.createdAt),
+            vgv: row.vgv!,
+            corretorId: corretor?.id ?? null,
+            corretor: corretor?.name ?? "",
+            equipeId: corretor?.equipeId ?? null,
+            equipe: corretor?.equipe?.name ?? "",
+            gerenteId: row.gerente?.id ?? corretor?.equipe?.gerenteId ?? null,
+            gerente: row.gerente?.name ?? corretor?.equipe?.gerente.name ?? "",
+          };
+        })
+        // createComissao exige corretor — não oferece venda sem dono.
+        .filter((row) => Boolean(row.corretorId))
+    );
   }
 
   async listComissoes(requester: AuthenticatedUser) {
@@ -1379,7 +1390,7 @@ export class FinanceiroService {
     }
     const rows = await this.prisma.financeiroComissao.findMany({
       where,
-      orderBy: { dataVenda: 'desc' },
+      orderBy: { dataVenda: "desc" },
     });
     return rows.map((row) => this.mapComissao(row, requester));
   }
@@ -1409,15 +1420,15 @@ export class FinanceiroService {
       },
     });
     if (!doc || !isStatusVendido(doc.status2) || !doc.vgv || doc.vgv <= 0) {
-      throw new BadRequestException('Documentação não é uma venda elegível.');
+      throw new BadRequestException("Documentação não é uma venda elegível.");
     }
     const corretor = doc.corretor ?? doc.lead.corretor;
     if (!corretor) {
-      throw new BadRequestException('A documentação precisa ter um corretor.');
+      throw new BadRequestException("A documentação precisa ter um corretor.");
     }
     const gerenteId = doc.gerente?.id ?? corretor.equipe?.gerenteId ?? null;
     const gerenteNome =
-      doc.gerente?.name ?? corretor.equipe?.gerente.name ?? '';
+      doc.gerente?.name ?? corretor.equipe?.gerente.name ?? "";
     const values = this.calculateComissao(doc.vgv, dto);
     const row = await this.prisma.financeiroComissao.create({
       data: {
@@ -1428,8 +1439,8 @@ export class FinanceiroService {
         equipeId: corretor.equipeId,
         corretor: corretor.name,
         gerente: gerenteNome,
-        equipe: corretor.equipe?.name ?? '',
-        empreendimento: doc.empreendimento?.nome ?? '',
+        equipe: corretor.equipe?.name ?? "",
+        empreendimento: doc.empreendimento?.nome ?? "",
         cliente: doc.nome,
         dataVenda: doc.dataVenda ?? doc.createdAt,
         status: FinanceiroComissaoStatus.pendente,
@@ -1593,12 +1604,12 @@ export class FinanceiroService {
   async fluxoCaixa(requester: AuthenticatedUser, query: QueryFluxoCaixaDto) {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
-    const granularidade: FluxoGranularidade = query.granularidade ?? 'dia';
+    const granularidade: FluxoGranularidade = query.granularidade ?? "dia";
     const today = todayIsoBrasil();
     const from = query.from?.slice(0, 10) ?? startOfMonthIso(today);
     const to = query.to?.slice(0, 10) ?? endOfMonthIso(today);
     if (from > to) {
-      throw new BadRequestException('Data inicial maior que a final.');
+      throw new BadRequestException("Data inicial maior que a final.");
     }
 
     const eventos = await this.collectFluxoEventos(tenantId, from, to);
@@ -1624,11 +1635,11 @@ export class FinanceiroService {
       const meta = this.bucketMetaForDate(ev.data, granularidade);
       const acc = byKey.get(meta.chave);
       if (!acc) continue;
-      if (ev.natureza === 'realizado') {
-        if (ev.tipo === 'entrada') acc.entradasRealizadas += ev.valor;
+      if (ev.natureza === "realizado") {
+        if (ev.tipo === "entrada") acc.entradasRealizadas += ev.valor;
         else acc.saidasRealizadas += ev.valor;
       } else {
-        if (ev.tipo === 'entrada') acc.entradasPrevistas += ev.valor;
+        if (ev.tipo === "entrada") acc.entradasPrevistas += ev.valor;
         else acc.saidasPrevistas += ev.valor;
       }
     }
@@ -1706,15 +1717,12 @@ export class FinanceiroService {
         despesas: {
           where: {
             ativo: true,
-            OR: [
-              { competencia },
-              { competencia: '', data: { gte, lt } },
-            ],
+            OR: [{ competencia }, { competencia: "", data: { gte, lt } }],
           },
           select: { valor: true },
         },
       },
-      orderBy: [{ natureza: 'asc' }, { nome: 'asc' }],
+      orderBy: [{ natureza: "asc" }, { nome: "asc" }],
     });
     return rows.map((r) => this.mapDespesaTipo(r));
   }
@@ -1745,10 +1753,10 @@ export class FinanceiroService {
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
+        err.code === "P2002"
       ) {
         throw new BadRequestException(
-          'Já existe um tipo com este nome nesta natureza.',
+          "Já existe um tipo com este nome nesta natureza.",
         );
       }
       throw err;
@@ -1783,10 +1791,10 @@ export class FinanceiroService {
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
+        err.code === "P2002"
       ) {
         throw new BadRequestException(
-          'Já existe um tipo com este nome nesta natureza.',
+          "Já existe um tipo com este nome nesta natureza.",
         );
       }
       throw err;
@@ -1819,7 +1827,7 @@ export class FinanceiroService {
         include: {
           tipo: { select: { id: true, nome: true, natureza: true } },
         },
-        orderBy: { data: 'desc' },
+        orderBy: { data: "desc" },
       })
       .then((rows) => rows.map((r) => this.mapDespesa(r)));
   }
@@ -1830,7 +1838,7 @@ export class FinanceiroService {
     const tenantId = resolveFinanceiroTenantId(requester);
     const tipo = await this.findDespesaTipoOrFail(dto.tipoId, requester);
     if (!tipo.ativo) {
-      throw new BadRequestException('Tipo de despesa inativo.');
+      throw new BadRequestException("Tipo de despesa inativo.");
     }
     const competencia =
       dto.competencia?.trim() || competenciaFromIsoDate(dto.data);
@@ -1838,12 +1846,9 @@ export class FinanceiroService {
       tipo.natureza === FinanceiroDespesaNatureza.fixa ||
       tipo.natureza === FinanceiroDespesaNatureza.fixa_variavel;
     const recorrente = dto.recorrente ?? recorrentePadrao;
-    if (
-      recorrente &&
-      tipo.natureza === FinanceiroDespesaNatureza.variavel
-    ) {
+    if (recorrente && tipo.natureza === FinanceiroDespesaNatureza.variavel) {
       throw new BadRequestException(
-        'Despesas variáveis não podem ser marcadas como recorrentes.',
+        "Despesas variáveis não podem ser marcadas como recorrentes.",
       );
     }
     const row = await this.prisma.financeiroDespesa.create({
@@ -1855,7 +1860,7 @@ export class FinanceiroService {
         data: parseDayStart(dto.data),
         competencia,
         recorrente,
-        observacao: dto.observacao?.trim() || '',
+        observacao: dto.observacao?.trim() || "",
         ativo: dto.ativo ?? true,
       },
       include: {
@@ -1877,7 +1882,7 @@ export class FinanceiroService {
     if (dto.tipoId) {
       const tipo = await this.findDespesaTipoOrFail(dto.tipoId, requester);
       if (!tipo.ativo) {
-        throw new BadRequestException('Tipo de despesa inativo.');
+        throw new BadRequestException("Tipo de despesa inativo.");
       }
       tipoNatureza = tipo.natureza;
     }
@@ -1886,11 +1891,13 @@ export class FinanceiroService {
       tipoNatureza === FinanceiroDespesaNatureza.variavel
     ) {
       throw new BadRequestException(
-        'Despesas variáveis não podem ser marcadas como recorrentes.',
+        "Despesas variáveis não podem ser marcadas como recorrentes.",
       );
     }
     const dataIso =
-      dto.data !== undefined ? dto.data.slice(0, 10) : isoDateOnly(existing.data);
+      dto.data !== undefined
+        ? dto.data.slice(0, 10)
+        : isoDateOnly(existing.data);
     const competencia =
       dto.competencia?.trim() ||
       (dto.data !== undefined ? competenciaFromIsoDate(dataIso) : undefined);
@@ -1933,9 +1940,9 @@ export class FinanceiroService {
     this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const competencia = dto.competencia.trim();
-    const [y, m] = competencia.split('-').map(Number);
+    const [y, m] = competencia.split("-").map(Number);
     if (!y || !m) {
-      throw new BadRequestException('Competência inválida.');
+      throw new BadRequestException("Competência inválida.");
     }
 
     const raizes = await this.prisma.financeiroDespesa.findMany({
@@ -1956,7 +1963,7 @@ export class FinanceiroService {
       include: {
         tipo: { select: { id: true, nome: true, natureza: true, ativo: true } },
       },
-      orderBy: { data: 'desc' },
+      orderBy: { data: "desc" },
     });
 
     const criadas = [];
@@ -1983,7 +1990,7 @@ export class FinanceiroService {
 
       const ultima = await this.prisma.financeiroDespesa.findFirst({
         where: { tenantId, ...serieIds },
-        orderBy: [{ competencia: 'desc' }, { data: 'desc' }],
+        orderBy: [{ competencia: "desc" }, { data: "desc" }],
       });
       const template = ultima ?? raiz;
       const day = Math.min(
@@ -2040,15 +2047,12 @@ export class FinanceiroService {
         recebimentos: {
           where: {
             ativo: true,
-            OR: [
-              { competencia },
-              { competencia: '', data: { gte, lt } },
-            ],
+            OR: [{ competencia }, { competencia: "", data: { gte, lt } }],
           },
           select: { valor: true },
         },
       },
-      orderBy: [{ natureza: 'asc' }, { nome: 'asc' }],
+      orderBy: [{ natureza: "asc" }, { nome: "asc" }],
     });
     return rows.map((r) => this.mapRecebimentoTipo(r));
   }
@@ -2079,10 +2083,10 @@ export class FinanceiroService {
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
+        err.code === "P2002"
       ) {
         throw new BadRequestException(
-          'Já existe um tipo com este nome nesta natureza.',
+          "Já existe um tipo com este nome nesta natureza.",
         );
       }
       throw err;
@@ -2117,10 +2121,10 @@ export class FinanceiroService {
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
+        err.code === "P2002"
       ) {
         throw new BadRequestException(
-          'Já existe um tipo com este nome nesta natureza.',
+          "Já existe um tipo com este nome nesta natureza.",
         );
       }
       throw err;
@@ -2153,7 +2157,7 @@ export class FinanceiroService {
         include: {
           tipo: { select: { id: true, nome: true, natureza: true } },
         },
-        orderBy: { data: 'desc' },
+        orderBy: { data: "desc" },
       })
       .then((rows) => rows.map((r) => this.mapRecebimento(r)));
   }
@@ -2167,7 +2171,7 @@ export class FinanceiroService {
     const tenantId = resolveFinanceiroTenantId(requester);
     const tipo = await this.findRecebimentoTipoOrFail(dto.tipoId, requester);
     if (!tipo.ativo) {
-      throw new BadRequestException('Tipo de recebimento inativo.');
+      throw new BadRequestException("Tipo de recebimento inativo.");
     }
     const competencia =
       dto.competencia?.trim() || competenciaFromIsoDate(dto.data);
@@ -2175,12 +2179,9 @@ export class FinanceiroService {
       tipo.natureza === FinanceiroDespesaNatureza.fixa ||
       tipo.natureza === FinanceiroDespesaNatureza.fixa_variavel;
     const recorrente = dto.recorrente ?? recorrentePadrao;
-    if (
-      recorrente &&
-      tipo.natureza === FinanceiroDespesaNatureza.variavel
-    ) {
+    if (recorrente && tipo.natureza === FinanceiroDespesaNatureza.variavel) {
       throw new BadRequestException(
-        'Recebimentos variáveis não podem ser marcados como recorrentes.',
+        "Recebimentos variáveis não podem ser marcados como recorrentes.",
       );
     }
     const row = await this.prisma.financeiroRecebimento.create({
@@ -2192,7 +2193,7 @@ export class FinanceiroService {
         data: parseDayStart(dto.data),
         competencia,
         recorrente,
-        observacao: dto.observacao?.trim() || '',
+        observacao: dto.observacao?.trim() || "",
         ativo: dto.ativo ?? true,
       },
       include: {
@@ -2214,7 +2215,7 @@ export class FinanceiroService {
     if (dto.tipoId) {
       const tipo = await this.findRecebimentoTipoOrFail(dto.tipoId, requester);
       if (!tipo.ativo) {
-        throw new BadRequestException('Tipo de recebimento inativo.');
+        throw new BadRequestException("Tipo de recebimento inativo.");
       }
       tipoNatureza = tipo.natureza;
     }
@@ -2223,11 +2224,13 @@ export class FinanceiroService {
       tipoNatureza === FinanceiroDespesaNatureza.variavel
     ) {
       throw new BadRequestException(
-        'Recebimentos variáveis não podem ser marcados como recorrentes.',
+        "Recebimentos variáveis não podem ser marcados como recorrentes.",
       );
     }
     const dataIso =
-      dto.data !== undefined ? dto.data.slice(0, 10) : isoDateOnly(existing.data);
+      dto.data !== undefined
+        ? dto.data.slice(0, 10)
+        : isoDateOnly(existing.data);
     const competencia =
       dto.competencia?.trim() ||
       (dto.data !== undefined ? competenciaFromIsoDate(dataIso) : undefined);
@@ -2270,9 +2273,9 @@ export class FinanceiroService {
     this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const competencia = dto.competencia.trim();
-    const [y, m] = competencia.split('-').map(Number);
+    const [y, m] = competencia.split("-").map(Number);
     if (!y || !m) {
-      throw new BadRequestException('Competência inválida.');
+      throw new BadRequestException("Competência inválida.");
     }
 
     const raizes = await this.prisma.financeiroRecebimento.findMany({
@@ -2293,7 +2296,7 @@ export class FinanceiroService {
       include: {
         tipo: { select: { id: true, nome: true, natureza: true, ativo: true } },
       },
-      orderBy: { data: 'desc' },
+      orderBy: { data: "desc" },
     });
 
     const criadas = [];
@@ -2320,7 +2323,7 @@ export class FinanceiroService {
 
       const ultima = await this.prisma.financeiroRecebimento.findFirst({
         where: { tenantId, ...serieIds },
-        orderBy: [{ competencia: 'desc' }, { data: 'desc' }],
+        orderBy: [{ competencia: "desc" }, { data: "desc" }],
       });
       const template = ultima ?? raiz;
       const day = Math.min(
@@ -2362,14 +2365,14 @@ export class FinanceiroService {
     categoria?: string | null,
     centro?: string | null,
   ) {
-    const cat = categoria?.trim() || '';
-    const cen = centro?.trim() || '';
+    const cat = categoria?.trim() || "";
+    const cen = centro?.trim() || "";
     if (tipo === FinanceiroTituloTipo.pagar) {
       const label = cen || cat;
       return { categoria: label, centro: label };
     }
     const label = cat || cen;
-    return { categoria: label, centro: '' };
+    return { categoria: label, centro: "" };
   }
 
   private async buildMesesResumo(tenantId: string, qtd: number) {
@@ -2415,15 +2418,12 @@ export class FinanceiroService {
         despesas: {
           where: {
             ativo: true,
-            OR: [
-              { competencia },
-              { competencia: '', data: { gte, lt } },
-            ],
+            OR: [{ competencia }, { competencia: "", data: { gte, lt } }],
           },
           select: { valor: true },
         },
       },
-      orderBy: { nome: 'asc' },
+      orderBy: { nome: "asc" },
     });
 
     if (tipos.length > 0) {
@@ -2476,7 +2476,7 @@ export class FinanceiroService {
     });
     const map = new Map<string, number>();
     for (const r of rows) {
-      const key = r.centro || 'Sem centro';
+      const key = r.centro || "Sem centro";
       map.set(key, (map.get(key) ?? 0) + r.valor);
     }
     return [...map.entries()]
@@ -2491,24 +2491,24 @@ export class FinanceiroService {
   }
 
   private competenciaDateBounds(competencia: string) {
-    const [ys, ms] = competencia.split('-').map(Number);
+    const [ys, ms] = competencia.split("-").map(Number);
     const gte = new Date(Date.UTC(ys, ms - 1, 1) + BRASIL_UTC_OFFSET_MS);
     const lt = new Date(Date.UTC(ys, ms, 1) + BRASIL_UTC_OFFSET_MS);
     return { gte, lt };
   }
 
-  private periodoDateBounds(periodo: 'mes' | 'trimestre' | 'ano' | 'tudo') {
-    if (periodo === 'tudo') return {} as { gte?: Date; lt?: Date };
+  private periodoDateBounds(periodo: "mes" | "trimestre" | "ano" | "tudo") {
+    if (periodo === "tudo") return {} as { gte?: Date; lt?: Date };
     const today = todayIsoBrasil();
     const y = Number(today.slice(0, 4));
     const m = Number(today.slice(5, 7));
-    if (periodo === 'mes') {
+    if (periodo === "mes") {
       return {
         gte: new Date(Date.UTC(y, m - 1, 1) + BRASIL_UTC_OFFSET_MS),
         lt: new Date(Date.UTC(y, m, 1) + BRASIL_UTC_OFFSET_MS),
       };
     }
-    if (periodo === 'trimestre') {
+    if (periodo === "trimestre") {
       const qStart = Math.floor((m - 1) / 3) * 3;
       return {
         gte: new Date(Date.UTC(y, qStart, 1) + BRASIL_UTC_OFFSET_MS),
@@ -2550,7 +2550,7 @@ export class FinanceiroService {
     const row = await this.prisma.financeiroCategoria.findFirst({
       where: { id, tenantId },
     });
-    if (!row) throw new NotFoundException('Categoria não encontrada.');
+    if (!row) throw new NotFoundException("Categoria não encontrada.");
     return row;
   }
 
@@ -2601,14 +2601,12 @@ export class FinanceiroService {
       where: {
         tenantId,
         tipo: FinanceiroTituloTipo.receber,
-        categoria: { not: '' },
+        categoria: { not: "" },
       },
       select: { categoria: true },
-      distinct: ['categoria'],
+      distinct: ["categoria"],
     });
-    const nomes = titulos
-      .map((t) => t.categoria.trim())
-      .filter(Boolean);
+    const nomes = titulos.map((t) => t.categoria.trim()).filter(Boolean);
     if (nomes.length === 0) return;
     await this.prisma.financeiroRecebimentoTipo.createMany({
       data: nomes.map((nome) => ({
@@ -2659,14 +2657,14 @@ export class FinanceiroService {
       this.prisma.financeiroTitulo.findMany({
         where: {
           tenantId,
-          OR: [{ centro: { not: '' } }, { categoria: { not: '' } }],
+          OR: [{ centro: { not: "" } }, { categoria: { not: "" } }],
         },
         select: { id: true, tipo: true, categoria: true, centro: true },
       }),
       this.prisma.financeiroMovimento.findMany({
         where: {
           tenantId,
-          OR: [{ centro: { not: '' } }, { categoria: { not: '' } }],
+          OR: [{ centro: { not: "" } }, { categoria: { not: "" } }],
         },
         select: { id: true, tipo: true, categoria: true, centro: true },
       }),
@@ -2688,10 +2686,7 @@ export class FinanceiroService {
       } else if (resolved.categoria) {
         nomesRecebimento.add(resolved.categoria);
       }
-      if (
-        t.categoria !== resolved.categoria ||
-        t.centro !== resolved.centro
-      ) {
+      if (t.categoria !== resolved.categoria || t.centro !== resolved.centro) {
         tituloUpdates.push({
           id: t.id,
           categoria: resolved.categoria,
@@ -2702,12 +2697,12 @@ export class FinanceiroService {
 
     const movUpdates: { id: string; categoria: string; centro: string }[] = [];
     for (const m of movimentos) {
-      const cat = m.categoria?.trim() || '';
-      const cen = m.centro?.trim() || '';
+      const cat = m.categoria?.trim() || "";
+      const cen = m.centro?.trim() || "";
       const isSaida = m.tipo === FinanceiroMovimentoTipo.saida;
       const resolved = isSaida
         ? { categoria: cen || cat, centro: cen || cat }
-        : { categoria: cat || cen, centro: '' };
+        : { categoria: cat || cen, centro: "" };
       if (!resolved.categoria && !resolved.centro) continue;
       if (isSaida) {
         if (resolved.centro) nomesDespesa.add(resolved.centro);
@@ -2771,7 +2766,7 @@ export class FinanceiroService {
     const row = await this.prisma.financeiroMovimento.findFirst({
       where: { id, tenantId },
     });
-    if (!row) throw new NotFoundException('Movimento não encontrado.');
+    if (!row) throw new NotFoundException("Movimento não encontrado.");
     return row;
   }
 
@@ -2780,7 +2775,7 @@ export class FinanceiroService {
     const row = await this.prisma.financeiroTitulo.findFirst({
       where: { id, tenantId },
     });
-    if (!row) throw new NotFoundException('Título não encontrado.');
+    if (!row) throw new NotFoundException("Título não encontrado.");
     return row;
   }
 
@@ -2818,13 +2813,13 @@ export class FinanceiroService {
 
     for (const m of movimentos) {
       const natureza =
-        m.status === FinanceiroTituloStatus.pago ? 'realizado' : 'previsto';
+        m.status === FinanceiroTituloStatus.pago ? "realizado" : "previsto";
       eventos.push({
         data: isoDateOnly(m.data),
-        tipo: m.tipo === FinanceiroMovimentoTipo.entrada ? 'entrada' : 'saida',
+        tipo: m.tipo === FinanceiroMovimentoTipo.entrada ? "entrada" : "saida",
         valor: m.valor,
         natureza,
-        origem: 'movimento',
+        origem: "movimento",
         id: m.id,
         descricao: m.descricao,
         parceiro: m.parceiroNome,
@@ -2837,10 +2832,10 @@ export class FinanceiroService {
     for (const t of titulos) {
       eventos.push({
         data: isoDateOnly(t.vencimento),
-        tipo: t.tipo === FinanceiroTituloTipo.receber ? 'entrada' : 'saida',
+        tipo: t.tipo === FinanceiroTituloTipo.receber ? "entrada" : "saida",
         valor: t.valor,
-        natureza: 'previsto',
-        origem: 'titulo',
+        natureza: "previsto",
+        origem: "titulo",
         id: t.id,
         descricao: t.descricao,
         parceiro: t.parceiroNome,
@@ -2857,26 +2852,26 @@ export class FinanceiroService {
     iso: string,
     granularidade: FluxoGranularidade,
   ): { chave: string; inicio: string; fim: string; label: string } {
-    if (granularidade === 'dia') {
-      const [y, m, d] = iso.split('-').map(Number);
+    if (granularidade === "dia") {
+      const [y, m, d] = iso.split("-").map(Number);
       const label = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(
-        'pt-BR',
+        "pt-BR",
         {
-          timeZone: 'UTC',
-          day: '2-digit',
-          month: '2-digit',
+          timeZone: "UTC",
+          day: "2-digit",
+          month: "2-digit",
         },
       );
       return { chave: iso, inicio: iso, fim: iso, label };
     }
-    if (granularidade === 'semana') {
+    if (granularidade === "semana") {
       const w = isoWeekKey(iso);
       return {
         ...w,
         label: `${w.inicio.slice(8)}/${w.inicio.slice(5, 7)} – ${w.fim.slice(8)}/${w.fim.slice(5, 7)}`,
       };
     }
-    if (granularidade === 'mes') {
+    if (granularidade === "mes") {
       const inicio = startOfMonthIso(iso);
       const fim = endOfMonthIso(iso);
       const m = Number(iso.slice(5, 7)) - 1;
@@ -2891,7 +2886,7 @@ export class FinanceiroService {
     const q = quarterKey(iso);
     return {
       ...q,
-      label: q.chave.replace('-', ' '),
+      label: q.chave.replace("-", " "),
     };
   }
 
@@ -2920,13 +2915,13 @@ export class FinanceiroService {
           fim: meta.fim,
         });
       }
-      if (granularidade === 'dia') {
+      if (granularidade === "dia") {
         cursor = addDaysIso(cursor, 1);
-      } else if (granularidade === 'semana') {
+      } else if (granularidade === "semana") {
         cursor = addDaysIso(meta.fim, 1);
-      } else if (granularidade === 'mes') {
-        const [y, m] = meta.inicio.split('-').map(Number);
-        cursor = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+      } else if (granularidade === "mes") {
+        const [y, m] = meta.inicio.split("-").map(Number);
+        cursor = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`;
       } else {
         cursor = addDaysIso(meta.fim, 1);
       }
@@ -2940,7 +2935,7 @@ export class FinanceiroService {
     const row = await this.prisma.financeiroParceiro.findFirst({
       where: { id, tenantId },
     });
-    if (!row) throw new NotFoundException('Parceiro não encontrado.');
+    if (!row) throw new NotFoundException("Parceiro não encontrado.");
     return row;
   }
 
@@ -2952,7 +2947,7 @@ export class FinanceiroService {
     const row = await this.prisma.financeiroDespesaTipo.findFirst({
       where: { id, tenantId },
     });
-    if (!row) throw new NotFoundException('Tipo de despesa não encontrado.');
+    if (!row) throw new NotFoundException("Tipo de despesa não encontrado.");
     return row;
   }
 
@@ -2964,7 +2959,7 @@ export class FinanceiroService {
         tipo: { select: { id: true, nome: true, natureza: true, ativo: true } },
       },
     });
-    if (!row) throw new NotFoundException('Despesa não encontrada.');
+    if (!row) throw new NotFoundException("Despesa não encontrada.");
     return row;
   }
 
@@ -2977,7 +2972,7 @@ export class FinanceiroService {
       where: { id, tenantId },
     });
     if (!row) {
-      throw new NotFoundException('Tipo de recebimento não encontrado.');
+      throw new NotFoundException("Tipo de recebimento não encontrado.");
     }
     return row;
   }
@@ -2993,7 +2988,7 @@ export class FinanceiroService {
         tipo: { select: { id: true, nome: true, natureza: true, ativo: true } },
       },
     });
-    if (!row) throw new NotFoundException('Recebimento não encontrado.');
+    if (!row) throw new NotFoundException("Recebimento não encontrado.");
     return row;
   }
 
@@ -3007,10 +3002,10 @@ export class FinanceiroService {
         where: { id: parceiroId, tenantId },
         select: { nome: true },
       });
-      if (!p) throw new NotFoundException('Parceiro não encontrado.');
+      if (!p) throw new NotFoundException("Parceiro não encontrado.");
       return p.nome;
     }
-    return fallback?.trim() || '';
+    return fallback?.trim() || "";
   }
 
   /**
@@ -3100,10 +3095,10 @@ export class FinanceiroService {
       nome: row.nome,
       documento: row.documento,
       tipo: row.tipo,
-      email: row.email ?? '',
-      telefone: row.telefone ?? '',
-      cidade: row.cidade ?? '',
-      imobiliaria: row.imobiliaria ?? '',
+      email: row.email ?? "",
+      telefone: row.telefone ?? "",
+      cidade: row.cidade ?? "",
+      imobiliaria: row.imobiliaria ?? "",
       saldoAberto: row.saldoAberto,
       ativo: row.ativo,
     };
@@ -3155,7 +3150,8 @@ export class FinanceiroService {
       valor: row.valor,
       data: isoDateOnly(row.data),
       competencia:
-        row.competencia?.trim() || competenciaFromIsoDate(isoDateOnly(row.data)),
+        row.competencia?.trim() ||
+        competenciaFromIsoDate(isoDateOnly(row.data)),
       recorrente: row.recorrente ?? false,
       origemId: row.origemId ?? null,
       observacao: row.observacao,
@@ -3182,7 +3178,8 @@ export class FinanceiroService {
       orcadoMensal: row.orcadoMensal,
       realizado,
       qtdDespesas: row._count?.recebimentos ?? row.recebimentos?.length ?? 0,
-      qtdRecebimentos: row._count?.recebimentos ?? row.recebimentos?.length ?? 0,
+      qtdRecebimentos:
+        row._count?.recebimentos ?? row.recebimentos?.length ?? 0,
       ativo: row.ativo,
       createdAt: row.createdAt.toISOString(),
     };
@@ -3211,7 +3208,8 @@ export class FinanceiroService {
       valor: row.valor,
       data: isoDateOnly(row.data),
       competencia:
-        row.competencia?.trim() || competenciaFromIsoDate(isoDateOnly(row.data)),
+        row.competencia?.trim() ||
+        competenciaFromIsoDate(isoDateOnly(row.data)),
       recorrente: row.recorrente ?? false,
       origemId: row.origemId ?? null,
       observacao: row.observacao,
@@ -3282,7 +3280,7 @@ export class FinanceiroService {
       parcela: row.parcela,
       grupoParcelasId: row.grupoParcelasId ?? null,
       platformContratoId: row.platformContratoId ?? null,
-      formaPagamento: row.movimento?.formaPagamento || '',
+      formaPagamento: row.movimento?.formaPagamento || "",
     };
   }
 
@@ -3354,7 +3352,7 @@ export class FinanceiroService {
       input.percentualSocios;
     if (Math.abs(splitTotal - 100) > 0.0001) {
       throw new BadRequestException(
-        'Os percentuais da comissão líquida devem somar 100%.',
+        "Os percentuais da comissão líquida devem somar 100%.",
       );
     }
     const decimal = (value: number) => new Prisma.Decimal(value.toString());
@@ -3407,7 +3405,7 @@ export class FinanceiroService {
     const row = await this.prisma.financeiroComissao.findFirst({
       where: { id, tenantId },
     });
-    if (!row) throw new NotFoundException('Comissão não encontrada.');
+    if (!row) throw new NotFoundException("Comissão não encontrada.");
     return row;
   }
 
@@ -3418,14 +3416,14 @@ export class FinanceiroService {
       requester.role !== Role.corretor &&
       requester.role !== Role.super_admin
     ) {
-      throw new ForbiddenException('Você não possui acesso às comissões.');
+      throw new ForbiddenException("Você não possui acesso às comissões.");
     }
   }
 
   private assertComissaoWrite(requester: AuthenticatedUser) {
     if (requester.role !== Role.admin && requester.role !== Role.super_admin) {
       throw new ForbiddenException(
-        'Somente administradores gerenciam comissões.',
+        "Somente administradores gerenciam comissões.",
       );
     }
   }
@@ -3437,7 +3435,7 @@ export class FinanceiroService {
       requester.role !== Role.super_admin
     ) {
       throw new ForbiddenException(
-        'Módulo financeiro disponível para admin, gerente e super admin.',
+        "Módulo financeiro disponível para admin, gerente e super admin.",
       );
     }
   }
@@ -3450,7 +3448,7 @@ export class FinanceiroService {
   private assertTenantCentrosModule(requester: AuthenticatedUser) {
     if (requester.role === Role.super_admin) {
       throw new ForbiddenException(
-        'Centro de despesas e centro de recebimentos não estão disponíveis na plataforma.',
+        "Centro de despesas e centro de recebimentos não estão disponíveis na plataforma.",
       );
     }
   }
