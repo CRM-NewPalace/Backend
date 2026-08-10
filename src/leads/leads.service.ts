@@ -63,9 +63,12 @@ export class LeadsService {
   ): Promise<LeadEntity> {
     const tenantId = requireTenantId(requester);
 
-    if (requester.role === Role.analista) {
+    if (
+      requester.role === Role.analista &&
+      dto.tipo !== 'cliente'
+    ) {
       throw new ForbiddenException(
-        'Analistas não podem criar leads ou clientes.',
+        'Analistas podem criar somente clientes para documentação.',
       );
     }
 
