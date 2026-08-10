@@ -23,7 +23,7 @@ import { AgendaService } from './agenda.service';
 
 @Controller('agenda')
 @UseGuards(RolesGuard)
-@Roles(Role.admin, Role.gerente, Role.corretor)
+@Roles(Role.admin, Role.gerente, Role.corretor, Role.super_admin)
 export class AgendaController {
   constructor(private readonly agendaService: AgendaService) {}
 
@@ -46,7 +46,7 @@ export class AgendaController {
   }
 
   @Get('lembretes')
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.super_admin)
   syncLembretes(@CurrentUser() requester: AuthenticatedUser) {
     return this.agendaService.syncLembretes(requester);
   }

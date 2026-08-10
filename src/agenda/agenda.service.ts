@@ -100,6 +100,26 @@ export class AgendaService {
     requester: AuthenticatedUser,
   ): Promise<AgendamentoListItem[]> {
     const tenantId = requireTenantId(requester);
+    if (requester.role === Role.super_admin) {
+      const where: Prisma.AgendamentoWhereInput = {
+        tenantId,
+        autorId: requester.id,
+      };
+      if (query.tipo) where.tipo = query.tipo;
+      if (query.status) where.status = query.status;
+      if (query.from || query.to) {
+        where.startsAt = {};
+        if (query.from) where.startsAt.gte = new Date(query.from);
+        if (query.to) where.startsAt.lte = new Date(query.to);
+      }
+
+      return this.prisma.agendamento.findMany({
+        where,
+        select: agendamentoSelect,
+        orderBy: { startsAt: 'asc' },
+      });
+    }
+
     const sharedAccess = await this.buildSharedAccessFilter(
       requester,
       query.corretorId,
@@ -460,9 +480,18 @@ export class AgendaService {
 
   async create(dto: CreateAgendamentoDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    const escopo = dto.escopo as AgendamentoEscopo;
-    const leadId = dto.leadId?.trim() || null;
-    const alvo = await this.resolveAlvoOnCreate(dto, requester);
+    const isPlatformAgenda = requester.role === Role.super_admin;
+    const escopo = isPlatformAgenda
+      ? AgendamentoEscopo.pessoal
+      : (dto.escopo as AgendamentoEscopo);
+    const leadId = isPlatformAgenda ? null : dto.leadId?.trim() || null;
+    const alvo = isPlatformAgenda
+      ? {
+          alvoTipo: AgendamentoAlvo.nenhum,
+          alvoEquipeId: null,
+          alvoGerenteId: null,
+        }
+      : await this.resolveAlvoOnCreate(dto, requester);
 
     if (
       alvo.alvoTipo === AgendamentoAlvo.nenhum &&
