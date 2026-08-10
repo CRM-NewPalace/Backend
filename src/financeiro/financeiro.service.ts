@@ -351,6 +351,7 @@ export class FinanceiroService {
     tipo?: FinanceiroMovimentoTipo,
   ) {
     this.assertAccess(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.ensureDefaultCategorias(tenantId);
     const rows = await this.prisma.financeiroCategoria.findMany({
@@ -365,6 +366,7 @@ export class FinanceiroService {
 
   async createCategoria(dto: CreateCategoriaDto, requester: AuthenticatedUser) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const nome = dto.nome.trim();
     try {
@@ -396,6 +398,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     await this.findCategoriaOrFail(id, requester);
     try {
       const row = await this.prisma.financeiroCategoria.update({
@@ -422,6 +425,7 @@ export class FinanceiroService {
 
   async removeCategoria(id: string, requester: AuthenticatedUser) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     await this.findCategoriaOrFail(id, requester);
     await this.prisma.financeiroCategoria.delete({ where: { id } });
     return { ok: true };
@@ -441,6 +445,7 @@ export class FinanceiroService {
     },
   ) {
     this.assertAccess(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.ensureDefaultDespesaCategorias(tenantId);
     await this.ensureDefaultRecebimentoCategorias(tenantId);
@@ -1562,7 +1567,11 @@ export class FinanceiroService {
         ? acc + m.valor
         : acc - m.valor;
     }, 0);
-    const centros = await this.buildCentros(tenantId);
+    // Centros de despesa/recebimento são exclusivos da imobiliária.
+    const centros =
+      requester.role === Role.super_admin
+        ? []
+        : await this.buildCentros(tenantId);
 
     return {
       kpis: {
@@ -1668,6 +1677,7 @@ export class FinanceiroService {
 
   async centrosDespesa(requester: AuthenticatedUser) {
     this.assertAccess(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     return this.buildCentros(tenantId);
   }
@@ -1679,6 +1689,7 @@ export class FinanceiroService {
     natureza?: FinanceiroDespesaNatureza,
   ) {
     this.assertAccess(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.ensureDefaultDespesaCategorias(tenantId);
     await this.cleanupReceitaTiposFromDespesas(tenantId);
@@ -1713,6 +1724,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const nome = dto.nome.trim();
     try {
@@ -1749,6 +1761,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     await this.findDespesaTipoOrFail(id, requester);
     try {
       const row = await this.prisma.financeiroDespesaTipo.update({
@@ -1782,6 +1795,7 @@ export class FinanceiroService {
 
   async removeDespesaTipo(id: string, requester: AuthenticatedUser) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     await this.findDespesaTipoOrFail(id, requester);
     await this.prisma.financeiroDespesaTipo.delete({ where: { id } });
     return { ok: true };
@@ -1794,6 +1808,7 @@ export class FinanceiroService {
     natureza?: FinanceiroDespesaNatureza,
   ) {
     this.assertAccess(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     return this.prisma.financeiroDespesa
       .findMany({
@@ -1811,6 +1826,7 @@ export class FinanceiroService {
 
   async createDespesa(dto: CreateDespesaDto, requester: AuthenticatedUser) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const tipo = await this.findDespesaTipoOrFail(dto.tipoId, requester);
     if (!tipo.ativo) {
@@ -1855,6 +1871,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const existing = await this.findDespesaOrFail(id, requester);
     let tipoNatureza = existing.tipo.natureza;
     if (dto.tipoId) {
@@ -1902,6 +1919,7 @@ export class FinanceiroService {
 
   async removeDespesa(id: string, requester: AuthenticatedUser) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     await this.findDespesaOrFail(id, requester);
     await this.prisma.financeiroDespesa.delete({ where: { id } });
     return { ok: true };
@@ -1912,6 +1930,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const competencia = dto.competencia.trim();
     const [y, m] = competencia.split('-').map(Number);
@@ -2006,6 +2025,7 @@ export class FinanceiroService {
     natureza?: FinanceiroDespesaNatureza,
   ) {
     this.assertAccess(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.ensureDefaultRecebimentoCategorias(tenantId);
     const competencia = competenciaAtualBrasil();
@@ -2038,6 +2058,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const nome = dto.nome.trim();
     try {
@@ -2074,6 +2095,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     await this.findRecebimentoTipoOrFail(id, requester);
     try {
       const row = await this.prisma.financeiroRecebimentoTipo.update({
@@ -2107,6 +2129,7 @@ export class FinanceiroService {
 
   async removeRecebimentoTipo(id: string, requester: AuthenticatedUser) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     await this.findRecebimentoTipoOrFail(id, requester);
     await this.prisma.financeiroRecebimentoTipo.delete({ where: { id } });
     return { ok: true };
@@ -2119,6 +2142,7 @@ export class FinanceiroService {
     natureza?: FinanceiroDespesaNatureza,
   ) {
     this.assertAccess(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     return this.prisma.financeiroRecebimento
       .findMany({
@@ -2139,6 +2163,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const tipo = await this.findRecebimentoTipoOrFail(dto.tipoId, requester);
     if (!tipo.ativo) {
@@ -2183,6 +2208,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const existing = await this.findRecebimentoOrFail(id, requester);
     let tipoNatureza = existing.tipo.natureza;
     if (dto.tipoId) {
@@ -2230,6 +2256,7 @@ export class FinanceiroService {
 
   async removeRecebimento(id: string, requester: AuthenticatedUser) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     await this.findRecebimentoOrFail(id, requester);
     await this.prisma.financeiroRecebimento.delete({ where: { id } });
     return { ok: true };
@@ -2240,6 +2267,7 @@ export class FinanceiroService {
     requester: AuthenticatedUser,
   ) {
     this.assertWrite(requester);
+    this.assertTenantCentrosModule(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const competencia = dto.competencia.trim();
     const [y, m] = competencia.split('-').map(Number);
@@ -3416,5 +3444,14 @@ export class FinanceiroService {
 
   private assertWrite(requester: AuthenticatedUser) {
     this.assertAccess(requester);
+  }
+
+  /** Centro de despesas / recebimentos: só imobiliária (não plataforma). */
+  private assertTenantCentrosModule(requester: AuthenticatedUser) {
+    if (requester.role === Role.super_admin) {
+      throw new ForbiddenException(
+        'Centro de despesas e centro de recebimentos não estão disponíveis na plataforma.',
+      );
+    }
   }
 }

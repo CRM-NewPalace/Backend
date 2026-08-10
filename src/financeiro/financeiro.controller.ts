@@ -79,7 +79,7 @@ export class FinanceiroController {
   }
 
   @Get('centros-despesa')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   centrosDespesa(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.centrosDespesa(requester);
   }
@@ -123,7 +123,7 @@ export class FinanceiroController {
   // ─── Categorias ──────────────────────────────────────────────
 
   @Get('categorias/resumo')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   resumoCategorias(
     @CurrentUser() requester: AuthenticatedUser,
     @Query('periodo') periodo?: 'mes' | 'trimestre' | 'ano' | 'tudo',
@@ -136,7 +136,7 @@ export class FinanceiroController {
   }
 
   @Get('categorias')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   listCategorias(
     @CurrentUser() requester: AuthenticatedUser,
     @Query('tipo') tipo?: FinanceiroMovimentoTipo,
@@ -145,7 +145,7 @@ export class FinanceiroController {
   }
 
   @Post('categorias')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   createCategoria(
     @Body() dto: CreateCategoriaDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -154,7 +154,7 @@ export class FinanceiroController {
   }
 
   @Patch('categorias/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   updateCategoria(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCategoriaDto,
@@ -164,7 +164,7 @@ export class FinanceiroController {
   }
 
   @Delete('categorias/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   removeCategoria(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -335,10 +335,10 @@ export class FinanceiroController {
     return this.financeiroService.removeComissao(id, requester);
   }
 
-  // ─── Centro de despesas ──────────────────────────────────────
+  // ─── Centro de despesas (somente imobiliária) ────────────────
 
   @Get('despesa-tipos')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   listDespesaTipos(
     @CurrentUser() requester: AuthenticatedUser,
     @Query('natureza') natureza?: FinanceiroDespesaNatureza,
@@ -347,7 +347,7 @@ export class FinanceiroController {
   }
 
   @Post('despesa-tipos')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   createDespesaTipo(
     @Body() dto: CreateDespesaTipoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -356,7 +356,7 @@ export class FinanceiroController {
   }
 
   @Patch('despesa-tipos/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   updateDespesaTipo(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDespesaTipoDto,
@@ -366,7 +366,7 @@ export class FinanceiroController {
   }
 
   @Delete('despesa-tipos/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   removeDespesaTipo(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -375,7 +375,7 @@ export class FinanceiroController {
   }
 
   @Get('despesas')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   listDespesas(
     @CurrentUser() requester: AuthenticatedUser,
     @Query('natureza') natureza?: FinanceiroDespesaNatureza,
@@ -384,7 +384,7 @@ export class FinanceiroController {
   }
 
   @Post('despesas')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   createDespesa(
     @Body() dto: CreateDespesaDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -393,7 +393,7 @@ export class FinanceiroController {
   }
 
   @Post('despesas/renovar-mes')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   renovarDespesasMes(
     @Body() dto: RenovarDespesasDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -402,7 +402,7 @@ export class FinanceiroController {
   }
 
   @Patch('despesas/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   updateDespesa(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDespesaDto,
@@ -412,7 +412,7 @@ export class FinanceiroController {
   }
 
   @Delete('despesas/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   removeDespesa(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -420,10 +420,10 @@ export class FinanceiroController {
     return this.financeiroService.removeDespesa(id, requester);
   }
 
-  // ─── Centro de recebimentos ──────────────────────────────────
+  // ─── Centro de recebimentos (somente imobiliária) ────────────
 
   @Get('recebimento-tipos')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   listRecebimentoTipos(
     @CurrentUser() requester: AuthenticatedUser,
     @Query('natureza') natureza?: FinanceiroDespesaNatureza,
@@ -432,7 +432,7 @@ export class FinanceiroController {
   }
 
   @Post('recebimento-tipos')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   createRecebimentoTipo(
     @Body() dto: CreateRecebimentoTipoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -441,7 +441,7 @@ export class FinanceiroController {
   }
 
   @Patch('recebimento-tipos/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   updateRecebimentoTipo(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateRecebimentoTipoDto,
@@ -451,7 +451,7 @@ export class FinanceiroController {
   }
 
   @Delete('recebimento-tipos/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   removeRecebimentoTipo(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -460,7 +460,7 @@ export class FinanceiroController {
   }
 
   @Get('recebimentos')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   listRecebimentos(
     @CurrentUser() requester: AuthenticatedUser,
     @Query('natureza') natureza?: FinanceiroDespesaNatureza,
@@ -469,7 +469,7 @@ export class FinanceiroController {
   }
 
   @Post('recebimentos')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   createRecebimento(
     @Body() dto: CreateRecebimentoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -478,7 +478,7 @@ export class FinanceiroController {
   }
 
   @Post('recebimentos/renovar-mes')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   renovarRecebimentosMes(
     @Body() dto: RenovarRecebimentosDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -487,7 +487,7 @@ export class FinanceiroController {
   }
 
   @Patch('recebimentos/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   updateRecebimento(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateRecebimentoDto,
@@ -497,7 +497,7 @@ export class FinanceiroController {
   }
 
   @Delete('recebimentos/:id')
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente)
   removeRecebimento(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
