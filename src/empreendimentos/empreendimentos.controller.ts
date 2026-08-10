@@ -9,18 +9,18 @@ import {
   Post,
   Query,
   UseGuards,
-} from '@nestjs/common';
-import { Role } from '@prisma/client';
-import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
-import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
-import { QueryEmpreendimentosDto } from './dto/query-empreendimentos.dto';
-import { EmpreendimentosService } from './empreendimentos.service';
+} from "@nestjs/common";
+import { Role } from "@prisma/client";
+import { Roles } from "../common/decorators/roles.decorator";
+import { CurrentUser } from "../common/decorators/current-user.decorator";
+import { RolesGuard } from "../common/guards/roles.guard";
+import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { CreateEmpreendimentoDto } from "./dto/create-empreendimento.dto";
+import { UpdateEmpreendimentoDto } from "./dto/update-empreendimento.dto";
+import { QueryEmpreendimentosDto } from "./dto/query-empreendimentos.dto";
+import { EmpreendimentosService } from "./empreendimentos.service";
 
-@Controller('empreendimentos')
+@Controller("empreendimentos")
 @UseGuards(RolesGuard)
 export class EmpreendimentosController {
   constructor(
@@ -36,17 +36,17 @@ export class EmpreendimentosController {
     return this.empreendimentosService.list(query, requester);
   }
 
-  @Get(':id')
+  @Get(":id")
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
   findOne(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.empreendimentosService.findOne(id, requester);
   }
 
   @Post()
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.analista)
   create(
     @Body() dto: CreateEmpreendimentoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -54,20 +54,20 @@ export class EmpreendimentosController {
     return this.empreendimentosService.create(dto, requester);
   }
 
-  @Patch(':id')
+  @Patch(":id")
   @Roles(Role.admin, Role.gerente)
   update(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateEmpreendimentoDto,
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.empreendimentosService.update(id, dto, requester);
   }
 
-  @Delete(':id')
+  @Delete(":id")
   @Roles(Role.admin)
   remove(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.empreendimentosService.remove(id, requester);

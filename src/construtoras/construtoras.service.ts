@@ -2,13 +2,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { Role } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
-import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { requireTenantId } from '../common/utils/tenant';
-import { CreateConstrutoraDto } from './dto/create-construtora.dto';
-import { UpdateConstrutoraDto } from './dto/update-construtora.dto';
+} from "@nestjs/common";
+import { Role } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { requireTenantId } from "../common/utils/tenant";
+import { CreateConstrutoraDto } from "./dto/create-construtora.dto";
+import { UpdateConstrutoraDto } from "./dto/update-construtora.dto";
 
 const construtoraSelect = {
   id: true,
@@ -38,7 +38,7 @@ export class ConstrutorasService {
     return this.prisma.construtora.findMany({
       where: { tenantId },
       select: construtoraSelect,
-      orderBy: { nome: 'asc' },
+      orderBy: { nome: "asc" },
     });
   }
 
@@ -48,12 +48,12 @@ export class ConstrutorasService {
       where: { id, tenantId },
       select: construtoraSelect,
     });
-    if (!item) throw new NotFoundException('Construtora não encontrada.');
+    if (!item) throw new NotFoundException("Construtora não encontrada.");
     return item;
   }
 
   create(dto: CreateConstrutoraDto, requester: AuthenticatedUser) {
-    this.assertAdminOrManager(requester);
+    this.assertCanCreate(requester);
     const tenantId = requireTenantId(requester);
     return this.prisma.construtora.create({
       data: {
@@ -108,15 +108,19 @@ export class ConstrutorasService {
   private assertAdmin(requester: AuthenticatedUser) {
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
-        'Apenas administradores podem editar ou remover construtoras.',
+        "Apenas administradores podem editar ou remover construtoras.",
       );
     }
   }
 
-  private assertAdminOrManager(requester: AuthenticatedUser) {
-    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+  private assertCanCreate(requester: AuthenticatedUser) {
+    if (
+      requester.role !== Role.admin &&
+      requester.role !== Role.gerente &&
+      requester.role !== Role.analista
+    ) {
       throw new ForbiddenException(
-        'Apenas administradores e gerentes podem cadastrar construtoras.',
+        "Apenas administradores, gerentes e analistas podem cadastrar construtoras.",
       );
     }
   }

@@ -2,15 +2,15 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { Role } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
-import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { requireTenantId } from '../common/utils/tenant';
-import { CreateEmpreendimentoDto } from './dto/create-empreendimento.dto';
-import { UpdateEmpreendimentoDto } from './dto/update-empreendimento.dto';
-import { QueryEmpreendimentosDto } from './dto/query-empreendimentos.dto';
-import { normalizeCor } from '../common/utils/cor';
+} from "@nestjs/common";
+import { Role } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { requireTenantId } from "../common/utils/tenant";
+import { CreateEmpreendimentoDto } from "./dto/create-empreendimento.dto";
+import { UpdateEmpreendimentoDto } from "./dto/update-empreendimento.dto";
+import { QueryEmpreendimentosDto } from "./dto/query-empreendimentos.dto";
+import { normalizeCor } from "../common/utils/cor";
 
 const empreendimentoSelect = {
   id: true,
@@ -44,7 +44,7 @@ export class EmpreendimentosService {
         ...(query.ativo !== undefined ? { ativo: query.ativo } : {}),
       },
       select: empreendimentoSelect,
-      orderBy: { nome: 'asc' },
+      orderBy: { nome: "asc" },
     });
   }
 
@@ -54,12 +54,12 @@ export class EmpreendimentosService {
       where: { id, tenantId },
       select: empreendimentoSelect,
     });
-    if (!item) throw new NotFoundException('Empreendimento não encontrado.');
+    if (!item) throw new NotFoundException("Empreendimento não encontrado.");
     return item;
   }
 
   async create(dto: CreateEmpreendimentoDto, requester: AuthenticatedUser) {
-    this.assertAdminOrManager(requester);
+    this.assertCanCreate(requester);
     const tenantId = requireTenantId(requester);
     if (dto.construtoraId) {
       const construtora = await this.prisma.construtora.findFirst({
@@ -67,7 +67,7 @@ export class EmpreendimentosService {
         select: { id: true },
       });
       if (!construtora) {
-        throw new NotFoundException('Construtora não encontrada.');
+        throw new NotFoundException("Construtora não encontrada.");
       }
     }
     const key = this.slugify(dto.nome);
@@ -134,7 +134,7 @@ export class EmpreendimentosService {
   private assertAdmin(requester: AuthenticatedUser) {
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
-        'Apenas administradores podem remover empreendimentos.',
+        "Apenas administradores podem remover empreendimentos.",
       );
     }
   }
@@ -142,18 +142,30 @@ export class EmpreendimentosService {
   private assertAdminOrManager(requester: AuthenticatedUser) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
-        'Apenas administradores e gerentes podem cadastrar ou editar empreendimentos.',
+        "Apenas administradores e gerentes podem cadastrar ou editar empreendimentos.",
+      );
+    }
+  }
+
+  private assertCanCreate(requester: AuthenticatedUser) {
+    if (
+      requester.role !== Role.admin &&
+      requester.role !== Role.gerente &&
+      requester.role !== Role.analista
+    ) {
+      throw new ForbiddenException(
+        "Apenas administradores, gerentes e analistas podem cadastrar empreendimentos.",
       );
     }
   }
 
   private slugify(value: string): string {
     return value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
       .slice(0, 80);
   }
 }
