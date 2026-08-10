@@ -33,6 +33,16 @@ function addMonthsIso(iso: string, months: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
+function dividirValor(valor: number, quantidade: number): number[] {
+  const centavos = Math.round(valor * 100);
+  const base = Math.floor(centavos / quantidade);
+  const resto = centavos - base * quantidade;
+  return Array.from(
+    { length: quantidade },
+    (_, index) => (base + (index < resto ? 1 : 0)) / 100,
+  );
+}
+
 const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
 
 function isoDateOnly(d: Date): string {
@@ -125,7 +135,7 @@ export class PlatformContratosService {
   }
 
   /**
-   * Cria contrato + 1 título de adesão + N mensalidades no financeiro da plataforma.
+   * Cria contrato + parcelas de adesão + mensalidades no financeiro da plataforma.
    */
   async createComTitulos(
     dto: CreatePlatformContratoComTitulosDto,
@@ -141,8 +151,10 @@ export class PlatformContratosService {
 
     const valorAdesao = dto.valorAdesao;
     const valorMensalidade = dto.valorMensalidade;
-    const qtd = dto.qtdMensalidades;
-    const valorTotal = valorAdesao + valorMensalidade * qtd;
+    const qtdAdesao = dto.qtdParcelasAdesao ?? 1;
+    const qtdMensalidades = dto.qtdMensalidades;
+    const parcelasAdesao = dividirValor(valorAdesao, qtdAdesao);
+    const valorTotal = valorAdesao + valorMensalidade * qtdMensalidades;
     const vencimentoBase = dto.vencimento.slice(0, 10);
     const categoria = dto.categoria?.trim() || 'Assinatura';
     const parceiroNome =
@@ -152,13 +164,13 @@ export class PlatformContratosService {
     const grupoParcelasId = randomUUID();
 
     const parcelasContrato = [
-      {
-        numero: 1,
-        valor: valorAdesao,
-        vencimento: parseDayStart(vencimentoBase),
-      },
-      ...Array.from({ length: qtd }, (_, i) => ({
-        numero: i + 2,
+      ...parcelasAdesao.map((valor, i) => ({
+        numero: i + 1,
+        valor,
+        vencimento: parseDayStart(addMonthsIso(vencimentoBase, i)),
+      })),
+      ...Array.from({ length: qtdMensalidades }, (_, i) => ({
+        numero: qtdAdesao + i + 1,
         valor: valorMensalidade,
         vencimento: parseDayStart(addMonthsIso(vencimentoBase, i)),
       })),
@@ -185,7 +197,7 @@ export class PlatformContratosService {
       });
 
       const titulosData = [
-        {
+        ...parcelasAdesao.map((valor, i) => ({
           tenantId: PLATFORM_TENANT_ID,
           tipo: FinanceiroTituloTipo.receber,
           descricao: `${dto.titulo.trim()} — Adesão`,
@@ -193,14 +205,15 @@ export class PlatformContratosService {
           parceiroNome,
           categoria,
           centro: '',
-          vencimento: parseDayStart(vencimentoBase),
-          valor: valorAdesao,
+          vencimento: parseDayStart(addMonthsIso(vencimentoBase, i)),
+          valor,
           status: FinanceiroTituloStatus.aberto,
-          parcela: 'Adesão',
+          parcela:
+            qtdAdesao === 1 ? 'Adesão' : `Adesão ${i + 1}/${qtdAdesao}`,
           grupoParcelasId,
           platformContratoId: contrato.id,
-        },
-        ...Array.from({ length: qtd }, (_, i) => ({
+        })),
+        ...Array.from({ length: qtdMensalidades }, (_, i) => ({
           tenantId: PLATFORM_TENANT_ID,
           tipo: FinanceiroTituloTipo.receber,
           descricao: `${dto.titulo.trim()} — Mensalidade`,
@@ -211,7 +224,7 @@ export class PlatformContratosService {
           vencimento: parseDayStart(addMonthsIso(vencimentoBase, i)),
           valor: valorMensalidade,
           status: FinanceiroTituloStatus.aberto,
-          parcela: `${i + 1}/${qtd}`,
+          parcela: `Mensalidade ${i + 1}/${qtdMensalidades}`,
           grupoParcelasId,
           platformContratoId: contrato.id,
         })),

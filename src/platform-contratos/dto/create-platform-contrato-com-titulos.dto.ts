@@ -39,6 +39,14 @@ export class CreatePlatformContratoComTitulosDto {
   @Min(0.01, { message: 'Informe o valor de adesão.' })
   valorAdesao!: number;
 
+  /** Quantidade de parcelas para dividir o valor total da adesão. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'Quantidade de parcelas da adesão inválida.' })
+  @Min(1)
+  @Max(120)
+  qtdParcelasAdesao?: number;
+
   @Type(() => Number)
   @IsNumber({}, { message: 'Valor de mensalidade inválido.' })
   @Min(0.01, { message: 'Informe o valor da mensalidade.' })
