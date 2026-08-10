@@ -668,6 +668,36 @@ model Proposta {
 
   clienteNome     String
   clienteTelefone String?
+  clienteCpf                 String?
+  clienteRg                  String?
+  clienteRgOrgaoEmissor      String?
+  clienteDataNascimento      DateTime?
+  clienteNacionalidade       String?
+  clienteEstadoCivil         String?
+  clienteRegimeBens          String?
+  clienteDataCasamento       DateTime?
+  clienteNomePai             String?
+  clienteNomeMae             String?
+  clienteRenda               Int?
+  clienteTelefoneFixo        String?
+  clienteEmail               String?
+  clienteEnderecoResidencial String?
+  clienteBairroResidencial   String?
+  clienteCidadeResidencial   String?
+  clienteUfResidencial       String?
+  clienteCepResidencial      String?
+  clienteCobrancaResidencial Boolean?
+  clienteEmpregador          String?
+  clienteProfissao           String?
+  clienteEnderecoComercial   String?
+  clienteBairroComercial     String?
+  clienteCidadeComercial     String?
+  clienteUfComercial         String?
+  clienteCepComercial        String?
+  clienteCobrancaComercial   Boolean?
+  clienteSite                String?
+  clienteTelefoneComercial1  String?
+  clienteTelefoneComercial2  String?
 
   construtoraId String?
   construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
