@@ -66,6 +66,7 @@ export class UsersService {
       );
     }
 
+    this.assertCanCreateRole(requester, dto.role);
     await this.assertCanCreateUser(tenantId);
     await this.assertRoleAllowed(tenantId, dto.role);
 
@@ -134,6 +135,21 @@ export class UsersService {
         `Limite de usuários do plano atingido (${used}/${limit}). Peça ao administrador da plataforma para liberar usuários extras.`,
       );
     }
+  }
+
+  private assertCanCreateRole(requester: AuthenticatedUser, role: Role) {
+    if (requester.role === Role.admin) return;
+
+    if (
+      (requester.role === Role.gerente || requester.role === Role.analista) &&
+      role === Role.corretor
+    ) {
+      return;
+    }
+
+    throw new ForbiddenException(
+      'Gerentes e analistas podem cadastrar somente usuários corretores.',
+    );
   }
 
   private async assertRoleAllowed(tenantId: string, role: Role) {
@@ -436,6 +452,10 @@ export class UsersService {
       return { tenantId };
     }
 
+    if (requester.role === Role.analista) {
+      return { tenantId, role: Role.corretor };
+    }
+
     if (requester.role !== Role.gerente) {
       throw new ForbiddenException('Acesso negado.');
     }
@@ -451,6 +471,11 @@ export class UsersService {
     user: PublicUser,
   ): Promise<void> {
     if (requester.role === Role.admin) return;
+    if (requester.role === Role.analista) {
+      if (user.role === Role.corretor) return;
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
     if (requester.role !== Role.gerente) {
       throw new ForbiddenException('Acesso negado.');
     }
