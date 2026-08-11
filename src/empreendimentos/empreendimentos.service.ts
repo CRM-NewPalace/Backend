@@ -96,7 +96,7 @@ export class EmpreendimentosService {
     dto: UpdateEmpreendimentoDto,
     requester: AuthenticatedUser,
   ) {
-    this.assertAdminOrManager(requester);
+    this.assertCanManage(requester);
     await this.findOne(id, requester);
     return this.prisma.empreendimento.update({
       where: { id },
@@ -125,24 +125,28 @@ export class EmpreendimentosService {
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
-    this.assertAdmin(requester);
+    this.assertCanRemove(requester);
     await this.findOne(id, requester);
     await this.prisma.empreendimento.delete({ where: { id } });
     return { ok: true };
   }
 
-  private assertAdmin(requester: AuthenticatedUser) {
-    if (requester.role !== Role.admin) {
+  private assertCanRemove(requester: AuthenticatedUser) {
+    if (requester.role !== Role.admin && requester.role !== Role.analista) {
       throw new ForbiddenException(
-        "Apenas administradores podem remover empreendimentos.",
+        "Apenas administradores e analistas podem remover empreendimentos.",
       );
     }
   }
 
-  private assertAdminOrManager(requester: AuthenticatedUser) {
-    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+  private assertCanManage(requester: AuthenticatedUser) {
+    if (
+      requester.role !== Role.admin &&
+      requester.role !== Role.gerente &&
+      requester.role !== Role.analista
+    ) {
       throw new ForbiddenException(
-        "Apenas administradores e gerentes podem cadastrar ou editar empreendimentos.",
+        "Apenas administradores, gerentes e analistas podem editar empreendimentos.",
       );
     }
   }

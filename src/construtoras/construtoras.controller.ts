@@ -48,7 +48,7 @@ export class ConstrutorasController {
   }
 
   @Patch(":id")
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.gerente, Role.analista)
   update(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateConstrutoraDto,

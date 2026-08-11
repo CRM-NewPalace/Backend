@@ -55,7 +55,7 @@ export class EmpreendimentosController {
   }
 
   @Patch(":id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.analista)
   update(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateEmpreendimentoDto,
@@ -65,7 +65,7 @@ export class EmpreendimentosController {
   }
 
   @Delete(":id")
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.analista)
   remove(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,

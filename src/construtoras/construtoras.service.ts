@@ -74,7 +74,7 @@ export class ConstrutorasService {
     dto: UpdateConstrutoraDto,
     requester: AuthenticatedUser,
   ) {
-    this.assertAdmin(requester);
+    this.assertCanManage(requester);
     await this.findOne(id, requester);
     return this.prisma.construtora.update({
       where: { id },
@@ -109,6 +109,18 @@ export class ConstrutorasService {
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
         "Apenas administradores podem editar ou remover construtoras.",
+      );
+    }
+  }
+
+  private assertCanManage(requester: AuthenticatedUser) {
+    if (
+      requester.role !== Role.admin &&
+      requester.role !== Role.gerente &&
+      requester.role !== Role.analista
+    ) {
+      throw new ForbiddenException(
+        "Apenas administradores, gerentes e analistas podem editar construtoras.",
       );
     }
   }
