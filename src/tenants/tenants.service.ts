@@ -34,6 +34,7 @@ import {
   requireTenantId,
 } from '../common/utils/tenant';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { TenantLogoColorService } from './tenant-logo-color.service';
 
 const tenantSelect = tenantAdminSelect;
 
@@ -90,7 +91,10 @@ function maskMetaConnection(connection: MetaConnection) {
 
 @Injectable()
 export class TenantsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantLogoColor: TenantLogoColorService,
+  ) {}
 
   findAll() {
     return this.prisma.tenant
@@ -142,6 +146,9 @@ export class TenantsService {
       logoUrl: dto.logoUrl,
       modules: planFields.modules,
     });
+    const primaryColor = await this.tenantLogoColor.extractPrimaryColor(
+      extras.logoUrl ?? null,
+    );
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -151,7 +158,7 @@ export class TenantsService {
             slug,
             documento: this.normalizeDocumento(dto.documento),
             status: dto.status ?? UserStatus.ativo,
-            primaryColor: null,
+            primaryColor,
             sidebarStyle: 'default',
             density: 'comfortable',
             homePath: '/dashboard',
@@ -426,6 +433,7 @@ export class TenantsService {
         usuariosExtras: true,
         iaBotEnabled: true,
         modules: true,
+        logoUrl: true,
       },
     });
     if (!current) throw new NotFoundException('Tenant não encontrado.');
@@ -459,6 +467,11 @@ export class TenantsService {
       logoUrl: dto.logoUrl,
       modules: modulesToSave,
     });
+    const logoChanged =
+      dto.logoUrl !== undefined && extras.logoUrl !== current.logoUrl;
+    const primaryColor = logoChanged
+      ? await this.tenantLogoColor.extractPrimaryColor(extras.logoUrl ?? null)
+      : undefined;
 
     try {
       return await this.prisma.tenant.update({
@@ -477,7 +490,7 @@ export class TenantsService {
               : current.maxUsuarios),
           usuariosExtras: planFields.usuariosExtras,
           iaBotEnabled: planFields.iaBotEnabled,
-          primaryColor: null,
+          ...(logoChanged ? { primaryColor } : {}),
           sidebarStyle: 'default',
           density: 'comfortable',
           homePath: '/dashboard',
