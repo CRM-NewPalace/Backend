@@ -7,10 +7,10 @@
   "scripts": {
     "build": "prisma generate && nest build",
     "format": "prettier --write \"src/**/*.ts\"",
-    "start": "prisma migrate deploy && node dist/main",
+    "start": "prisma migrate deploy && node dist/src/main",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "prisma migrate deploy && node dist/main",
+    "start:prod": "prisma migrate deploy && node dist/src/main",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
