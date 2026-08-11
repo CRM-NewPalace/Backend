@@ -196,6 +196,10 @@ model User {
   cargo     String?
   /// Cor de destaque em hex (#RRGGBB) para badges (ex.: Documentação).
   cor       String?
+  /// Preferências visuais pessoais em hex (#RRGGBB).
+  corAside     String?
+  corPrincipal String?
+  corModulo    String?
   role      Role       @default(corretor)
   status    UserStatus @default(ativo)
   avatar    String?

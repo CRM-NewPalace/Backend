@@ -17,6 +17,7 @@ import {
   tenantBrandingSelect,
   type TenantBranding,
 } from '../common/utils/tenant-branding';
+import { normalizeCor } from '../common/utils/cor';
 import {
   FAILED_LOGIN_WINDOW_MS,
   LOCKOUT_DURATION_MS,
@@ -25,6 +26,7 @@ import {
   SALT_ROUNDS,
 } from '../config/security.constants';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { UpdateAppearanceDto } from './dto/update-appearance.dto';
 
 export interface AuthTokens {
   accessToken: string;
@@ -251,6 +253,29 @@ export class AuthService {
     return { ...rest, tenant };
   }
 
+  /** Atualiza exclusivamente as preferências visuais do próprio usuário. */
+  async updateAppearance(
+    userId: string,
+    dto: UpdateAppearanceDto,
+  ): Promise<AuthUserPayload> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.corAside !== undefined && {
+          corAside: normalizeCor(dto.corAside),
+        }),
+        ...(dto.corPrincipal !== undefined && {
+          corPrincipal: normalizeCor(dto.corPrincipal),
+        }),
+        ...(dto.corModulo !== undefined && {
+          corModulo: normalizeCor(dto.corModulo),
+        }),
+      },
+    });
+
+    return this.me(userId);
+  }
+
   async changePassword(
     userId: string,
     currentPassword: string,
@@ -460,9 +485,11 @@ export class AuthService {
       dataNascimento: user.dataNascimento,
       cargo: user.cargo,
       cor: user.cor,
+      corAside: user.corAside,
+      corPrincipal: user.corPrincipal,
+      corModulo: user.corModulo,
       role: user.role,
       status: user.status,
-      avatar: user.avatar,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
@@ -30,6 +31,7 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateAppearanceDto } from './dto/update-appearance.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -106,6 +108,14 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser('id') userId: string) {
     return this.authService.me(userId);
+  }
+
+  @Patch('me')
+  updateAppearance(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateAppearanceDto,
+  ) {
+    return this.authService.updateAppearance(userId, dto);
   }
 
   @Throttle({ default: THROTTLE.changePassword })
