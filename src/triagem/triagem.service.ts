@@ -13,6 +13,7 @@ import { FunisService } from '../funis/funis.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { CreateTriagemDto } from './dto/create-triagem.dto';
+import { UpdateTriagemDto } from './dto/update-triagem.dto';
 import { QueryTriagemLeadsDto } from './dto/query-triagem-leads.dto';
 
 const leadListSelect = {
@@ -35,10 +36,12 @@ const eventSelect = {
   id: true,
   leadId: true,
   texto: true,
+  textoAnterior: true,
   stageAnterior: true,
   stageNovo: true,
   origem: true,
   createdAt: true,
+  editedAt: true,
   autor: { select: { id: true, name: true } },
 } as const;
 
@@ -246,6 +249,63 @@ export class TriagemService {
     }
 
     return event;
+  }
+
+  /**
+   * Corretor edita o texto do próprio relato.
+   * Guarda o texto anterior para admin/gerente consultarem.
+   */
+  async update(
+    id: string,
+    dto: UpdateTriagemDto,
+    requester: AuthenticatedUser,
+  ) {
+    requireTenantId(requester);
+
+    if (requester.role !== Role.corretor) {
+      throw new ForbiddenException(
+        'Apenas o corretor autor pode editar o relato.',
+      );
+    }
+
+    const texto = dto.texto.trim();
+    if (!texto) {
+      throw new BadRequestException('Informe o relato.');
+    }
+
+    const existing = await this.prisma.triagemEvent.findFirst({
+      where: { id, autorId: requester.id },
+      select: {
+        id: true,
+        texto: true,
+        lead: { select: { tenantId: true, perdidoAt: true } },
+      },
+    });
+
+    if (!existing || existing.lead.perdidoAt) {
+      throw new NotFoundException('Relato não encontrado.');
+    }
+
+    if (existing.lead.tenantId !== requester.tenantId) {
+      throw new NotFoundException('Relato não encontrado.');
+    }
+
+    if (texto === existing.texto) {
+      return this.prisma.triagemEvent.findFirstOrThrow({
+        where: { id },
+        select: eventSelect,
+      });
+    }
+
+    return this.prisma.triagemEvent.update({
+      where: { id },
+      data: {
+        textoAnterior: existing.texto,
+        texto,
+        editedAt: new Date(),
+      },
+      select: eventSelect,
+    });
   }
 
   private async ensureLeadAccessible(

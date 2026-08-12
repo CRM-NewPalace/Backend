@@ -516,10 +516,13 @@ model TriagemEvent {
   autorId       String
   autor         User          @relation("TriagemAutor", fields: [autorId], references: [id], onDelete: Cascade)
   texto         String
+  /// Texto imediatamente anterior à última edição (visível a admin/gerente).
+  textoAnterior String?
   stageAnterior String?
   stageNovo     String?
   origem        TriagemOrigem
   createdAt     DateTime      @default(now())
+  editedAt      DateTime?
 
   @@index([leadId])
   @@index([autorId])
