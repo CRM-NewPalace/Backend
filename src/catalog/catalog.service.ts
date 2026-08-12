@@ -37,6 +37,12 @@ const ANALISTA_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.documentacao_status2,
 ]);
 
+/** Treinee: apenas origens e tags. */
+const TREINEE_CATALOG_TYPES = new Set<CatalogType>([
+  CatalogType.origem,
+  CatalogType.tag,
+]);
+
 const DOCUMENTACAO_CATALOG_DEFAULTS: Record<
   | typeof CatalogType.documentacao_fonte
   | typeof CatalogType.documentacao_status1
@@ -316,6 +322,12 @@ export class CatalogService {
       return;
     }
     if (
+      requester.role === Role.treinee &&
+      TREINEE_CATALOG_TYPES.has(type)
+    ) {
+      return;
+    }
+    if (
       requester.role === Role.corretor &&
       type === CatalogType.motivo_perda
     ) {
@@ -324,6 +336,11 @@ export class CatalogService {
     if (requester.role === Role.analista) {
       throw new ForbiddenException(
         'Analistas só podem alterar documentação, origens, motivos de perda e tags.',
+      );
+    }
+    if (requester.role === Role.treinee) {
+      throw new ForbiddenException(
+        'Treinees só podem alterar origens e tags.',
       );
     }
     if (requester.role === Role.corretor) {

@@ -24,13 +24,13 @@ export class ConstrutorasController {
   constructor(private readonly construtorasService: ConstrutorasService) {}
 
   @Get()
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
   list(@CurrentUser() requester: AuthenticatedUser) {
     return this.construtorasService.list(requester);
   }
 
   @Get(":id")
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
   findOne(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -39,7 +39,7 @@ export class ConstrutorasController {
   }
 
   @Post()
-  @Roles(Role.admin, Role.gerente, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   create(
     @Body() dto: CreateConstrutoraDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -48,7 +48,7 @@ export class ConstrutorasController {
   }
 
   @Patch(":id")
-  @Roles(Role.admin, Role.gerente, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   update(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateConstrutoraDto,

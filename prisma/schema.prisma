@@ -18,6 +18,8 @@ enum Role {
   gerente
   corretor
   analista
+  /// Cadastro operacional limitado: construtoras, empreendimentos, origens e tags.
+  treinee
 }
 
 /// Situação do usuário no sistema.

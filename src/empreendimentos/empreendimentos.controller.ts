@@ -28,7 +28,7 @@ export class EmpreendimentosController {
   ) {}
 
   @Get()
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
   list(
     @Query() query: QueryEmpreendimentosDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -37,7 +37,7 @@ export class EmpreendimentosController {
   }
 
   @Get(":id")
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
   findOne(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -46,7 +46,7 @@ export class EmpreendimentosController {
   }
 
   @Post()
-  @Roles(Role.admin, Role.gerente, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   create(
     @Body() dto: CreateEmpreendimentoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -55,7 +55,7 @@ export class EmpreendimentosController {
   }
 
   @Patch(":id")
-  @Roles(Role.admin, Role.gerente, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   update(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateEmpreendimentoDto,

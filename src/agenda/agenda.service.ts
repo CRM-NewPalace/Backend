@@ -1551,6 +1551,7 @@ export class AgendaService {
       [Role.admin]: 'Administrador',
       [Role.gerente]: 'Gerente',
       [Role.analista]: 'Analista',
+      [Role.treinee]: 'Treinee',
       [Role.corretor]: 'Corretor',
       [Role.super_admin]: 'Plataforma',
     };

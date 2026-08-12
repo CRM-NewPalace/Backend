@@ -128,10 +128,11 @@ export class ConstrutorasService {
     if (
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
-      requester.role !== Role.analista
+      requester.role !== Role.analista &&
+      requester.role !== Role.treinee
     ) {
       throw new ForbiddenException(
-        "Apenas administradores, gerentes e analistas podem editar construtoras.",
+        "Apenas administradores, gerentes, analistas e treinees podem editar construtoras.",
       );
     }
   }
@@ -140,10 +141,11 @@ export class ConstrutorasService {
     if (
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
-      requester.role !== Role.analista
+      requester.role !== Role.analista &&
+      requester.role !== Role.treinee
     ) {
       throw new ForbiddenException(
-        "Apenas administradores, gerentes e analistas podem cadastrar construtoras.",
+        "Apenas administradores, gerentes, analistas e treinees podem cadastrar construtoras.",
       );
     }
   }

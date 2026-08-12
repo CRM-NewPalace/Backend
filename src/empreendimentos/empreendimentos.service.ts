@@ -143,10 +143,11 @@ export class EmpreendimentosService {
     if (
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
-      requester.role !== Role.analista
+      requester.role !== Role.analista &&
+      requester.role !== Role.treinee
     ) {
       throw new ForbiddenException(
-        "Apenas administradores, gerentes e analistas podem editar empreendimentos.",
+        "Apenas administradores, gerentes, analistas e treinees podem editar empreendimentos.",
       );
     }
   }
@@ -155,10 +156,11 @@ export class EmpreendimentosService {
     if (
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
-      requester.role !== Role.analista
+      requester.role !== Role.analista &&
+      requester.role !== Role.treinee
     ) {
       throw new ForbiddenException(
-        "Apenas administradores, gerentes e analistas podem cadastrar empreendimentos.",
+        "Apenas administradores, gerentes, analistas e treinees podem cadastrar empreendimentos.",
       );
     }
   }

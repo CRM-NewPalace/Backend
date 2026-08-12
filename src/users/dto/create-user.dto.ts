@@ -59,7 +59,7 @@ export class CreateUserDto {
   })
   cor?: string | null;
 
-  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista], {
+  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee], {
     message: 'Perfil inválido.',
   })
   role!: Role;
