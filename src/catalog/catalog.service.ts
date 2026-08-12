@@ -27,7 +27,11 @@ import { FunisService } from '../funis/funis.service';
 
 export type GroupedCatalog = Record<CatalogType, CatalogItem[]>;
 
-const DOCUMENTACAO_CATALOG_TYPES = new Set<CatalogType>([
+/** Catálogos que o analista pode criar/editar/excluir em Configurações. */
+const ANALISTA_CATALOG_TYPES = new Set<CatalogType>([
+  CatalogType.origem,
+  CatalogType.motivo_perda,
+  CatalogType.tag,
   CatalogType.documentacao_fonte,
   CatalogType.documentacao_status1,
   CatalogType.documentacao_status2,
@@ -229,6 +233,7 @@ export class CatalogService {
   ): Promise<CatalogItem> {
     const tenantId = requireTenantId(requester);
     const existing = await this.ensureExists(id, tenantId);
+    this.assertCanMutateCatalogType(requester, existing.type);
     if (
       existing.type === CatalogType.funil_etapa &&
       existing.slug === DEFAULT_INITIAL_STAGE_SLUG
@@ -306,7 +311,7 @@ export class CatalogService {
     }
     if (
       requester.role === Role.analista &&
-      DOCUMENTACAO_CATALOG_TYPES.has(type)
+      ANALISTA_CATALOG_TYPES.has(type)
     ) {
       return;
     }
@@ -318,7 +323,7 @@ export class CatalogService {
     }
     if (requester.role === Role.analista) {
       throw new ForbiddenException(
-        'Analistas só podem criar fontes e status da documentação.',
+        'Analistas só podem alterar documentação, origens, motivos de perda e tags.',
       );
     }
     if (requester.role === Role.corretor) {

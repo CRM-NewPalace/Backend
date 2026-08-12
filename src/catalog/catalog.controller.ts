@@ -25,7 +25,8 @@ import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
  * Catálogos configuráveis (funil, origens, motivos de perda, tags, documentação).
  * Leitura: qualquer usuário autenticado.
  * Mutação geral: admin e gerente.
- * Analista pode criar itens de documentação (fonte / status 1 / status 2).
+ * Analista: documentação, origens, motivos de perda e tags (criar/editar/excluir).
+ * Corretor: motivos de perda.
  */
 @Controller('catalog')
 export class CatalogController {
@@ -84,7 +85,7 @@ export class CatalogController {
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.analista)
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
