@@ -537,6 +537,8 @@ model Construtora {
   endereco            String?
   viabilizadorNome    String?
   viabilizadorContato String?
+  /// Pasta do Google Drive (hub de arquivos por construtora).
+  driveFolderUrl      String?
 
   empreendimentos Empreendimento[]
   documentacoes   Documentacao[]

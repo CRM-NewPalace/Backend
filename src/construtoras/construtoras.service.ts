@@ -18,6 +18,7 @@ const construtoraSelect = {
   endereco: true,
   viabilizadorNome: true,
   viabilizadorContato: true,
+  driveFolderUrl: true,
   createdAt: true,
   updatedAt: true,
   _count: { select: { empreendimentos: true, documentacoes: true } },
@@ -26,6 +27,12 @@ const construtoraSelect = {
 function normalizeCor(cor?: string | null): string | null {
   if (cor == null) return null;
   const trimmed = cor.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeDriveFolderUrl(url?: string | null): string | null {
+  if (url == null) return null;
+  const trimmed = url.trim();
   return trimmed ? trimmed : null;
 }
 
@@ -64,6 +71,7 @@ export class ConstrutorasService {
         endereco: dto.endereco?.trim() || null,
         viabilizadorNome: dto.viabilizadorNome?.trim() || null,
         viabilizadorContato: dto.viabilizadorContato?.trim() || null,
+        driveFolderUrl: normalizeDriveFolderUrl(dto.driveFolderUrl),
       },
       select: construtoraSelect,
     });
@@ -92,6 +100,9 @@ export class ConstrutorasService {
           : {}),
         ...(dto.viabilizadorContato !== undefined
           ? { viabilizadorContato: dto.viabilizadorContato?.trim() || null }
+          : {}),
+        ...(dto.driveFolderUrl !== undefined
+          ? { driveFolderUrl: normalizeDriveFolderUrl(dto.driveFolderUrl) }
           : {}),
       },
       select: construtoraSelect,

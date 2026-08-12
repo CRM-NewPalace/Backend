@@ -1,6 +1,7 @@
 import {
   IsOptional,
   IsString,
+  IsUrl,
   Matches,
   MaxLength,
   MinLength,
@@ -40,4 +41,13 @@ export class CreateConstrutoraDto {
   @IsString()
   @MaxLength(80)
   viabilizadorContato?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsUrl(
+    { require_protocol: true, protocols: ['https'] },
+    { message: 'Informe uma URL https válida da pasta no Drive.' },
+  )
+  @MaxLength(500)
+  driveFolderUrl?: string | null;
 }
