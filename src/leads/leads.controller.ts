@@ -89,8 +89,9 @@ export class LeadsController {
   }
 
   /**
-   * Corretores ativos para atribuição de lead (admin/gerente veem a equipe;
-   * corretor vê só a si). Precisa ficar antes de GET :id.
+   * Corretores ativos para atribuição de lead / select.
+   * Admin, gerente e analista: todos os corretores do tenant.
+   * Corretor: só a si. Precisa ficar antes de GET :id.
    */
   @Get('assignees')
   listAssignees(@CurrentUser() requester: AuthenticatedUser) {

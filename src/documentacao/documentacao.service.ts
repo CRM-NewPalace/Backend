@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -9,6 +10,7 @@ import {
   Prisma,
   Role,
   TriagemOrigem,
+  UserStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
@@ -204,11 +206,72 @@ export class DocumentacaoService {
     return doc;
   }
 
+  /**
+   * Lista corretores ativos do tenant para o select ao criar/editar ficha.
+   * Admin, gerente e analista veem todos; corretor vê só a si.
+   */
+  async listCorretores(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+
+    const select = {
+      id: true,
+      name: true,
+      role: true,
+      cor: true,
+      equipe: {
+        select: {
+          gerenteId: true,
+          gerente: { select: { id: true, name: true } },
+        },
+      },
+    } as const;
+
+    const mapRow = (u: {
+      id: string;
+      name: string;
+      role: Role;
+      cor: string | null;
+      equipe: {
+        gerenteId: string;
+        gerente: { id: string; name: string } | null;
+      } | null;
+    }) => ({
+      id: u.id,
+      name: u.name,
+      role: u.role,
+      cor: u.cor,
+      gerenteId: u.equipe?.gerenteId ?? null,
+      gerente: u.equipe?.gerente ?? null,
+    });
+
+    if (requester.role === Role.corretor) {
+      const self = await this.prisma.user.findFirst({
+        where: { id: requester.id, tenantId, status: UserStatus.ativo },
+        select,
+      });
+      return self ? [mapRow(self)] : [];
+    }
+
+    // admin / gerente / analista → todos os corretores ativos do tenant
+    const rows = await this.prisma.user.findMany({
+      where: {
+        tenantId,
+        status: UserStatus.ativo,
+        role: Role.corretor,
+      },
+      select,
+      orderBy: { name: 'asc' },
+    });
+    return rows.map(mapRow);
+  }
+
   async create(dto: CreateDocumentacaoDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     const lead = await this.ensureLeadAccessible(dto.leadId, requester);
 
-    const corretorId = dto.corretorId || lead.corretorId || null;
+    const corretorId = dto.corretorId
+      ? await this.resolveCreditCorretorId(dto.corretorId, tenantId)
+      : lead.corretorId || null;
     let gerenteId = dto.gerenteId ?? null;
     if (!gerenteId && corretorId === requester.id && requester.role === Role.gerente) {
       gerenteId = requester.id;
@@ -396,8 +459,12 @@ export class DocumentacaoService {
       data.status2 = canonicalizeStatus2(dto.status2);
     }
     if (dto.corretorId !== undefined) {
-      data.corretor = dto.corretorId
-        ? { connect: { id: dto.corretorId } }
+      const resolvedCorretorId = await this.resolveCreditCorretorId(
+        dto.corretorId,
+        tenantId,
+      );
+      data.corretor = resolvedCorretorId
+        ? { connect: { id: resolvedCorretorId } }
         : { disconnect: true };
     }
     if (dto.gerenteId !== undefined) {
@@ -837,6 +904,33 @@ export class DocumentacaoService {
         })),
       }),
     ]);
+  }
+
+  private async resolveCreditCorretorId(
+    corretorId: string | null | undefined,
+    tenantId: string,
+  ): Promise<string | null> {
+    if (corretorId == null || corretorId === '') return null;
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: corretorId,
+        tenantId,
+        status: UserStatus.ativo,
+        role: {
+          in: [Role.corretor, Role.admin, Role.gerente],
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException(
+        'Corretor inválido ou inativo neste tenant.',
+      );
+    }
+
+    return user.id;
   }
 
   private async resolveGerenteOfCorretor(

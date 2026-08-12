@@ -1106,7 +1106,8 @@ export class LeadsService {
 
   /**
    * Lista corretores ativos para o select de atribuição.
-   * Admin/analista: todos. Gerente: só da própria equipe. Corretor: apenas o próprio.
+   * Admin/gerente/analista: todos os corretores do tenant.
+   * Corretor: apenas o próprio.
    * Inclui gerenteId da equipe do corretor (para auto-preencher documentação).
    */
   async listAssignees(requester: AuthenticatedUser): Promise<
@@ -1171,15 +1172,21 @@ export class LeadsService {
       return [mapAssignee(self)];
     }
 
-    // Admin e gerente veem todos os corretores do tenant (distribuição cross-team).
-    const crossTeam =
-      requester.role === Role.admin || requester.role === Role.gerente;
-    // Analista precisa enxergar carteiras de admin/gerente na fila/resultado.
-    const includeCarteiraGestores =
-      crossTeam || requester.role === Role.analista;
-    const ids = crossTeam
+    // Admin, gerente e analista veem todos os corretores do tenant.
+    const seeAllCorretores =
+      requester.role === Role.admin ||
+      requester.role === Role.gerente ||
+      requester.role === Role.analista;
+    const ids = seeAllCorretores
       ? null
       : await this.teamScope.getVisibleCorretorIds(requester);
+
+    // Analista/admin/gerente: inclui carteiras de gestores no funil/análise.
+    const includeCarteiraGestores =
+      requester.role === Role.admin ||
+      requester.role === Role.gerente ||
+      requester.role === Role.analista;
+
     const rows = await this.prisma.user.findMany({
       where: {
         tenantId,
@@ -1195,11 +1202,10 @@ export class LeadsService {
                 }
               : {}),
           },
-          // Admin/gerente como donos de carteira (própria ou, p/ analista, todos).
           ...(includeCarteiraGestores
-            ? crossTeam
-              ? [{ id: requester.id }]
-              : [{ role: Role.admin }, { role: Role.gerente }]
+            ? requester.role === Role.analista
+              ? [{ role: Role.admin }, { role: Role.gerente }]
+              : [{ id: requester.id }]
             : []),
         ],
       },

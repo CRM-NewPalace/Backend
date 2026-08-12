@@ -34,6 +34,16 @@ export class DocumentacaoController {
     return this.documentacaoService.list(query, requester);
   }
 
+  /**
+   * Corretores ativos do tenant para o select na ficha.
+   * Admin/gerente/analista: todos. Corretor: apenas o próprio.
+   * Precisa ficar antes de GET :id.
+   */
+  @Get('corretores')
+  listCorretores(@CurrentUser() requester: AuthenticatedUser) {
+    return this.documentacaoService.listCorretores(requester);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
