@@ -1,6 +1,5 @@
 import { Transform } from "class-transformer";
 import {
-  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -241,7 +240,6 @@ export class CreatePropostaDto {
   @IsOptional()
   @Transform(toIntArray)
   @IsArray({ message: "Pré-chaves deve ser uma lista." })
-  @ArrayMaxSize(40)
   @IsInt({ each: true, message: "Pré-chaves inválido." })
   @Min(0, { each: true })
   preChaves?: number[];
@@ -249,7 +247,6 @@ export class CreatePropostaDto {
   @IsOptional()
   @Transform(toIntArray)
   @IsArray({ message: "Pós-chaves deve ser uma lista." })
-  @ArrayMaxSize(40)
   @IsInt({ each: true, message: "Pós-chaves inválido." })
   @Min(0, { each: true })
   posChaves?: number[];
@@ -257,7 +254,6 @@ export class CreatePropostaDto {
   @IsOptional()
   @Transform(toIntArray)
   @IsArray({ message: "Intercaladas deve ser uma lista." })
-  @ArrayMaxSize(40)
   @IsInt({ each: true, message: "Intercaladas inválidas." })
   @Min(0, { each: true })
   intercaladas?: number[];
