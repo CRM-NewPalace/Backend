@@ -685,7 +685,7 @@ model Proposta {
   clienteDataCasamento       DateTime?
   clienteNomePai             String?
   clienteNomeMae             String?
-  clienteRenda               Int?
+  clienteRenda               Float?
   clienteTelefoneFixo        String?
   clienteEmail               String?
   clienteEnderecoResidencial String?
@@ -734,7 +734,8 @@ model Proposta {
   fgts           Int?
   moraBem        Int?
   mcmv           Int?
-  parcelaCaixa   Int?
+  /// Informativo; pode ter centavos (ex.: 569.99).
+  parcelaCaixa   Float?
   financiamento  Int?
   /// Desconto do empreendimento (R$), à parte da composição.
   desconto       Int?

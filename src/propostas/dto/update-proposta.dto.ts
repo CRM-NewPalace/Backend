@@ -5,6 +5,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -15,10 +16,22 @@ import {
 } from "class-validator";
 import { PropostaStatus } from "@prisma/client";
 
+/** Campos Int em reais: aceita decimal e arredonda. */
 function toOptionalInt({ value }: { value: unknown }) {
   if (value === undefined) return undefined;
   if (value === null || value === "") return null;
-  return Number(value);
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return Math.round(n);
+}
+
+/** Campos com centavos (ex.: parcela Caixa). */
+function toOptionalMoney({ value }: { value: unknown }) {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return Math.round(n * 100) / 100;
 }
 
 function toIntArray({ value }: { value: unknown }) {
@@ -28,7 +41,7 @@ function toIntArray({ value }: { value: unknown }) {
   return raw
     .map((item) => Number(item))
     .filter((n) => Number.isFinite(n) && n >= 0)
-    .map((n) => Math.trunc(n));
+    .map((n) => Math.round(n));
 }
 
 export class UpdatePropostaDto {
@@ -100,8 +113,8 @@ export class UpdatePropostaDto {
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)
-  @Transform(toOptionalInt)
-  @IsInt()
+  @Transform(toOptionalMoney)
+  @IsNumber({}, { message: "Renda inválida." })
   @Min(0)
   clienteRenda?: number | null;
 
@@ -282,8 +295,8 @@ export class UpdatePropostaDto {
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)
-  @Transform(toOptionalInt)
-  @IsInt({ message: "Parcela Caixa inválida." })
+  @Transform(toOptionalMoney)
+  @IsNumber({}, { message: "Parcela Caixa inválida." })
   @Min(0)
   parcelaCaixa?: number | null;
 
