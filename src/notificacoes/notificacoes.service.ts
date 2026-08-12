@@ -210,4 +210,26 @@ export class NotificacoesService {
       select: notifSelect,
     });
   }
+
+  /** Avisa o corretor sobre tarefa atribuída na agenda por gerente/admin. */
+  async createAgendaAtribuicao(params: {
+    userId: string;
+    agendamentoId: string;
+    titulo: string;
+    autorNome: string;
+    quando: string;
+  }) {
+    const tenantId = await this.resolveTenantId(params.userId);
+    return this.prisma.notificacao.create({
+      data: {
+        tenantId,
+        userId: params.userId,
+        tipo: NotificacaoTipo.agenda_atribuicao,
+        titulo: `Nova tarefa na sua agenda — ${params.titulo}`,
+        corpo: `${params.autorNome} atribuiu a tarefa "${params.titulo}" para ${params.quando}.`,
+        agendamentoId: params.agendamentoId,
+      },
+      select: notifSelect,
+    });
+  }
 }

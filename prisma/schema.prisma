@@ -256,6 +256,9 @@ model User {
   // Eventos de admin direcionados especificamente a este gerente.
   agendamentosAlvoGerente Agendamento[] @relation("AgendamentoAlvoGerente")
 
+  // Tarefas atribuídas a este corretor por gerente/admin.
+  agendamentosAtribuidos Agendamento[] @relation("AgendamentoAtribuido")
+
   // Notificações in-app destinadas a este usuário.
   notificacoes Notificacao[] @relation("NotificacaoDestinatario")
 
@@ -818,6 +821,15 @@ enum AgendamentoTipo {
   reuniao
   tarefa
   outro
+  /// Horário travado (admin/gerente) — impede novos agendamentos sobrepostos.
+  bloqueio
+}
+
+/// Frequência de materialização de bloqueios recorrentes.
+enum AgendamentoRecurrenceFreq {
+  unica
+  semanal
+  mensal
 }
 
 /// Situação operacional do compromisso.
@@ -868,6 +880,10 @@ model Agendamento {
   autorId  String
   autor    User   @relation("AgendamentoAutor", fields: [autorId], references: [id], onDelete: Cascade)
 
+  /// Corretor responsável quando gerente/admin atribui a tarefa.
+  atribuidoParaId String?
+  atribuidoPara   User?   @relation("AgendamentoAtribuido", fields: [atribuidoParaId], references: [id], onDelete: SetNull)
+
   titulo       String
   tipo         AgendamentoTipo              @default(visita)
   status       AgendamentoStatus            @default(agendado)
@@ -880,6 +896,13 @@ model Agendamento {
   alvoEquipe    Equipe? @relation("AgendamentoAlvoEquipe", fields: [alvoEquipeId], references: [id], onDelete: SetNull)
   alvoGerenteId String?
   alvoGerente   User?   @relation("AgendamentoAlvoGerente", fields: [alvoGerenteId], references: [id], onDelete: SetNull)
+
+  /// Agrupa ocorrências materializadas de um bloqueio recorrente.
+  seriesId         String?
+  recurrenceFreq   AgendamentoRecurrenceFreq @default(unica)
+  /// Dias da semana 0–6 (Dom–Sáb) quando recurrenceFreq = semanal.
+  recurrenceDays   Int[]                     @default([])
+  recurrenceUntil  DateTime?
 
   startsAt     DateTime
   endsAt       DateTime?
@@ -897,6 +920,8 @@ model Agendamento {
   @@index([tenantId])
   @@index([leadId])
   @@index([autorId])
+  @@index([atribuidoParaId])
+  @@index([seriesId])
   @@index([startsAt])
   @@index([status])
   @@index([tipo])
@@ -913,6 +938,7 @@ enum NotificacaoTipo {
   analise_resultado
   agenda_solicitacao
   agenda_resposta
+  agenda_atribuicao
   agenda_lembrete_1d
   agenda_lembrete_2h
   agenda_lembrete_1h

@@ -96,8 +96,10 @@ export class AgendaController {
   @Delete(':id')
   remove(
     @Param('id', ParseUUIDPipe) id: string,
+    @Query('series') series: string | undefined,
     @CurrentUser() requester: AuthenticatedUser,
   ) {
-    return this.agendaService.remove(id, requester);
+    const seriesMode = series === 'all' ? 'all' : 'one';
+    return this.agendaService.remove(id, requester, seriesMode);
   }
 }
