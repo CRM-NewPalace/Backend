@@ -824,7 +824,6 @@ export class AgendaService {
     await this.ensureAgendamentoAccessible(existing, requester);
 
     const isAssigneeConcluir =
-      requester.role === Role.corretor &&
       existing.atribuidoParaId === requester.id &&
       existing.autorId !== requester.id &&
       dto.status === 'concluido' &&
@@ -841,7 +840,6 @@ export class AgendaService {
     }
 
     if (
-      requester.role === Role.corretor &&
       existing.atribuidoParaId === requester.id &&
       existing.autorId !== requester.id &&
       !isAssigneeConcluir
@@ -1891,40 +1889,51 @@ export class AgendaService {
   }
 
   private async resolveAtribuidoPara(
-    corretorId: string,
+    userId: string,
     requester: AuthenticatedUser,
   ) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
-        'Apenas admin e gerente podem atribuir tarefas na agenda do corretor.',
+        'Apenas admin e gerente podem atribuir tarefas na agenda.',
       );
     }
 
     const tenantId = requireTenantId(requester);
-    const corretor = await this.prisma.user.findFirst({
+    const allowedRoles =
+      requester.role === Role.admin
+        ? [Role.admin, Role.gerente, Role.corretor, Role.analista]
+        : [Role.corretor];
+
+    const target = await this.prisma.user.findFirst({
       where: {
-        id: corretorId,
+        id: userId,
         tenantId,
-        role: Role.corretor,
+        role: { in: allowedRoles },
         status: UserStatus.ativo,
       },
       select: { id: true, name: true, role: true },
     });
-    if (!corretor) {
-      throw new BadRequestException('Corretor não encontrado.');
-    }
-
-    const allowed = await this.teamScope.canAccessCorretor(
-      requester,
-      corretor.id,
-    );
-    if (!allowed) {
-      throw new ForbiddenException(
-        'Você não pode atribuir tarefas a este corretor.',
+    if (!target) {
+      throw new BadRequestException(
+        requester.role === Role.admin
+          ? 'Usuário não encontrado.'
+          : 'Corretor não encontrado.',
       );
     }
 
-    return corretor;
+    if (requester.role === Role.gerente) {
+      const allowed = await this.teamScope.canAccessCorretor(
+        requester,
+        target.id,
+      );
+      if (!allowed) {
+        throw new ForbiddenException(
+          'Você não pode atribuir tarefas a este corretor.',
+        );
+      }
+    }
+
+    return target;
   }
 
   private expandRecurrenceOccurrences(opts: {

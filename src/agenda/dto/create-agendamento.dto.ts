@@ -53,7 +53,7 @@ export class CreateAgendamentoDto {
   @IsUUID('4', { message: 'Lead/cliente inválido.' })
   leadId?: string | null;
 
-  /** Corretor que recebe a tarefa (apenas admin/gerente). */
+  /** Usuário que recebe a tarefa (admin: qualquer; gerente: corretor da equipe). */
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsUUID('4', { message: 'Corretor inválido.' })
