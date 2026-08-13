@@ -121,6 +121,7 @@ model Tenant {
   leads             Lead[]
   construtoras      Construtora[]
   empreendimentos   Empreendimento[]
+  localidades       Localidade[]
   catalogItems      CatalogItem[]
   funis             Funil[]
   documentacoes     Documentacao[]
@@ -549,6 +550,7 @@ model Construtora {
   documentacoes   Documentacao[]
   propostas       Proposta[]
   leads           Lead[]
+  localidades     Localidade[] @relation("ConstrutoraLocalidades")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -556,6 +558,24 @@ model Construtora {
   @@index([tenantId])
   @@index([nome])
   @@map("construtoras")
+}
+
+/// Região / cidade de atuação. Várias construtoras podem compartilhar a mesma localidade.
+model Localidade {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome     String
+
+  construtoras Construtora[] @relation("ConstrutoraLocalidades")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, nome])
+  @@index([tenantId])
+  @@index([nome])
+  @@map("localidades")
 }
 
 /// Empreendimento / imóvel (cadastro manual + vínculo opcional à construtora).

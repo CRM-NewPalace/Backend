@@ -23,6 +23,10 @@ const construtoraSelect = {
   driveFolderUrl: true,
   createdAt: true,
   updatedAt: true,
+  localidades: {
+    select: { id: true, nome: true },
+    orderBy: { nome: "asc" as const },
+  },
   _count: { select: { empreendimentos: true, documentacoes: true } },
 } as const;
 
@@ -61,9 +65,13 @@ export class ConstrutorasService {
     return item;
   }
 
-  create(dto: CreateConstrutoraDto, requester: AuthenticatedUser) {
+  async create(dto: CreateConstrutoraDto, requester: AuthenticatedUser) {
     this.assertCanCreate(requester);
     const tenantId = requireTenantId(requester);
+    const localidadeIds = await this.resolveLocalidadeIds(
+      tenantId,
+      dto.localidadeIds,
+    );
     return this.prisma.construtora.create({
       data: {
         tenantId,
@@ -74,6 +82,9 @@ export class ConstrutorasService {
         viabilizadorNome: dto.viabilizadorNome?.trim() || null,
         viabilizadorContato: dto.viabilizadorContato?.trim() || null,
         driveFolderUrl: normalizeDriveFolderUrl(dto.driveFolderUrl),
+        ...(localidadeIds
+          ? { localidades: { connect: localidadeIds.map((id) => ({ id })) } }
+          : {}),
       },
       select: construtoraSelect,
     });
@@ -86,6 +97,11 @@ export class ConstrutorasService {
   ) {
     this.assertCanManage(requester);
     await this.findOne(id, requester);
+    const tenantId = requireTenantId(requester);
+    const localidadeIds = await this.resolveLocalidadeIds(
+      tenantId,
+      dto.localidadeIds,
+    );
     return this.prisma.construtora.update({
       where: { id },
       data: {
@@ -106,6 +122,9 @@ export class ConstrutorasService {
         ...(dto.driveFolderUrl !== undefined
           ? { driveFolderUrl: normalizeDriveFolderUrl(dto.driveFolderUrl) }
           : {}),
+        ...(localidadeIds
+          ? { localidades: { set: localidadeIds.map((id) => ({ id })) } }
+          : {}),
       },
       select: construtoraSelect,
     });
@@ -116,6 +135,25 @@ export class ConstrutorasService {
     await this.findOne(id, requester);
     await this.prisma.construtora.delete({ where: { id } });
     return { ok: true };
+  }
+
+  private async resolveLocalidadeIds(
+    tenantId: string,
+    ids?: string[],
+  ): Promise<string[] | undefined> {
+    if (ids === undefined) return undefined;
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return [];
+    const found = await this.prisma.localidade.findMany({
+      where: { tenantId, id: { in: unique } },
+      select: { id: true },
+    });
+    if (found.length !== unique.length) {
+      throw new NotFoundException(
+        "Uma ou mais localidades são inválidas para esta imobiliária.",
+      );
+    }
+    return unique;
   }
 
   private assertAdmin(requester: AuthenticatedUser) {

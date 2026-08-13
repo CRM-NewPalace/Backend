@@ -1,7 +1,9 @@
 import {
+  IsArray,
   IsOptional,
   IsString,
   IsUrl,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -51,4 +53,9 @@ export class UpdateConstrutoraDto {
   )
   @MaxLength(500)
   driveFolderUrl?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true, message: 'Localidade inválida.' })
+  localidadeIds?: string[];
 }
