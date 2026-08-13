@@ -97,7 +97,7 @@ export class ConstrutorasService {
         viabilizadorNome: dto.viabilizadorNome?.trim() || null,
         viabilizadorContato: dto.viabilizadorContato?.trim() || null,
         driveFolderUrl: normalizeDriveFolderUrl(dto.driveFolderUrl),
-        ...(localidadeIds
+        ...(localidadeIds !== undefined
           ? { localidades: { connect: localidadeIds.map((id) => ({ id })) } }
           : {}),
       },
