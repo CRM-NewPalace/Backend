@@ -946,20 +946,17 @@ export class LeadsService {
     const isAnalise = stagePapel === FunilEtapaPapel.analise;
 
     if (isAnalise) {
-      construtoraId = dto.construtoraId ?? construtoraId;
-      empreendimentoId = dto.empreendimentoId ?? empreendimentoId;
-      if (!construtoraId || !empreendimentoId) {
-        throw new BadRequestException(
-          'Informe a construtora e o empreendimento ao enviar para análise.',
-        );
-      }
+      if (dto.construtoraId) construtoraId = dto.construtoraId;
+      if (dto.empreendimentoId) empreendimentoId = dto.empreendimentoId;
     }
 
     const lead = await this.prisma.lead.update({
       where: { id },
       data: {
         stage,
-        ...(isAnalise ? { construtoraId, empreendimentoId } : {}),
+        ...(isAnalise && (dto.construtoraId || dto.empreendimentoId)
+          ? { construtoraId, empreendimentoId }
+          : {}),
       },
       select: leadSelect,
     });

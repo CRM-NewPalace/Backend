@@ -159,7 +159,7 @@ export class AnaliseService {
       select: analiseSelect,
     });
 
-    // Corretor sobe em Pré-análise; ao assumir, a ficha passa a Em análise.
+    // Fichas ainda em pré-análise (legado) passam a Em análise ao assumir.
     await this.prisma.documentacao.updateMany({
       where: {
         tenantId,
@@ -466,7 +466,7 @@ export class AnaliseService {
             ? (finance?.valorEntrada ?? doc?.valorEntrada ?? null)
             : null,
           temDependente,
-          status: AnaliseStatus.pendente,
+          status: AnaliseStatus.em_analise,
         },
         select: { id: true },
       });

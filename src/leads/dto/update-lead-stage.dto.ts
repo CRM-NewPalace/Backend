@@ -19,8 +19,8 @@ function toOptionalInt({ value }: { value: unknown }) {
 /**
  * Movimenta o lead entre as etapas do funil.
  * A etapa é validada dinamicamente contra o funil ativo no LeadsService.
- * Ao ir para etapa com papel "análise", construtoraId e empreendimentoId
- * são obrigatórios (salvo se o lead já tiver ambos preenchidos).
+ * Construtora, empreendimento e dados financeiros são opcionais:
+ * a documentação é cadastrada depois pelo analista.
  */
 export class UpdateLeadStageDto {
   @IsString()

@@ -268,6 +268,11 @@ export class DocumentacaoService {
   }
 
   async create(dto: CreateDocumentacaoDto, requester: AuthenticatedUser) {
+    if (isCorretorLike(requester.role)) {
+      throw new ForbiddenException(
+        'Corretores não cadastram documentação. Encaminhe o lead para análise.',
+      );
+    }
     const tenantId = requireTenantId(requester);
     const lead = await this.ensureLeadAccessible(dto.leadId, requester);
 
@@ -845,11 +850,11 @@ export class DocumentacaoService {
     if (requester.role === Role.admin || requester.role === Role.analista) {
       return true;
     }
-    // Corretor/gerente: só as próprias fichas comerciais.
-    if (
-      isCorretorLike(requester.role) ||
-      requester.role === Role.gerente
-    ) {
+    if (isCorretorLike(requester.role)) {
+      return false;
+    }
+    // Gerente: só as próprias fichas comerciais.
+    if (requester.role === Role.gerente) {
       return autorId === requester.id;
     }
     return false;
