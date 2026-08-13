@@ -530,6 +530,7 @@ export class TenantsService {
   async createMetaConnection(tenantId: string, dto: CreateMetaConnectionDto) {
     await this.ensureExists(tenantId);
     const pageId = dto.pageId.trim();
+    const pageAccessToken = dto.pageAccessToken.trim();
     await this.ensurePageIdAvailable(pageId);
 
     try {
@@ -537,7 +538,7 @@ export class TenantsService {
         data: {
           tenantId,
           pageId,
-          pageAccessToken: dto.pageAccessToken,
+          pageAccessToken,
           ativo: dto.ativo ?? true,
         },
         select: metaConnectionSelect,
@@ -562,7 +563,7 @@ export class TenantsService {
       where: { id: connectionId },
       data: {
         ...(dto.pageAccessToken !== undefined
-          ? { pageAccessToken: dto.pageAccessToken }
+          ? { pageAccessToken: dto.pageAccessToken.trim() }
           : {}),
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },

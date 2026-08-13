@@ -2,20 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { MetaWebhookDto } from './dto/meta-webhook.dto';
 import {
   MetaGraphApiService,
   MetaLeadField,
   MetaLeadPayload,
 } from './meta-graph-api.service';
-
-type LeadgenEvent = {
-  leadgenId: string;
-  pageId: string;
-  formId: string | null;
-  adId: string | null;
-  adgroupId: string | null;
-};
+import {
+  extractLeadgenEvents,
+  type LeadgenEvent,
+} from './meta-webhook.parser';
 
 type TenantMetaConn = {
   tenantId: string;
@@ -46,18 +41,34 @@ export class MetaService {
     return null;
   }
 
-  async handleWebhook(payload: MetaWebhookDto) {
-    const events = this.extractLeadgenEvents(payload);
+  async handleWebhook(payload: unknown) {
+    const extracted = extractLeadgenEvents(payload);
+
+    this.logger.log(
+      `Webhook recebido object=${String(extracted.object)} entries=${extracted.entryCount} leadgenEvents=${extracted.events.length} skipped=${extracted.skipped.length}`,
+    );
+
+    for (const skip of extracted.skipped) {
+      this.logger.warn(
+        `Evento webhook ignorado: ${skip.reason}${skip.field ? ` (${skip.field})` : ''}`,
+      );
+    }
+
     const leadIds: string[] = [];
 
-    for (const event of events) {
+    for (const event of extracted.events) {
+      this.logger.log(
+        `Evento leadgen leadgen_id=${event.leadgenId} page_id=${event.pageId} form_id=${event.formId ?? 'n/a'} page_id_source=${event.pageIdSource}`,
+      );
+
       const connection = await this.resolveConnection(event.pageId);
       if (!connection) {
-        this.logger.warn(
-          `Ignorando leadgen ${event.leadgenId}: page_id ${event.pageId} sem TenantMetaConnection ativa.`,
-        );
         continue;
       }
+
+      this.logger.log(
+        `TenantMetaConnection encontrada page_id=${event.pageId} tenantId=${connection.tenantId}`,
+      );
 
       const result = await this.processLeadgenEvent(
         event,
@@ -70,42 +81,40 @@ export class MetaService {
     return { ok: true, leadIds };
   }
 
+  /**
+   * HTTP 200 mesmo sem connection: a Meta reenvia 4xx/5xx. Retry não cria a
+   * connection; o teste dummy (page_id 444444444444) ficaria em loop.
+   * O isolamento de tenant continua: sem connection, nenhum lead é gravado.
+   */
   private async resolveConnection(
     pageId: string,
   ): Promise<TenantMetaConn | null> {
-    const connection = await this.prisma.tenantMetaConnection.findFirst({
+    const active = await this.prisma.tenantMetaConnection.findFirst({
       where: { pageId, ativo: true },
       select: { tenantId: true, pageAccessToken: true },
     });
-    return connection;
-  }
+    if (active) return active;
 
-  private extractLeadgenEvents(payload: MetaWebhookDto): LeadgenEvent[] {
-    const events: LeadgenEvent[] = [];
-
-    for (const entry of payload.entry ?? []) {
-      for (const change of entry.changes ?? []) {
-        if (change.field !== 'leadgen') continue;
-        const leadgenId = this.asId(change.value?.leadgen_id);
-        const pageId = this.asId(change.value?.page_id);
-        if (!leadgenId || !pageId) continue;
-
-        events.push({
-          leadgenId,
-          pageId,
-          formId: this.asId(change.value?.form_id),
-          adId: this.asId(change.value?.ad_id),
-          adgroupId: this.asId(change.value?.adgroup_id),
-        });
-      }
+    const inactive = await this.prisma.tenantMetaConnection.findFirst({
+      where: { pageId },
+      select: { tenantId: true, ativo: true },
+    });
+    if (inactive) {
+      this.logger.warn(
+        `Ignorando leadgen: page_id ${pageId} tem TenantMetaConnection inativa (tenant ${inactive.tenantId}).`,
+      );
+      return null;
     }
 
-    return events;
+    this.logger.warn(
+      `Ignorando leadgen: page_id ${pageId} sem TenantMetaConnection.`,
+    );
+    return null;
   }
 
   private async processLeadgenEvent(
     event: LeadgenEvent,
-    payload: MetaWebhookDto,
+    payload: unknown,
     connection: TenantMetaConn,
   ) {
     const deliveryKey = `leadgen:${event.leadgenId}`;
@@ -117,7 +126,7 @@ export class MetaService {
           leadgenId: event.leadgenId,
           pageId: event.pageId,
           formId: event.formId,
-          payload: payload as unknown as Prisma.InputJsonValue,
+          payload: payload as Prisma.InputJsonValue,
         },
       });
     } catch (error) {
@@ -129,6 +138,9 @@ export class MetaService {
           where: { leadgenId: event.leadgenId },
           select: { leadId: true },
         });
+        this.logger.log(
+          `Lead duplicado (idempotência) leadgen_id=${event.leadgenId} leadId=${existing?.leadId ?? 'n/a'}`,
+        );
         return { ok: true, duplicate: true, leadId: existing?.leadId };
       }
       throw error;
@@ -140,6 +152,9 @@ export class MetaService {
         select: { leadId: true },
       });
       if (existingLink) {
+        this.logger.log(
+          `Lead duplicado (LeadMetaLink) leadgen_id=${event.leadgenId} leadId=${existingLink.leadId}`,
+        );
         return { ok: true, duplicate: true, leadId: existingLink.leadId };
       }
 
@@ -148,6 +163,11 @@ export class MetaService {
         connection.pageAccessToken,
       );
       const mapped = this.mapFieldData(metaLead.field_data ?? []);
+
+      this.logger.log(
+        `Criando lead no CRM leadgen_id=${event.leadgenId} tenantId=${connection.tenantId}`,
+      );
+
       const lead = await this.findOrCreateLead(
         mapped,
         event,
@@ -169,7 +189,7 @@ export class MetaService {
       });
 
       this.logger.log(
-        `Lead Meta ${event.leadgenId} → CRM lead ${lead.id} (tenant ${connection.tenantId})`,
+        `Lead criado leadgen_id=${event.leadgenId} crmLeadId=${lead.id} tenantId=${connection.tenantId}`,
       );
       return { ok: true, leadId: lead.id };
     } catch (error) {
@@ -190,6 +210,9 @@ export class MetaService {
     const reusable = await this.findReusableLead(mapped, tenantId);
     if (reusable) {
       await this.mergeTags(reusable.id, reusable.tags, mapped.extraTags);
+      this.logger.log(
+        `Lead reutilizado crmLeadId=${reusable.id} tenantId=${tenantId} leadgen_id=${event.leadgenId}`,
+      );
       return reusable;
     }
 
@@ -345,7 +368,6 @@ export class MetaService {
         ? `(${ddd}) ${local.slice(0, 5)}-${local.slice(5)}`
         : `(${ddd}) ${local.slice(0, 4)}-${local.slice(4)}`;
     }
-    // Mantém algum valor legível quando o número não é BR padrão.
     const fallback = digits.slice(-11) || '00000000000';
     const padded = fallback.padStart(11, '0').slice(-11);
     return `(${padded.slice(0, 2)}) ${padded.slice(2, 7)}-${padded.slice(7)}`;
@@ -353,13 +375,5 @@ export class MetaService {
 
   private isValidEmail(value: string) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-  }
-
-  private asId(value: unknown): string | null {
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return String(value);
-    }
-    return null;
   }
 }
