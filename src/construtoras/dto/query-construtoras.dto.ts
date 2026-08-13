@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsUUID } from "class-validator";
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 import { Transform } from "class-transformer";
 
 export class QueryConstrutorasDto {
@@ -10,6 +10,20 @@ export class QueryConstrutorasDto {
   sort?: "created_desc" | "created_asc" | "nome_asc" | "nome_desc";
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === "") return undefined;
+    const trimmed = String(value).trim();
+    return trimmed ? trimmed : undefined;
+  })
+  @IsString()
+  @MaxLength(120)
+  search?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === "") return undefined;
+    return String(value);
+  })
   @IsUUID("4", { message: "Localidade inválida." })
   localidadeId?: string;
 

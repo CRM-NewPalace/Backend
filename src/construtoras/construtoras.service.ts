@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { requireTenantId } from "../common/utils/tenant";
@@ -48,21 +48,23 @@ export class ConstrutorasService {
 
   list(query: QueryConstrutorasDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
+    const AND: Prisma.ConstrutoraWhereInput[] = [{ tenantId }];
+    if (query.localidadeId) {
+      AND.push({
+        localidades: { some: { id: query.localidadeId } },
+      });
+    }
+    if (query.search) {
+      AND.push({
+        nome: { contains: query.search, mode: "insensitive" },
+      });
+    }
+    if (query.comDrive) {
+      AND.push({ driveFolderUrl: { not: null } });
+      AND.push({ NOT: { driveFolderUrl: "" } });
+    }
     return this.prisma.construtora.findMany({
-      where: {
-        tenantId,
-        ...(query.localidadeId
-          ? { localidades: { some: { id: query.localidadeId } } }
-          : {}),
-        ...(query.comDrive
-          ? {
-              AND: [
-                { driveFolderUrl: { not: null } },
-                { NOT: { driveFolderUrl: "" } },
-              ],
-            }
-          : {}),
-      },
+      where: { AND },
       select: construtoraSelect,
       orderBy: prismaTableOrderBy(query.sort, "nome"),
     });
@@ -135,7 +137,7 @@ export class ConstrutorasService {
         ...(dto.driveFolderUrl !== undefined
           ? { driveFolderUrl: normalizeDriveFolderUrl(dto.driveFolderUrl) }
           : {}),
-        ...(localidadeIds
+        ...(localidadeIds !== undefined
           ? { localidades: { set: localidadeIds.map((id) => ({ id })) } }
           : {}),
       },

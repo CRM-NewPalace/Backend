@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsArray,
   IsOptional,
@@ -54,6 +55,10 @@ export class CreateConstrutoraDto {
   driveFolderUrl?: string | null;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    return Array.isArray(value) ? value.map(String) : [String(value)];
+  })
   @IsArray()
   @IsUUID('4', { each: true, message: 'Localidade inválida.' })
   localidadeIds?: string[];
