@@ -17,6 +17,9 @@ type TenantMetaConn = {
   pageAccessToken: string;
 };
 
+/** Ping da Lead Ads Testing Tool — não é a Página real nem um lead buscável. */
+const META_DUMMY_ID = '444444444444';
+
 @Injectable()
 export class MetaService {
   private readonly logger = new Logger(MetaService.name);
@@ -61,7 +64,7 @@ export class MetaService {
         `Evento leadgen leadgen_id=${event.leadgenId} page_id=${event.pageId} form_id=${event.formId ?? 'n/a'} page_id_source=${event.pageIdSource}`,
       );
 
-      const connection = await this.resolveConnection(event.pageId);
+      const connection = await this.resolveConnection(event);
       if (!connection) {
         continue;
       }
@@ -85,10 +88,37 @@ export class MetaService {
    * HTTP 200 mesmo sem connection: a Meta reenvia 4xx/5xx. Retry não cria a
    * connection; o teste dummy (page_id 444444444444) ficaria em loop.
    * O isolamento de tenant continua: sem connection, nenhum lead é gravado.
+   *
+   * O ping da ferramenta de teste usa page_id 444444444444. Nesse caso a
+   * connection é a Página real (META_PAGE_ID ou a única conexão ativa).
    */
   private async resolveConnection(
-    pageId: string,
+    event: LeadgenEvent,
   ): Promise<TenantMetaConn | null> {
+    const pageId = this.isDummyEvent(event)
+      ? this.config.get<string>('META_PAGE_ID')?.trim() || null
+      : event.pageId;
+
+    if (this.isDummyEvent(event) && !pageId) {
+      const actives = await this.prisma.tenantMetaConnection.findMany({
+        where: { ativo: true },
+        select: { tenantId: true, pageAccessToken: true, pageId: true },
+        take: 2,
+      });
+      if (actives.length === 1) {
+        this.logger.log(
+          `Teste dummy da Meta roteado para a única Página ativa page_id=${actives[0].pageId} tenantId=${actives[0].tenantId}`,
+        );
+        return actives[0];
+      }
+      this.logger.warn(
+        'Ignorando leadgen dummy (444444444444): defina META_PAGE_ID ou mantenha só uma Página Meta ativa no CRM.',
+      );
+      return null;
+    }
+
+    if (!pageId) return null;
+
     const active = await this.prisma.tenantMetaConnection.findFirst({
       where: { pageId, ativo: true },
       select: { tenantId: true, pageAccessToken: true },
@@ -158,11 +188,26 @@ export class MetaService {
         return { ok: true, duplicate: true, leadId: existingLink.leadId };
       }
 
-      const metaLead = await this.graphApi.fetchLead(
-        event.leadgenId,
-        connection.pageAccessToken,
-      );
-      const mapped = this.mapFieldData(metaLead.field_data ?? []);
+      const dummy = this.isDummyEvent(event);
+      const metaLead = dummy
+        ? {
+            id: event.leadgenId,
+            field_data: [] as MetaLeadField[],
+          }
+        : await this.graphApi.fetchLead(
+            event.leadgenId,
+            connection.pageAccessToken,
+          );
+      const mapped = dummy
+        ? {
+            nome: 'Lead de teste Meta',
+            telefone: '(00) 44444-4444',
+            email: 'teste-meta@facebook.meta.local',
+            cidade: null,
+            bairro: null,
+            extraTags: ['Teste Meta'],
+          }
+        : this.mapFieldData(metaLead.field_data ?? []);
 
       this.logger.log(
         `Criando lead no CRM leadgen_id=${event.leadgenId} tenantId=${connection.tenantId}`,
@@ -375,5 +420,11 @@ export class MetaService {
 
   private isValidEmail(value: string) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }
+
+  private isDummyEvent(event: LeadgenEvent) {
+    return (
+      event.pageId === META_DUMMY_ID || event.leadgenId === META_DUMMY_ID
+    );
   }
 }

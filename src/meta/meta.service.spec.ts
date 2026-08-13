@@ -66,6 +66,10 @@ function createService(opts: {
         if (opts.inactive) return { ...opts.inactive, ativo: false };
         return null;
       },
+      findMany: async () =>
+        opts.connection
+          ? [{ ...opts.connection, pageId: PAGE_ID }]
+          : [],
     },
     metaWebhookDelivery: {
       create: async () => {
@@ -193,5 +197,19 @@ describe('MetaService.handleWebhook', () => {
     });
     const result = await service.handleWebhook({ object: 'page', entry: [] });
     assert.deepEqual(result, { ok: true, leadIds: [] });
+  });
+
+  it('ping dummy da ferramenta de teste: cria lead sem chamar Graph API', async () => {
+    const { service, createdLeads } = createService({
+      connection: { tenantId: TENANT_ID, pageAccessToken: 'page-token' },
+      graphError: new Error('não deveria buscar lead dummy'),
+    });
+    const result = await service.handleWebhook(
+      payload('444444444444', '444444444444'),
+    );
+    assert.deepEqual(result, { ok: true, leadIds: ['crm-lead-1'] });
+    const created = createdLeads[0] as { nome: string; tenantId: string };
+    assert.equal(created.nome, 'Lead de teste Meta');
+    assert.equal(created.tenantId, TENANT_ID);
   });
 });
