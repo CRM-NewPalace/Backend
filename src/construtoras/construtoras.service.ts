@@ -49,7 +49,20 @@ export class ConstrutorasService {
   list(query: QueryConstrutorasDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     return this.prisma.construtora.findMany({
-      where: { tenantId },
+      where: {
+        tenantId,
+        ...(query.localidadeId
+          ? { localidades: { some: { id: query.localidadeId } } }
+          : {}),
+        ...(query.comDrive
+          ? {
+              AND: [
+                { driveFolderUrl: { not: null } },
+                { NOT: { driveFolderUrl: "" } },
+              ],
+            }
+          : {}),
+      },
       select: construtoraSelect,
       orderBy: prismaTableOrderBy(query.sort, "nome"),
     });

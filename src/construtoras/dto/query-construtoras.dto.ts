@@ -1,4 +1,5 @@
-import { IsIn, IsOptional } from "class-validator";
+import { IsIn, IsOptional, IsUUID } from "class-validator";
+import { Transform } from "class-transformer";
 
 export class QueryConstrutorasDto {
   @IsOptional()
@@ -7,4 +8,18 @@ export class QueryConstrutorasDto {
       "Ordenação inválida. Use created_desc, created_asc, nome_asc ou nome_desc.",
   })
   sort?: "created_desc" | "created_asc" | "nome_asc" | "nome_desc";
+
+  @IsOptional()
+  @IsUUID("4", { message: "Localidade inválida." })
+  localidadeId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === "") return undefined;
+    if (value === true || value === "true" || value === "1") return true;
+    if (value === false || value === "false" || value === "0") return false;
+    return undefined;
+  })
+  comDrive?: boolean;
 }
+
