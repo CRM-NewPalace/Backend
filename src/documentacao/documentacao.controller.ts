@@ -22,7 +22,7 @@ import { DocumentacaoService } from './documentacao.service';
 
 @Controller('documentacao')
 @UseGuards(RolesGuard)
-@Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+@Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista)
 export class DocumentacaoController {
   constructor(private readonly documentacaoService: DocumentacaoService) {}
 
@@ -35,8 +35,9 @@ export class DocumentacaoController {
   }
 
   /**
-   * Corretores ativos do tenant para o select na ficha.
-   * Admin/gerente/analista: todos. Corretor: apenas o próprio.
+   * Usuários ativos do tenant para o select na ficha.
+   * Admin/gerente/analista/treinee: corretores, treinees e gerentes.
+   * Corretor: apenas o próprio.
    * Precisa ficar antes de GET :id.
    */
   @Get('corretores')
@@ -53,7 +54,7 @@ export class DocumentacaoController {
   }
 
   @Post()
-  @Roles(Role.admin, Role.analista)
+  @Roles(Role.admin, Role.analista, Role.gerente, Role.treinee)
   create(
     @Body() dto: CreateDocumentacaoDto,
     @CurrentUser() requester: AuthenticatedUser,

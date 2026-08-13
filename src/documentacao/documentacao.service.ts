@@ -27,7 +27,6 @@ import {
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
 import { prismaTableOrderBy } from '../common/utils/table-sort';
-import { isCorretorLike } from '../common/utils/roles';
 import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
 import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
 import { QueryDocumentacaoDto } from './dto/query-documentacao.dto';
@@ -209,8 +208,9 @@ export class DocumentacaoService {
   }
 
   /**
-   * Lista corretores ativos do tenant para o select ao criar/editar ficha.
-   * Admin, gerente e analista veem todos; corretor vê só a si.
+   * Usuários ativos para o select de crédito na ficha.
+   * Admin/analista/gerente/treinee: corretores, treinees e gerentes.
+   * Corretor: apenas o próprio.
    */
   async listCorretores(requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
@@ -246,7 +246,7 @@ export class DocumentacaoService {
       gerente: u.equipe?.gerente ?? null,
     });
 
-    if (isCorretorLike(requester.role)) {
+    if (requester.role === Role.corretor) {
       const self = await this.prisma.user.findFirst({
         where: { id: requester.id, tenantId, status: UserStatus.ativo },
         select,
@@ -254,12 +254,11 @@ export class DocumentacaoService {
       return self ? [mapRow(self)] : [];
     }
 
-    // admin / gerente / analista → todos os corretores ativos do tenant
     const rows = await this.prisma.user.findMany({
       where: {
         tenantId,
         status: UserStatus.ativo,
-        role: { in: [Role.corretor, Role.treinee] },
+        role: { in: [Role.corretor, Role.treinee, Role.gerente] },
       },
       select,
       orderBy: { name: 'asc' },
@@ -268,9 +267,9 @@ export class DocumentacaoService {
   }
 
   async create(dto: CreateDocumentacaoDto, requester: AuthenticatedUser) {
-    if (requester.role !== Role.admin && requester.role !== Role.analista) {
+    if (requester.role === Role.corretor) {
       throw new ForbiddenException(
-        'Somente analista e admin cadastram documentação.',
+        'Corretores não cadastram documentação. Encaminhe o lead para análise.',
       );
     }
     const tenantId = requireTenantId(requester);
@@ -632,6 +631,7 @@ export class DocumentacaoService {
       case Role.analista:
         return {};
       case Role.corretor:
+      case Role.treinee:
         return {
           OR: [
             { corretorId: requester.id },
