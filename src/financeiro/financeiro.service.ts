@@ -20,6 +20,7 @@ import {
   status2VendidoWhere,
 } from "../common/utils/documentacao-status";
 import { resolveFinanceiroTenantId } from "../common/utils/tenant";
+import { isCorretorLike } from "../common/utils/roles";
 import { PrismaService } from "../prisma/prisma.service";
 import { BaixarTituloDto } from "./dto/baixar-titulo.dto";
 import { CreateCategoriaDto } from "./dto/create-categoria.dto";
@@ -1381,7 +1382,7 @@ export class FinanceiroService {
     this.assertComissaoAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const where: Prisma.FinanceiroComissaoWhereInput = { tenantId };
-    if (requester.role === Role.corretor) where.corretorId = requester.id;
+    if (isCorretorLike(requester.role)) where.corretorId = requester.id;
     if (requester.role === Role.gerente) {
       // Inclui comissão sem equipe (equipeId null) se o gerente estiver no snapshot.
       where.OR = [
@@ -3310,7 +3311,7 @@ export class FinanceiroService {
       percentualSocios: Number(row.percentualSocios),
       valorSocios: Number(row.valorSocios),
     };
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       const {
         percentualTributos: _percentualTributos,
         valorTributos: _valorTributos,
@@ -3418,6 +3419,7 @@ export class FinanceiroService {
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
       requester.role !== Role.corretor &&
+      requester.role !== Role.treinee &&
       requester.role !== Role.super_admin
     ) {
       throw new ForbiddenException("Você não possui acesso às comissões.");

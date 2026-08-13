@@ -18,6 +18,7 @@ import {
   documentacaoVendaNoPeriodoWhere,
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
+import { isCorretorLike } from '../common/utils/roles';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMetaDto } from './dto/create-meta.dto';
@@ -142,7 +143,7 @@ export class MetasService {
       return base;
     }
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       return {
         ...base,
         OR: [
@@ -199,7 +200,7 @@ export class MetasService {
     const tenantId = requireTenantId(requester);
     const escopo = (dto.escopo as MetaEscopo | undefined) ?? MetaEscopo.corretor;
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       if (escopo !== MetaEscopo.corretor) {
         throw new ForbiddenException(
           'Corretores só podem criar metas pessoais.',
@@ -231,7 +232,7 @@ export class MetasService {
         where: {
           id: dto.corretorId,
           tenantId,
-          role: Role.corretor,
+          role: { in: [Role.corretor, Role.treinee] },
           status: UserStatus.ativo,
         },
         select: { id: true },
@@ -293,7 +294,7 @@ export class MetasService {
       where: {
         id: dto.corretorId,
         tenantId,
-        role: Role.corretor,
+        role: { in: [Role.corretor, Role.treinee] },
         status: UserStatus.ativo,
       },
       select: { id: true },
@@ -321,7 +322,7 @@ export class MetasService {
     }
 
     const podeEditarPessoal =
-      requester.role === Role.corretor &&
+      isCorretorLike(requester.role) &&
       meta.escopo === MetaEscopo.corretor &&
       meta.corretorId === requester.id &&
       meta.origem === MetaOrigem.pessoal;
@@ -393,7 +394,10 @@ export class MetasService {
         where: { tenantId, gerenteId: meta.gerenteId },
         select: {
           membros: {
-            where: { role: Role.corretor, status: UserStatus.ativo },
+            where: {
+              role: { in: [Role.corretor, Role.treinee] },
+              status: UserStatus.ativo,
+            },
             select: { id: true },
           },
         },
@@ -402,7 +406,11 @@ export class MetasService {
     }
     // imobiliaria → todos os corretores ativos do tenant
     const corretores = await this.prisma.user.findMany({
-      where: { tenantId, role: Role.corretor, status: UserStatus.ativo },
+      where: {
+        tenantId,
+        role: { in: [Role.corretor, Role.treinee] },
+        status: UserStatus.ativo,
+      },
       select: { id: true },
     });
     return corretores.map((c) => c.id);

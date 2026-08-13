@@ -25,7 +25,7 @@ export class TriagemController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.corretor, Role.gerente)
+  @Roles(Role.corretor, Role.treinee, Role.gerente)
   create(
     @Body() dto: CreateTriagemDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -35,7 +35,7 @@ export class TriagemController {
 
   @Patch('events/:id')
   @UseGuards(RolesGuard)
-  @Roles(Role.corretor)
+  @Roles(Role.corretor, Role.treinee)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTriagemDto,

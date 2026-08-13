@@ -16,6 +16,7 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { FunisService } from '../funis/funis.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
+import { isCorretorLike } from '../common/utils/roles';
 import { canonicalizeStatus1 } from '../common/utils/documentacao-status';
 import { QueryAnaliseDto, UpdateAnaliseDto } from './dto/analise.dto';
 
@@ -625,7 +626,7 @@ export class AnaliseService {
       throw new NotFoundException('Análise não encontrada.');
     }
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       throw new NotFoundException('Análise não encontrada.');
     }
 

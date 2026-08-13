@@ -8,6 +8,7 @@ import {
 import { Prisma, Role, UserStatus, ContatoTipo } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
+import { isCorretorLike } from '../common/utils/roles';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateEquipeDto } from './dto/create-equipe.dto';
 import { UpdateEquipeDto } from './dto/update-equipe.dto';
@@ -132,7 +133,7 @@ export class EquipesService {
     return this.prisma.user.findMany({
       where: {
         tenantId,
-        role: Role.corretor,
+        role: { in: [Role.corretor, Role.treinee] },
         status: UserStatus.ativo,
         OR: [
           { equipeId: null },
@@ -317,9 +318,9 @@ export class EquipesService {
     }
 
     for (const u of users) {
-      if (u.role !== Role.corretor) {
+      if (!isCorretorLike(u.role)) {
         throw new BadRequestException(
-          `"${u.name}" não é corretor e não pode entrar na equipe.`,
+          `"${u.name}" não é corretor/treinee e não pode entrar na equipe.`,
         );
       }
       if (u.status !== UserStatus.ativo) {

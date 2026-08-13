@@ -34,7 +34,7 @@ export class DashboardController {
   }
 
   @Get('corretor')
-  @Roles(Role.corretor)
+  @Roles(Role.corretor, Role.treinee)
   resumoCorretor(@CurrentUser() requester: AuthenticatedUser) {
     return this.dashboardService.resumoCorretor(requester);
   }

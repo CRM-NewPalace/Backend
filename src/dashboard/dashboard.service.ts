@@ -507,7 +507,7 @@ export class DashboardService {
       this.prisma.user.findMany({
         where: {
           tenantId,
-          role: Role.corretor,
+          role: { in: [Role.corretor, Role.treinee] },
           status: UserStatus.ativo,
           ...(corretorIds ? { id: { in: corretorIds } } : {}),
         },
@@ -531,7 +531,10 @@ export class DashboardService {
           id: true,
           name: true,
           membros: {
-            where: { role: Role.corretor, status: UserStatus.ativo },
+            where: {
+              role: { in: [Role.corretor, Role.treinee] },
+              status: UserStatus.ativo,
+            },
             select: { id: true },
           },
         },
@@ -1202,7 +1205,7 @@ export class DashboardService {
         where: {
           id: corretorId,
           tenantId,
-          role: Role.corretor,
+          role: { in: [Role.corretor, Role.treinee] },
           status: UserStatus.ativo,
         },
         select: { id: true, name: true },
@@ -1339,7 +1342,7 @@ export class DashboardService {
       this.prisma.user.findMany({
         where: {
           tenantId,
-          role: Role.corretor,
+          role: { in: [Role.corretor, Role.treinee] },
           status: UserStatus.ativo,
           ...(corretorIds ? { id: { in: corretorIds } } : {}),
         },
@@ -1374,7 +1377,10 @@ export class DashboardService {
           gerenteId: true,
           gerente: { select: { id: true, name: true } },
           membros: {
-            where: { role: Role.corretor, status: UserStatus.ativo },
+            where: {
+              role: { in: [Role.corretor, Role.treinee] },
+              status: UserStatus.ativo,
+            },
             select: { id: true },
           },
         },

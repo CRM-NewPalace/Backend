@@ -308,7 +308,7 @@ export class FinanceiroController {
   }
 
   @Get("comissoes")
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.super_admin)
   listComissoes(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.listComissoes(requester);
   }

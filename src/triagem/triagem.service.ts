@@ -12,6 +12,7 @@ import { AnaliseService } from '../analise/analise.service';
 import { FunisService } from '../funis/funis.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
+import { isCorretorLike } from '../common/utils/roles';
 import { CreateTriagemDto } from './dto/create-triagem.dto';
 import { UpdateTriagemDto } from './dto/update-triagem.dto';
 import { QueryTriagemLeadsDto } from './dto/query-triagem-leads.dto';
@@ -63,7 +64,7 @@ export class TriagemService {
   async listLeads(query: QueryTriagemLeadsDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       const contacts = await this.prisma.lead.findMany({
         where: {
           tenantId,
@@ -139,7 +140,7 @@ export class TriagemService {
     const tenantId = requireTenantId(requester);
 
     if (
-      requester.role !== Role.corretor &&
+      !isCorretorLike(requester.role) &&
       requester.role !== Role.gerente
     ) {
       throw new ForbiddenException(
@@ -163,7 +164,7 @@ export class TriagemService {
       throw new NotFoundException('Lead não encontrado.');
     }
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       if (lead.corretorId !== requester.id) {
         throw new NotFoundException('Lead não encontrado.');
       }
@@ -262,7 +263,7 @@ export class TriagemService {
   ) {
     requireTenantId(requester);
 
-    if (requester.role !== Role.corretor) {
+    if (!isCorretorLike(requester.role)) {
       throw new ForbiddenException(
         'Apenas o corretor autor pode editar o relato.',
       );
@@ -332,7 +333,7 @@ export class TriagemService {
 
     // Gerente/admin não consultam clientes na triagem.
     if (
-      requester.role !== Role.corretor &&
+      !isCorretorLike(requester.role) &&
       lead.tipo === ContatoTipo.cliente
     ) {
       throw new NotFoundException('Lead não encontrado.');

@@ -3,6 +3,7 @@ import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
+import { isCorretorLike } from '../common/utils/roles';
 
 /**
  * Escopo de dados por equipe, sempre aninhado ao tenant do requester:
@@ -24,7 +25,7 @@ export class TeamScopeService {
       return null;
     }
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       return [requester.id];
     }
 
@@ -33,7 +34,7 @@ export class TeamScopeService {
       where: { gerenteId: requester.id, tenantId },
       select: {
         membros: {
-          where: { role: Role.corretor, tenantId },
+          where: { role: { in: [Role.corretor, Role.treinee] }, tenantId },
           select: { id: true },
         },
       },

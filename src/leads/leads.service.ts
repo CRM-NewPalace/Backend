@@ -16,6 +16,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
+import { prismaTableOrderBy } from '../common/utils/table-sort';
+import { isCorretorLike } from '../common/utils/roles';
 import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
@@ -231,7 +233,10 @@ export class LeadsService {
           status: true,
           gerente: { select: { id: true, name: true } },
           membros: {
-            where: { role: Role.corretor, status: UserStatus.ativo },
+            where: {
+              role: { in: [Role.corretor, Role.treinee] },
+              status: UserStatus.ativo,
+            },
             select: { id: true },
           },
         },
@@ -240,7 +245,7 @@ export class LeadsService {
       this.prisma.user.findMany({
         where: {
           tenantId,
-          role: Role.corretor,
+          role: { in: [Role.corretor, Role.treinee] },
           status: UserStatus.ativo,
         },
         select: {
@@ -386,7 +391,7 @@ export class LeadsService {
         where: {
           tenantId,
           id: { in: corretorIds },
-          role: Role.corretor,
+          role: { in: [Role.corretor, Role.treinee] },
           status: UserStatus.ativo,
         },
         select: { id: true, name: true, equipeId: true },
@@ -450,7 +455,7 @@ export class LeadsService {
     const corretores = await this.prisma.user.findMany({
       where: {
         tenantId,
-        role: Role.corretor,
+        role: { in: [Role.corretor, Role.treinee] },
         status: UserStatus.ativo,
       },
       select: { id: true, name: true, equipeId: true },
@@ -653,7 +658,7 @@ export class LeadsService {
       this.prisma.lead.findMany({
         where,
         select: leadSelect,
-        orderBy: { updatedAt: 'desc' },
+        orderBy: prismaTableOrderBy(query.sort, 'nome'),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -690,7 +695,7 @@ export class LeadsService {
       const adminLead =
         requester.role === Role.admin && lead.tipo === ContatoTipo.lead;
       const corretorCliente =
-        requester.role === Role.corretor &&
+        isCorretorLike(requester.role) &&
         lead.tipo === ContatoTipo.cliente &&
         lead.corretorId === requester.id;
       if (!adminLead && !corretorCliente) {
@@ -728,9 +733,9 @@ export class LeadsService {
     requester: AuthenticatedUser,
   ): Promise<PaginatedLeads> {
     const tenantId = requireTenantId(requester);
-    if (requester.role !== Role.corretor) {
+    if (!isCorretorLike(requester.role)) {
       throw new ForbiddenException(
-        'Apenas corretores podem ver perda de cliente.',
+        'Apenas corretores e treinees podem ver perda de cliente.',
       );
     }
 
@@ -776,7 +781,7 @@ export class LeadsService {
       this.prisma.lead.findMany({
         where,
         select: leadSelect,
-        orderBy: { perdidoAt: 'desc' },
+        orderBy: prismaTableOrderBy(query.sort, 'nome'),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -1193,7 +1198,7 @@ export class LeadsService {
         status: UserStatus.ativo,
         OR: [
           {
-            role: Role.corretor,
+            role: { in: [Role.corretor, Role.treinee] },
             ...(ids !== null
               ? {
                   id: {
@@ -1218,7 +1223,7 @@ export class LeadsService {
   // --- Helpers de RBAC ---
 
   private isCorretor(requester: AuthenticatedUser): boolean {
-    return requester.role === Role.corretor;
+    return isCorretorLike(requester.role);
   }
 
   private async ensureCanAccess(
@@ -1339,7 +1344,7 @@ export class LeadsService {
         id: corretorId,
         tenantId,
         status: UserStatus.ativo,
-        role: { in: [Role.corretor, Role.admin, Role.gerente] },
+        role: { in: [Role.corretor, Role.treinee, Role.admin, Role.gerente] },
       },
       select: { id: true, role: true },
     });
@@ -1364,9 +1369,9 @@ export class LeadsService {
 
     // Gerente: qualquer corretor do tenant (própria ou outra equipe) ou a si.
     if (requester.role === Role.gerente) {
-      if (target.role !== Role.corretor) {
+      if (!isCorretorLike(target.role)) {
         throw new ForbiddenException(
-          'Você só pode atribuir leads a corretores ou a si mesmo.',
+          'Você só pode atribuir leads a corretores, treinees ou a si mesmo.',
         );
       }
       return;

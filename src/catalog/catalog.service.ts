@@ -16,6 +16,7 @@ import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 import { QueryCatalogDto } from './dto/query-catalog.dto';
 import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
 import { slugify } from './catalog.util';
+import { isCorretorLike } from '../common/utils/roles';
 import {
   DEFAULT_DOCUMENTACAO_FONTES,
   DEFAULT_DOCUMENTACAO_STATUS1,
@@ -37,10 +38,11 @@ const ANALISTA_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.documentacao_status2,
 ]);
 
-/** Treinee: apenas origens e tags. */
+/** Treinee: origens, tags e motivos de perda (igual ao corretor). */
 const TREINEE_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.origem,
   CatalogType.tag,
+  CatalogType.motivo_perda,
 ]);
 
 const DOCUMENTACAO_CATALOG_DEFAULTS: Record<
@@ -328,7 +330,7 @@ export class CatalogService {
       return;
     }
     if (
-      requester.role === Role.corretor &&
+      isCorretorLike(requester.role) &&
       type === CatalogType.motivo_perda
     ) {
       return;

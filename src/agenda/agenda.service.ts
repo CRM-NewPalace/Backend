@@ -24,6 +24,7 @@ import { TeamScopeService } from '../equipes/team-scope.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { resolveFinanceiroTenantId as requireTenantId } from '../common/utils/tenant';
+import { isCorretorLike } from '../common/utils/roles';
 import { CreateAgendamentoDto } from './dto/create-agendamento.dto';
 import { UpdateAgendamentoDto } from './dto/update-agendamento.dto';
 import { QueryAgendamentoDto } from './dto/query-agendamento.dto';
@@ -146,7 +147,7 @@ export class AgendaService {
       : await this.buildAdminEventVisibility(requester, query.equipeId);
 
     const gerenteBloqueioVisibility = viewTarget
-      ? viewTarget.role === Role.corretor
+      ? isCorretorLike(viewTarget.role)
         ? await this.buildGerenteBloqueioVisibilityForCorretor(viewTarget.id)
         : null
       : await this.buildGerenteBloqueioVisibility(requester, query.corretorId);
@@ -187,7 +188,7 @@ export class AgendaService {
               sharedAccess,
             ],
           },
-          ...(requester.role === Role.corretor
+          ...(isCorretorLike(requester.role)
             ? [
                 {
                   autorId: requester.id,
@@ -262,7 +263,7 @@ export class AgendaService {
       ],
     };
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       where.autorId = requester.id;
     }
 
@@ -321,7 +322,7 @@ export class AgendaService {
         upcoming
           .map((item) => {
             if (item.lead?.corretorId) return item.lead.corretorId;
-            if (item.autor.role === Role.corretor) return item.autorId;
+            if (isCorretorLike(item.autor.role)) return item.autorId;
             return null;
           })
           .filter((id): id is string => Boolean(id)),
@@ -360,10 +361,10 @@ export class AgendaService {
 
       const corretorId =
         item.lead?.corretorId ??
-        (item.autor.role === Role.corretor ? item.autorId : null);
+        (isCorretorLike(item.autor.role) ? item.autorId : null);
       const corretorNome =
         item.lead?.corretor?.name ??
-        (item.autor.role === Role.corretor ? item.autor.name : null);
+        (isCorretorLike(item.autor.role) ? item.autor.name : null);
       const info = corretorId
         ? equipeInfoByCorretorId.get(corretorId)
         : undefined;
@@ -650,7 +651,7 @@ export class AgendaService {
     if (!isBloqueio) {
       const alsoGerenteIds =
         escopo === AgendamentoEscopo.com_gerente &&
-        requester.role === Role.corretor
+        isCorretorLike(requester.role)
           ? await this.resolveGerenteIds(requester.id)
           : [];
       await this.assertNoOverlapWithBloqueios({
@@ -671,7 +672,7 @@ export class AgendaService {
       !atribuidoPara &&
       alvo.alvoTipo === AgendamentoAlvo.nenhum &&
       escopo === AgendamentoEscopo.com_gerente &&
-      requester.role === Role.corretor;
+      isCorretorLike(requester.role);
 
     const solicitacaoStatus = needsApproval
       ? AgendamentoSolicitacaoStatus.pendente
@@ -851,7 +852,7 @@ export class AgendaService {
 
     if (
       existing.solicitacaoStatus === AgendamentoSolicitacaoStatus.pendente &&
-      requester.role === Role.corretor &&
+      isCorretorLike(requester.role) &&
       existing.autorId !== requester.id
     ) {
       throw new ForbiddenException(
@@ -871,7 +872,7 @@ export class AgendaService {
     if (nextTipo !== AgendamentoTipo.bloqueio) {
       const alsoGerenteIds =
         existing.escopo === AgendamentoEscopo.com_gerente &&
-        requester.role === Role.corretor
+        isCorretorLike(requester.role)
           ? await this.resolveGerenteIds(requester.id)
           : [];
       await this.assertNoOverlapWithBloqueios({
@@ -1087,7 +1088,7 @@ export class AgendaService {
     this.assertCanModifyAgendamento(existing, requester);
 
     if (
-      requester.role === Role.corretor &&
+      isCorretorLike(requester.role) &&
       existing.autorId !== requester.id
     ) {
       throw new ForbiddenException(
@@ -1135,7 +1136,7 @@ export class AgendaService {
       ...(await this.teamScope.leadScope(requester)),
     };
 
-    if (filterEquipeId && requester.role !== Role.corretor) {
+    if (filterEquipeId && !isCorretorLike(requester.role)) {
       const equipe = await this.prisma.equipe.findFirst({
         where: { id: filterEquipeId, tenantId },
         select: {
@@ -1172,7 +1173,7 @@ export class AgendaService {
       return { lead: leadFilter };
     }
 
-    if (filterCorretorId && requester.role !== Role.corretor) {
+    if (filterCorretorId && !isCorretorLike(requester.role)) {
       const allowed = await this.teamScope.canAccessCorretor(
         requester,
         filterCorretorId,
@@ -1249,7 +1250,7 @@ export class AgendaService {
         alvoGerenteId: requester.id,
       });
       clauses.push({ alvoTipo: AgendamentoAlvo.gerentes });
-    } else if (requester.role === Role.corretor) {
+    } else if (isCorretorLike(requester.role)) {
       const user = await this.prisma.user.findUnique({
         where: { id: requester.id },
         select: { equipeId: true },
@@ -1449,7 +1450,7 @@ export class AgendaService {
           });
           if (equipe) return;
         }
-        if (requester.role === Role.corretor) {
+        if (isCorretorLike(requester.role)) {
           const user = await this.prisma.user.findUnique({
             where: { id: requester.id },
             select: { equipeId: true },
@@ -1477,7 +1478,7 @@ export class AgendaService {
     if (
       item.tipo === AgendamentoTipo.bloqueio &&
       autorRole === Role.gerente &&
-      requester.role === Role.corretor
+      isCorretorLike(requester.role)
     ) {
       const equipes = await this.prisma.equipe.findMany({
         where: { gerenteId: item.autorId, tenantId },
@@ -1571,7 +1572,7 @@ export class AgendaService {
       where: {
         tenantId: opts.tenantId,
         role: {
-          in: [Role.admin, Role.gerente, Role.analista, Role.corretor],
+          in: [Role.admin, Role.gerente, Role.analista, Role.corretor, Role.treinee],
         },
         status: UserStatus.ativo,
         dataNascimento: { not: null },
@@ -1766,8 +1767,8 @@ export class AgendaService {
         role: {
           in:
             requester.role === Role.admin
-              ? [Role.corretor, Role.gerente]
-              : [Role.corretor],
+              ? [Role.corretor, Role.treinee, Role.gerente]
+              : [Role.corretor, Role.treinee],
         },
       },
       select: { id: true, role: true, equipeId: true },
@@ -1778,7 +1779,7 @@ export class AgendaService {
       );
     }
 
-    if (target.role === Role.corretor) {
+    if (isCorretorLike(target.role)) {
       const allowed = await this.teamScope.canAccessCorretor(
         requester,
         target.id,
@@ -1818,7 +1819,7 @@ export class AgendaService {
         alvoGerenteId: user.id,
       });
       clauses.push({ alvoTipo: AgendamentoAlvo.gerentes });
-    } else if (user.role === Role.corretor && user.equipeId) {
+    } else if (isCorretorLike(user.role) && user.equipeId) {
       clauses.push({
         alvoTipo: AgendamentoAlvo.equipe,
         alvoEquipeId: user.equipeId,
@@ -1847,7 +1848,7 @@ export class AgendaService {
   ): Promise<Prisma.AgendamentoWhereInput | null> {
     const tenantId = requireTenantId(requester);
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       const gerenteIds = await this.resolveGerenteIds(requester.id);
       if (gerenteIds.length === 0) return null;
       return {
@@ -1902,8 +1903,8 @@ export class AgendaService {
     const tenantId = requireTenantId(requester);
     const allowedRoles =
       requester.role === Role.admin
-        ? [Role.admin, Role.gerente, Role.corretor, Role.analista]
-        : [Role.corretor];
+        ? [Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista]
+        : [Role.corretor, Role.treinee];
 
     const target = await this.prisma.user.findFirst({
       where: {

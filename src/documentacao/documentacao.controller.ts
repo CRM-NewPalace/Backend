@@ -22,7 +22,7 @@ import { DocumentacaoService } from './documentacao.service';
 
 @Controller('documentacao')
 @UseGuards(RolesGuard)
-@Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+@Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista)
 export class DocumentacaoController {
   constructor(private readonly documentacaoService: DocumentacaoService) {}
 

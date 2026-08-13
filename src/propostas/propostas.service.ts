@@ -10,6 +10,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { TeamScopeService } from "../equipes/team-scope.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { requireTenantId } from "../common/utils/tenant";
+import { prismaTableOrderBy } from "../common/utils/table-sort";
 import { CreatePropostaDto } from "./dto/create-proposta.dto";
 import { UpdatePropostaDto } from "./dto/update-proposta.dto";
 import { QueryPropostaDto } from "./dto/query-proposta.dto";
@@ -193,7 +194,7 @@ export class PropostasService {
     return this.prisma.proposta.findMany({
       where,
       select: propostaSelect,
-      orderBy: { createdAt: "desc" },
+      orderBy: prismaTableOrderBy(query.sort, "clienteNome"),
     });
   }
 

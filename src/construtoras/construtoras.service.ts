@@ -7,6 +7,8 @@ import { Role } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { requireTenantId } from "../common/utils/tenant";
+import { prismaTableOrderBy } from "../common/utils/table-sort";
+import { QueryConstrutorasDto } from "./dto/query-construtoras.dto";
 import { CreateConstrutoraDto } from "./dto/create-construtora.dto";
 import { UpdateConstrutoraDto } from "./dto/update-construtora.dto";
 
@@ -40,12 +42,12 @@ function normalizeDriveFolderUrl(url?: string | null): string | null {
 export class ConstrutorasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(requester: AuthenticatedUser) {
+  list(query: QueryConstrutorasDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     return this.prisma.construtora.findMany({
       where: { tenantId },
       select: construtoraSelect,
-      orderBy: { nome: "asc" },
+      orderBy: prismaTableOrderBy(query.sort, "nome"),
     });
   }
 

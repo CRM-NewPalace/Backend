@@ -17,6 +17,8 @@ import {
 } from '../presence/presence.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
+import { isCorretorLike } from '../common/utils/roles';
+import { prismaTableOrderBy } from '../common/utils/table-sort';
 import { publicUserSelect, PublicUser } from '../common/utils/user-select';
 import { normalizeCor } from '../common/utils/cor';
 import { SALT_ROUNDS } from '../config/security.constants';
@@ -204,7 +206,7 @@ export class UsersService {
       this.prisma.user.findMany({
         where,
         select: publicUserSelect,
-        orderBy: { createdAt: 'desc' },
+        orderBy: prismaTableOrderBy(query.sort, 'name'),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -481,7 +483,7 @@ export class UsersService {
     }
     if (user.id === requester.id) return;
 
-    if (user.role !== Role.corretor) {
+    if (!isCorretorLike(user.role)) {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
@@ -506,9 +508,9 @@ export class UsersService {
 
     // Gerente só reseta senha de corretores da própria equipe (não a própria
     // via este endpoint administrativo — usa perfil / change-password).
-    if (user.role !== Role.corretor) {
+    if (!isCorretorLike(user.role)) {
       throw new ForbiddenException(
-        'Você só pode redefinir senha de corretores da sua equipe.',
+        'Você só pode redefinir senha de corretores e treinees da sua equipe.',
       );
     }
 

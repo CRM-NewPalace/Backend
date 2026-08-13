@@ -2,6 +2,7 @@ import { Role, UserStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -34,4 +35,11 @@ export class QueryUsersDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  @IsOptional()
+  @IsIn(['created_desc', 'created_asc', 'nome_asc', 'nome_desc'], {
+    message:
+      'Ordenação inválida. Use created_desc, created_asc, nome_asc ou nome_desc.',
+  })
+  sort?: 'created_desc' | 'created_asc' | 'nome_asc' | 'nome_desc';
 }

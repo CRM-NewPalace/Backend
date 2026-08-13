@@ -11,6 +11,7 @@ import { CreateEmpreendimentoDto } from "./dto/create-empreendimento.dto";
 import { UpdateEmpreendimentoDto } from "./dto/update-empreendimento.dto";
 import { QueryEmpreendimentosDto } from "./dto/query-empreendimentos.dto";
 import { normalizeCor } from "../common/utils/cor";
+import { prismaTableOrderBy } from "../common/utils/table-sort";
 
 const empreendimentoSelect = {
   id: true,
@@ -44,7 +45,7 @@ export class EmpreendimentosService {
         ...(query.ativo !== undefined ? { ativo: query.ativo } : {}),
       },
       select: empreendimentoSelect,
-      orderBy: { nome: "asc" },
+      orderBy: prismaTableOrderBy(query.sort, "nome"),
     });
   }
 

@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { Role } from "@prisma/client";
@@ -16,6 +17,7 @@ import { RolesGuard } from "../common/guards/roles.guard";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { CreateConstrutoraDto } from "./dto/create-construtora.dto";
 import { UpdateConstrutoraDto } from "./dto/update-construtora.dto";
+import { QueryConstrutorasDto } from "./dto/query-construtoras.dto";
 import { ConstrutorasService } from "./construtoras.service";
 
 @Controller("construtoras")
@@ -25,8 +27,11 @@ export class ConstrutorasController {
 
   @Get()
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
-  list(@CurrentUser() requester: AuthenticatedUser) {
-    return this.construtorasService.list(requester);
+  list(
+    @Query() query: QueryConstrutorasDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.construtorasService.list(query, requester);
   }
 
   @Get(":id")

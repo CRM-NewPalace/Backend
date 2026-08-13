@@ -26,6 +26,8 @@ import {
   isStatusVendido,
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
+import { prismaTableOrderBy } from '../common/utils/table-sort';
+import { isCorretorLike } from '../common/utils/roles';
 import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
 import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
 import { QueryDocumentacaoDto } from './dto/query-documentacao.dto';
@@ -140,7 +142,7 @@ export class DocumentacaoService {
         AND: andFilters,
       },
       select: docSelect,
-      orderBy: { createdAt: 'desc' },
+      orderBy: prismaTableOrderBy(query.sort, 'nome'),
     });
 
     // Alinha funil: vendidos → Venda; parecer final → sai de Em análise
@@ -186,7 +188,7 @@ export class DocumentacaoService {
           AND: andFilters,
         },
         select: docSelect,
-        orderBy: { createdAt: 'desc' },
+        orderBy: prismaTableOrderBy(query.sort, 'nome'),
       });
     }
 
@@ -244,7 +246,7 @@ export class DocumentacaoService {
       gerente: u.equipe?.gerente ?? null,
     });
 
-    if (requester.role === Role.corretor) {
+    if (isCorretorLike(requester.role)) {
       const self = await this.prisma.user.findFirst({
         where: { id: requester.id, tenantId, status: UserStatus.ativo },
         select,
@@ -257,7 +259,7 @@ export class DocumentacaoService {
       where: {
         tenantId,
         status: UserStatus.ativo,
-        role: Role.corretor,
+        role: { in: [Role.corretor, Role.treinee] },
       },
       select,
       orderBy: { name: 'asc' },
@@ -626,6 +628,7 @@ export class DocumentacaoService {
         // Visão global: corretores, gerentes, analistas e admin.
         return {};
       case Role.corretor:
+      case Role.treinee:
         // Admin/gerente pode criar a ficha já como venda creditando o corretor;
         // nesses casos autorId ≠ corretor, mas a venda precisa aparecer para ele.
         return {
@@ -844,7 +847,7 @@ export class DocumentacaoService {
     }
     // Corretor/gerente: só as próprias fichas comerciais.
     if (
-      requester.role === Role.corretor ||
+      isCorretorLike(requester.role) ||
       requester.role === Role.gerente
     ) {
       return autorId === requester.id;
@@ -918,7 +921,7 @@ export class DocumentacaoService {
         tenantId,
         status: UserStatus.ativo,
         role: {
-          in: [Role.corretor, Role.admin, Role.gerente],
+          in: [Role.corretor, Role.treinee, Role.admin, Role.gerente],
         },
       },
       select: { id: true },
