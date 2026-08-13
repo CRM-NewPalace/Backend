@@ -22,7 +22,7 @@ import { DocumentacaoService } from './documentacao.service';
 
 @Controller('documentacao')
 @UseGuards(RolesGuard)
-@Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista)
+@Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
 export class DocumentacaoController {
   constructor(private readonly documentacaoService: DocumentacaoService) {}
 
@@ -53,6 +53,7 @@ export class DocumentacaoController {
   }
 
   @Post()
+  @Roles(Role.admin, Role.analista)
   create(
     @Body() dto: CreateDocumentacaoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -61,6 +62,7 @@ export class DocumentacaoController {
   }
 
   @Patch(':id')
+  @Roles(Role.admin, Role.analista)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDocumentacaoDto,
@@ -70,6 +72,7 @@ export class DocumentacaoController {
   }
 
   @Delete(':id')
+  @Roles(Role.admin, Role.analista)
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,

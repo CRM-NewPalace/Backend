@@ -268,9 +268,9 @@ export class DocumentacaoService {
   }
 
   async create(dto: CreateDocumentacaoDto, requester: AuthenticatedUser) {
-    if (isCorretorLike(requester.role)) {
+    if (requester.role !== Role.admin && requester.role !== Role.analista) {
       throw new ForbiddenException(
-        'Corretores não cadastram documentação. Encaminhe o lead para análise.',
+        'Somente analista e admin cadastram documentação.',
       );
     }
     const tenantId = requireTenantId(requester);
@@ -620,9 +620,9 @@ export class DocumentacaoService {
   }
 
   /**
-   * - Corretor: fichas que criou ou em que está creditado (corretorId / lead)
-   * - Gerente: fichas da equipe (qualquer autor) + próprias comerciais
-   * - Analista / Admin: visão global do tenant (todas as fichas)
+   * - Corretor: fichas em que está creditado (corretorId / lead)
+   * - Gerente: fichas em que é o gerente ou da própria equipe
+   * - Analista / Admin: visão global do tenant
    */
   private async buildVisibilityWhere(
     requester: AuthenticatedUser,
@@ -630,15 +630,10 @@ export class DocumentacaoService {
     switch (requester.role) {
       case Role.admin:
       case Role.analista:
-        // Visão global: corretores, gerentes, analistas e admin.
         return {};
       case Role.corretor:
-      case Role.treinee:
-        // Admin/gerente pode criar a ficha já como venda creditando o corretor;
-        // nesses casos autorId ≠ corretor, mas a venda precisa aparecer para ele.
         return {
           OR: [
-            { autorId: requester.id },
             { corretorId: requester.id },
             { lead: { corretorId: requester.id } },
           ],
@@ -649,28 +644,16 @@ export class DocumentacaoService {
         const teamActorIds = [...new Set([...teamCorretorIds, requester.id])];
         return {
           OR: [
-            { autorId: { in: teamActorIds } },
-            { corretorId: { in: teamActorIds } },
             { gerenteId: requester.id },
+            { corretorId: { in: teamActorIds } },
             { lead: { corretorId: { in: teamActorIds } } },
-            {
-              AND: [
-                { autor: { role: { in: [Role.analista, Role.admin] } } },
-                {
-                  OR: [
-                    { corretorId: { in: teamActorIds } },
-                    { gerenteId: requester.id },
-                    { lead: { corretorId: { in: teamActorIds } } },
-                    { corretorId: null },
-                  ],
-                },
-              ],
-            },
           ],
         };
       }
       default:
-        return { autorId: requester.id };
+        throw new ForbiddenException(
+          'Você não tem permissão para acessar este recurso.',
+        );
     }
   }
 
@@ -843,21 +826,10 @@ export class DocumentacaoService {
 
   private canMutateDocumentacao(
     requester: AuthenticatedUser,
-    autorId: string,
+    _autorId: string,
     _autorRole: Role,
   ): boolean {
-    // Admin/analista: visão global — podem editar qualquer ficha do tenant.
-    if (requester.role === Role.admin || requester.role === Role.analista) {
-      return true;
-    }
-    if (isCorretorLike(requester.role)) {
-      return false;
-    }
-    // Gerente: só as próprias fichas comerciais.
-    if (requester.role === Role.gerente) {
-      return autorId === requester.id;
-    }
-    return false;
+    return requester.role === Role.admin || requester.role === Role.analista;
   }
 
   /**
