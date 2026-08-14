@@ -47,6 +47,11 @@ export class UpdateConstrutoraDto {
   viabilizadorContato?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  cca?: string | null;
+
+  @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== '')
   @IsUrl(
     { require_protocol: true, protocols: ['https'] },

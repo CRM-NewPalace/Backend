@@ -1,9 +1,10 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma, Role } from "@prisma/client";
+import { Prisma, Role, CatalogType } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { requireTenantId } from "../common/utils/tenant";
@@ -20,6 +21,7 @@ const construtoraSelect = {
   endereco: true,
   viabilizadorNome: true,
   viabilizadorContato: true,
+  cca: true,
   driveFolderUrl: true,
   createdAt: true,
   updatedAt: true,
@@ -46,7 +48,7 @@ function normalizeDriveFolderUrl(url?: string | null): string | null {
 export class ConstrutorasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(query: QueryConstrutorasDto, requester: AuthenticatedUser) {
+  async list(query: QueryConstrutorasDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     const AND: Prisma.ConstrutoraWhereInput[] = [{ tenantId }];
     if (query.localidadeId) {
@@ -63,11 +65,14 @@ export class ConstrutorasService {
       AND.push({ driveFolderUrl: { not: null } });
       AND.push({ NOT: { driveFolderUrl: "" } });
     }
-    return this.prisma.construtora.findMany({
+    const items = await this.prisma.construtora.findMany({
       where: { AND },
       select: construtoraSelect,
       orderBy: prismaTableOrderBy(query.sort, "nome"),
     });
+    return items.map((item) =>
+      this.hideViabilizadorContatoIfNeeded(item, requester),
+    );
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
@@ -77,7 +82,7 @@ export class ConstrutorasService {
       select: construtoraSelect,
     });
     if (!item) throw new NotFoundException("Construtora não encontrada.");
-    return item;
+    return this.hideViabilizadorContatoIfNeeded(item, requester);
   }
 
   async create(dto: CreateConstrutoraDto, requester: AuthenticatedUser) {
@@ -96,6 +101,7 @@ export class ConstrutorasService {
         endereco: dto.endereco?.trim() || null,
         viabilizadorNome: dto.viabilizadorNome?.trim() || null,
         viabilizadorContato: dto.viabilizadorContato?.trim() || null,
+        cca: await this.resolveCca(tenantId, dto.cca),
         driveFolderUrl: normalizeDriveFolderUrl(dto.driveFolderUrl),
         ...(localidadeIds !== undefined
           ? { localidades: { connect: localidadeIds.map((id) => ({ id })) } }
@@ -117,6 +123,10 @@ export class ConstrutorasService {
       tenantId,
       dto.localidadeIds,
     );
+    const cca =
+      dto.cca !== undefined
+        ? await this.resolveCca(tenantId, dto.cca)
+        : undefined;
     return this.prisma.construtora.update({
       where: { id },
       data: {
@@ -134,6 +144,7 @@ export class ConstrutorasService {
         ...(dto.viabilizadorContato !== undefined
           ? { viabilizadorContato: dto.viabilizadorContato?.trim() || null }
           : {}),
+        ...(cca !== undefined ? { cca } : {}),
         ...(dto.driveFolderUrl !== undefined
           ? { driveFolderUrl: normalizeDriveFolderUrl(dto.driveFolderUrl) }
           : {}),
@@ -150,6 +161,24 @@ export class ConstrutorasService {
     await this.findOne(id, requester);
     await this.prisma.construtora.delete({ where: { id } });
     return { ok: true };
+  }
+
+  private async resolveCca(
+    tenantId: string,
+    cca?: string | null,
+  ): Promise<string | null> {
+    const label = cca?.trim() || null;
+    if (!label) return null;
+    const item = await this.prisma.catalogItem.findFirst({
+      where: { tenantId, type: CatalogType.cca, label, active: true },
+      select: { label: true },
+    });
+    if (!item) {
+      throw new BadRequestException(
+        "CCA inválido. Cadastre o CCA em Configurações.",
+      );
+    }
+    return item.label;
   }
 
   private async resolveLocalidadeIds(
@@ -169,6 +198,13 @@ export class ConstrutorasService {
       );
     }
     return unique;
+  }
+
+  private hideViabilizadorContatoIfNeeded<
+    T extends { viabilizadorContato: string | null },
+  >(item: T, requester: AuthenticatedUser): T {
+    if (requester.role !== Role.corretor) return item;
+    return { ...item, viabilizadorContato: null };
   }
 
   private assertAdmin(requester: AuthenticatedUser) {

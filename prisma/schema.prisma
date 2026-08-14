@@ -545,6 +545,8 @@ model Construtora {
   endereco            String?
   viabilizadorNome    String?
   viabilizadorContato String?
+  /// CCA cadastrado em Configurações (label do catálogo).
+  cca                 String?
   /// Pasta do Google Drive (hub de arquivos por construtora).
   driveFolderUrl      String?
 
@@ -1008,6 +1010,7 @@ enum CatalogType {
   documentacao_fonte
   documentacao_status1
   documentacao_status2
+  cca
 }
 
 /// Papel semântico da etapa no funil — dispara fluxos (análise, venda, perda)

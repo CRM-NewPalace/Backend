@@ -36,16 +36,20 @@ const ANALISTA_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.origem,
   CatalogType.motivo_perda,
   CatalogType.tag,
+  CatalogType.cca,
   CatalogType.documentacao_fonte,
   CatalogType.documentacao_status1,
   CatalogType.documentacao_status2,
 ]);
 
-/** Treinee: origens e tags. Motivos de perda são definidos pela gerência. */
+/** Treinee: origens, tags e CCAs. Motivos de perda são definidos pela gerência. */
 const TREINEE_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.origem,
   CatalogType.tag,
+  CatalogType.cca,
 ]);
+
+const HEX_COR = /^#[0-9A-Fa-f]{6}$/;
 
 const DOCUMENTACAO_CATALOG_DEFAULTS: Record<
   | typeof CatalogType.documentacao_fonte
@@ -108,6 +112,7 @@ export class CatalogService {
       [CatalogType.origem]: [],
       [CatalogType.motivo_perda]: [],
       [CatalogType.tag]: [],
+      [CatalogType.cca]: [],
       [CatalogType.documentacao_fonte]: [],
       [CatalogType.documentacao_status1]: [],
       [CatalogType.documentacao_status2]: [],
@@ -203,7 +208,7 @@ export class CatalogService {
         type: dto.type,
         label,
         slug: slugify(label),
-        color: dto.color?.trim() || null,
+        color: this.normalizeCatalogColor(dto.type, dto.color),
         sortOrder,
       },
     });
@@ -229,7 +234,7 @@ export class CatalogService {
       data: {
         ...(label ? { label } : {}),
         ...(dto.color !== undefined
-          ? { color: dto.color?.trim() || null }
+          ? { color: this.normalizeCatalogColor(existing.type, dto.color) }
           : {}),
         ...(dto.active !== undefined ? { active: dto.active } : {}),
       },
@@ -237,6 +242,12 @@ export class CatalogService {
 
     if (label && label !== existing.label) {
       await this.propagateDocumentacaoLabel(
+        tenantId,
+        existing.type,
+        existing.label,
+        label,
+      );
+      await this.propagateCcaLabel(
         tenantId,
         existing.type,
         existing.label,
@@ -370,6 +381,34 @@ export class CatalogService {
     }
   }
 
+  private async propagateCcaLabel(
+    tenantId: string,
+    type: CatalogType,
+    oldLabel: string,
+    newLabel: string,
+  ): Promise<void> {
+    if (type !== CatalogType.cca) return;
+    await this.prisma.construtora.updateMany({
+      where: { tenantId, cca: oldLabel },
+      data: { cca: newLabel },
+    });
+  }
+
+  private normalizeCatalogColor(
+    type: CatalogType,
+    color?: string | null,
+  ): string | null {
+    const trimmed = color?.trim() || null;
+    if (type !== CatalogType.cca) return trimmed;
+    if (!trimmed) return null;
+    if (!HEX_COR.test(trimmed)) {
+      throw new BadRequestException(
+        'Informe a cor do CCA no formato hexadecimal #RRGGBB.',
+      );
+    }
+    return trimmed.toUpperCase();
+  }
+
   private assertCanMutateCatalogType(
     requester: AuthenticatedUser,
     type: CatalogType,
@@ -391,12 +430,12 @@ export class CatalogService {
     }
     if (requester.role === Role.analista) {
       throw new ForbiddenException(
-        'Analistas só podem alterar documentação, origens, motivos de perda e tags.',
+        'Analistas só podem alterar documentação, origens, motivos de perda, tags e CCAs.',
       );
     }
     if (requester.role === Role.treinee) {
       throw new ForbiddenException(
-        'Treinees só podem alterar origens e tags.',
+        'Treinees só podem alterar origens, tags e CCAs.',
       );
     }
     if (requester.role === Role.corretor) {

@@ -25,8 +25,8 @@ import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
  * Catálogos configuráveis (funil, origens, motivos de perda, tags, documentação).
  * Leitura: qualquer usuário autenticado.
  * Mutação geral: admin e gerente.
- * Analista: documentação, origens, motivos de perda e tags (criar/editar/excluir).
- * Treinee: origens e tags.
+ * Analista: documentação, origens, motivos de perda, tags e CCAs (criar/editar/excluir).
+ * Treinee: origens, tags e CCAs.
  * Corretor: somente leitura (motivos de perda vêm da gerência).
  */
 @Controller('catalog')
