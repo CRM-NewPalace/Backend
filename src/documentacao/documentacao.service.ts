@@ -18,8 +18,6 @@ import { FunisService } from '../funis/funis.service';
 import { AnaliseService } from '../analise/analise.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
-  canonicalizeStatus1,
-  canonicalizeStatus2,
   isStatusAnalise,
   isStatusAprovado,
   isStatusParecerFinal,
@@ -288,12 +286,12 @@ export class DocumentacaoService {
       gerenteId = requester.id;
     }
 
-    const status1 = canonicalizeStatus1(dto.status1);
+    const status1 = dto.status1.trim();
     const parsedAnalise = parseOptionalDate(dto.dataAnalise);
     const dataAnalise =
       parsedAnalise ?? (isStatusAnalise(status1) ? todayDateOnly() : null);
 
-    const status2 = canonicalizeStatus2(dto.status2);
+    const status2 = dto.status2.trim();
     const createdAt = parseOptionalCreatedAt(dto.createdAt);
 
     // Uma ficha ativa por lead: evita duplicar (comercial + analista).
@@ -459,10 +457,10 @@ export class DocumentacaoService {
     }
     if (dto.fonte !== undefined) data.fonte = dto.fonte.trim();
     if (dto.status1 !== undefined) {
-      data.status1 = canonicalizeStatus1(dto.status1);
+      data.status1 = dto.status1.trim();
     }
     if (dto.status2 !== undefined) {
-      data.status2 = canonicalizeStatus2(dto.status2);
+      data.status2 = dto.status2.trim();
     }
     if (dto.corretorId !== undefined) {
       const resolvedCorretorId = await this.resolveCreditCorretorId(

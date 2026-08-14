@@ -18,6 +18,10 @@ import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
 import { slugify } from './catalog.util';
 import { isCorretorLike } from '../common/utils/roles';
 import {
+  canonicalizeStatus1,
+  canonicalizeStatus2,
+} from '../common/utils/documentacao-status';
+import {
   DEFAULT_DOCUMENTACAO_FONTES,
   DEFAULT_DOCUMENTACAO_STATUS1,
   DEFAULT_DOCUMENTACAO_STATUS2,
@@ -222,7 +226,7 @@ export class CatalogService {
     }
 
     // Slug não muda no rename: é o ID estável usado em Lead.stage e no histórico.
-    return this.prisma.catalogItem.update({
+    const updated = await this.prisma.catalogItem.update({
       where: { id },
       data: {
         ...(label ? { label } : {}),
@@ -232,6 +236,17 @@ export class CatalogService {
         ...(dto.active !== undefined ? { active: dto.active } : {}),
       },
     });
+
+    if (label && label !== existing.label) {
+      await this.propagateDocumentacaoLabel(
+        tenantId,
+        existing.type,
+        existing.label,
+        label,
+      );
+    }
+
+    return updated;
   }
 
   /** Soft-delete: mantém o item mas o remove das listas ativas. */
@@ -308,6 +323,53 @@ export class CatalogService {
    */
   async getDefaultStageSlug(tenantId: string): Promise<string> {
     return this.funisService.getDefaultStageSlug(tenantId);
+  }
+
+  /**
+   * Ao renomear status/fonte da documentação, atualiza as fichas que usam o rótulo antigo.
+   */
+  private async propagateDocumentacaoLabel(
+    tenantId: string,
+    type: CatalogType,
+    oldLabel: string,
+    newLabel: string,
+  ): Promise<void> {
+    const aliases = new Set<string>([oldLabel.trim()]);
+    if (type === CatalogType.documentacao_status1) {
+      aliases.add(canonicalizeStatus1(oldLabel));
+      await this.prisma.documentacao.updateMany({
+        where: {
+          tenantId,
+          OR: [...aliases].map((alias) => ({
+            status1: { equals: alias, mode: 'insensitive' as const },
+          })),
+        },
+        data: { status1: newLabel },
+      });
+      return;
+    }
+    if (type === CatalogType.documentacao_status2) {
+      aliases.add(canonicalizeStatus2(oldLabel));
+      await this.prisma.documentacao.updateMany({
+        where: {
+          tenantId,
+          OR: [...aliases].map((alias) => ({
+            status2: { equals: alias, mode: 'insensitive' as const },
+          })),
+        },
+        data: { status2: newLabel },
+      });
+      return;
+    }
+    if (type === CatalogType.documentacao_fonte) {
+      await this.prisma.documentacao.updateMany({
+        where: {
+          tenantId,
+          fonte: { equals: oldLabel, mode: 'insensitive' },
+        },
+        data: { fonte: newLabel },
+      });
+    }
   }
 
   private assertCanMutateCatalogType(
