@@ -9,6 +9,11 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { requireTenantId } from "../common/utils/tenant";
 import { prismaTableOrderBy } from "../common/utils/table-sort";
+import {
+  isStatusVendido,
+  status2VendidoWhere,
+} from "../common/utils/documentacao-status";
+import { TeamScopeService } from "../equipes/team-scope.service";
 import { QueryConstrutorasDto } from "./dto/query-construtoras.dto";
 import { CreateConstrutoraDto } from "./dto/create-construtora.dto";
 import { UpdateConstrutoraDto } from "./dto/update-construtora.dto";
@@ -44,9 +49,30 @@ function normalizeDriveFolderUrl(url?: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
+function isoDateOnly(value: Date | null | undefined) {
+  if (!value) return null;
+  return value.toISOString().slice(0, 10);
+}
+
+function resolveConstrutoraId(doc: {
+  construtoraId: string | null;
+  empreendimento: { construtoraId: string | null } | null;
+  lead: { construtoraId: string | null };
+}) {
+  return (
+    doc.construtoraId ??
+    doc.empreendimento?.construtoraId ??
+    doc.lead.construtoraId ??
+    null
+  );
+}
+
 @Injectable()
 export class ConstrutorasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly teamScope: TeamScopeService,
+  ) {}
 
   async list(query: QueryConstrutorasDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
@@ -70,9 +96,17 @@ export class ConstrutorasService {
       select: construtoraSelect,
       orderBy: prismaTableOrderBy(query.sort, "nome"),
     });
-    return items.map((item) =>
-      this.hideViabilizadorContatoIfNeeded(item, requester),
+    const vendasMap = await this.vendasTotaisPorConstrutora(
+      tenantId,
+      items.map((item) => item.id),
     );
+    return items.map((item) => {
+      const totais = vendasMap.get(item.id) ?? { vendas: 0, vgv: 0 };
+      return this.hideViabilizadorContatoIfNeeded(
+        { ...item, vendas: totais.vendas, vgv: totais.vgv },
+        requester,
+      );
+    });
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
@@ -82,7 +116,121 @@ export class ConstrutorasService {
       select: construtoraSelect,
     });
     if (!item) throw new NotFoundException("Construtora não encontrada.");
-    return this.hideViabilizadorContatoIfNeeded(item, requester);
+    const vendasMap = await this.vendasTotaisPorConstrutora(tenantId, [item.id]);
+    const totais = vendasMap.get(item.id) ?? { vendas: 0, vgv: 0 };
+    return this.hideViabilizadorContatoIfNeeded(
+      { ...item, vendas: totais.vendas, vgv: totais.vgv },
+      requester,
+    );
+  }
+
+  async listVendas(id: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const construtora = await this.prisma.construtora.findFirst({
+      where: { id, tenantId },
+      select: { id: true, nome: true, cor: true },
+    });
+    if (!construtora) {
+      throw new NotFoundException("Construtora não encontrada.");
+    }
+
+    const visibleIds = await this.teamScope.getVisibleCorretorIds(requester);
+    const rows = await this.prisma.documentacao.findMany({
+      where: {
+        tenantId,
+        AND: [status2VendidoWhere()],
+        OR: [
+          { construtoraId: id },
+          { construtoraId: null, empreendimento: { construtoraId: id } },
+          {
+            construtoraId: null,
+            empreendimentoId: null,
+            lead: { construtoraId: id },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        nome: true,
+        vgv: true,
+        dataVenda: true,
+        createdAt: true,
+        status2: true,
+        construtoraId: true,
+        corretor: {
+          select: {
+            id: true,
+            name: true,
+            creci: true,
+            equipe: { select: { gerente: { select: { name: true } } } },
+          },
+        },
+        gerente: { select: { name: true } },
+        empreendimento: {
+          select: { nome: true, construtoraId: true },
+        },
+        lead: {
+          select: {
+            construtoraId: true,
+            corretor: {
+              select: {
+                id: true,
+                name: true,
+                creci: true,
+                equipe: { select: { gerente: { select: { name: true } } } },
+              },
+            },
+            propostas: {
+              where: { clienteCpf: { not: null } },
+              select: { clienteCpf: true },
+              orderBy: { updatedAt: "desc" },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: [{ dataVenda: "desc" }, { createdAt: "desc" }],
+    });
+
+    const items = rows
+      .filter((row) => isStatusVendido(row.status2))
+      .filter((row) => resolveConstrutoraId(row) === id)
+      .map((row) => {
+        const corretor = row.corretor ?? row.lead.corretor;
+        return {
+          id: row.id,
+          corretorId: corretor?.id ?? null,
+          corretor: corretor?.name ?? "—",
+          creci: corretor?.creci ?? null,
+          gerente:
+            row.gerente?.name ??
+            corretor?.equipe?.gerente?.name ??
+            null,
+          empreendimento: row.empreendimento?.nome ?? null,
+          vgv: row.vgv ?? 0,
+          cliente: row.nome,
+          clienteCpf: row.lead.propostas[0]?.clienteCpf ?? null,
+          dataVenda: isoDateOnly(row.dataVenda ?? row.createdAt),
+        };
+      })
+      .filter((row) => {
+        if (visibleIds === null) return true;
+        if (!row.corretorId) return false;
+        return visibleIds.includes(row.corretorId);
+      });
+
+    const corretores = new Set(
+      items.map((item) => item.corretorId).filter(Boolean),
+    );
+    return {
+      construtora,
+      totais: {
+        vendas: items.length,
+        vgv: items.reduce((sum, item) => sum + item.vgv, 0),
+        corretores: corretores.size,
+      },
+      items,
+    };
   }
 
   async create(dto: CreateConstrutoraDto, requester: AuthenticatedUser) {
@@ -198,6 +346,50 @@ export class ConstrutorasService {
       );
     }
     return unique;
+  }
+
+  private async vendasTotaisPorConstrutora(
+    tenantId: string,
+    ids: string[],
+  ) {
+    const totais = new Map<string, { vendas: number; vgv: number }>();
+    if (ids.length === 0) return totais;
+    const idSet = new Set(ids);
+    const rows = await this.prisma.documentacao.findMany({
+      where: {
+        tenantId,
+        AND: [status2VendidoWhere()],
+        OR: [
+          { construtoraId: { in: ids } },
+          {
+            construtoraId: null,
+            empreendimento: { construtoraId: { in: ids } },
+          },
+          {
+            construtoraId: null,
+            empreendimentoId: null,
+            lead: { construtoraId: { in: ids } },
+          },
+        ],
+      },
+      select: {
+        vgv: true,
+        status2: true,
+        construtoraId: true,
+        empreendimento: { select: { construtoraId: true } },
+        lead: { select: { construtoraId: true } },
+      },
+    });
+    for (const row of rows) {
+      if (!isStatusVendido(row.status2)) continue;
+      const construtoraId = resolveConstrutoraId(row);
+      if (!construtoraId || !idSet.has(construtoraId)) continue;
+      const current = totais.get(construtoraId) ?? { vendas: 0, vgv: 0 };
+      current.vendas += 1;
+      current.vgv += row.vgv ?? 0;
+      totais.set(construtoraId, current);
+    }
+    return totais;
   }
 
   private hideViabilizadorContatoIfNeeded<

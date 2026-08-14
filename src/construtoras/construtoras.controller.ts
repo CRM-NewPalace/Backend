@@ -34,6 +34,15 @@ export class ConstrutorasController {
     return this.construtorasService.list(query, requester);
   }
 
+  @Get(":id/vendas")
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  listVendas(
+    @Param("id", ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.construtorasService.listVendas(id, requester);
+  }
+
   @Get(":id")
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
   findOne(
