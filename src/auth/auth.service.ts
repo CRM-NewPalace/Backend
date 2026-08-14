@@ -484,6 +484,7 @@ export class AuthService {
       whatsapp: user.whatsapp,
       dataNascimento: user.dataNascimento,
       cargo: user.cargo,
+      creci: user.creci,
       cor: user.cor,
       corAside: user.corAside,
       corPrincipal: user.corPrincipal,
