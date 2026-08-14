@@ -36,7 +36,7 @@ export class ConstrutorasController {
   }
 
   @Get(":id/vendas")
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente)
   listVendas(
     @Param("id", ParseUUIDPipe) id: string,
     @Query() query: QueryVendasPeriodoDto,

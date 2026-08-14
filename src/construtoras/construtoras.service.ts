@@ -106,6 +106,11 @@ export class ConstrutorasService {
       select: construtoraSelect,
       orderBy: prismaTableOrderBy(query.sort, "nome"),
     });
+    if (!this.canViewVendas(requester)) {
+      return items.map((item) =>
+        this.hideViabilizadorContatoIfNeeded(item, requester),
+      );
+    }
     const vendasMap = await this.vendasTotaisPorConstrutora(
       tenantId,
       items.map((item) => item.id),
@@ -126,6 +131,9 @@ export class ConstrutorasService {
       select: construtoraSelect,
     });
     if (!item) throw new NotFoundException("Construtora não encontrada.");
+    if (!this.canViewVendas(requester)) {
+      return this.hideViabilizadorContatoIfNeeded(item, requester);
+    }
     const vendasMap = await this.vendasTotaisPorConstrutora(tenantId, [item.id]);
     const totais = vendasMap.get(item.id) ?? { vendas: 0, vgv: 0 };
     return this.hideViabilizadorContatoIfNeeded(
@@ -139,6 +147,7 @@ export class ConstrutorasService {
     requester: AuthenticatedUser,
     periodo?: { mes?: number; ano?: number },
   ) {
+    this.assertCanViewVendas(requester);
     const tenantId = requireTenantId(requester);
     const construtora = await this.prisma.construtora.findFirst({
       where: { id, tenantId },
@@ -408,6 +417,18 @@ export class ConstrutorasService {
       totais.set(construtoraId, current);
     }
     return totais;
+  }
+
+  private canViewVendas(requester: AuthenticatedUser) {
+    return requester.role === Role.admin || requester.role === Role.gerente;
+  }
+
+  private assertCanViewVendas(requester: AuthenticatedUser) {
+    if (!this.canViewVendas(requester)) {
+      throw new ForbiddenException(
+        "Apenas administradores e gerentes podem ver vendas das construtoras.",
+      );
+    }
   }
 
   private hideViabilizadorContatoIfNeeded<
