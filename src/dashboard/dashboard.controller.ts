@@ -19,6 +19,20 @@ import { QueryDashboardDto } from './dto/query-dashboard.dto';
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
+  @Get('corretor/:id/vendas')
+  @Roles(Role.admin, Role.gerente)
+  listVendasCorretor(
+    @Param('id', ParseUUIDPipe) corretorId: string,
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query() query: QueryDashboardDto,
+  ) {
+    return this.dashboardService.listVendasCorretor(
+      corretorId,
+      requester,
+      query,
+    );
+  }
+
   @Get('corretor/:id/esteira')
   @Roles(Role.admin, Role.gerente)
   esteiraCorretor(

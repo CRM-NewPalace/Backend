@@ -1722,27 +1722,51 @@ export class DashboardService {
     const vendasPorConstrutora = await this.prisma.documentacao.findMany({
       where: {
         tenantId,
-        ...documentacaoVendaNoPeriodoWhere(mesAtual),
-        ...(origem ? { lead: { origem } } : {}),
-        ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+        AND: [
+          status2VendidoWhere(),
+          documentacaoVendaNoPeriodoWhere(mesAtual),
+          ...(origem ? [{ lead: { origem } }] : []),
+          ...(corretorIds
+            ? [
+                {
+                  OR: [
+                    { corretorId: { in: corretorIds } },
+                    { lead: { corretorId: { in: corretorIds } } },
+                  ],
+                },
+              ]
+            : []),
+        ],
       },
       select: {
         vgv: true,
+        status2: true,
         construtora: { select: { id: true, nome: true } },
+        empreendimento: {
+          select: { construtora: { select: { id: true, nome: true } } },
+        },
+        lead: {
+          select: { construtora: { select: { id: true, nome: true } } },
+        },
       },
     });
     const construtoraMap = vendasPorConstrutora.reduce(
       (map, item) => {
-        if (!item.construtora) return map;
-        const current = map.get(item.construtora.id) ?? {
-          construtoraId: item.construtora.id,
-          nome: item.construtora.nome,
+        if (!isStatusVendido(item.status2)) return map;
+        const construtora =
+          item.construtora ??
+          item.empreendimento?.construtora ??
+          item.lead.construtora;
+        if (!construtora) return map;
+        const current = map.get(construtora.id) ?? {
+          construtoraId: construtora.id,
+          nome: construtora.nome,
           vendas: 0,
           vgv: 0,
         };
         current.vendas += 1;
         current.vgv += moneyNumber(item.vgv);
-        map.set(item.construtora.id, current);
+        map.set(construtora.id, current);
         return map;
       },
       new Map<
@@ -1752,7 +1776,7 @@ export class DashboardService {
     );
     const construtoras = Array.from(construtoraMap.values())
       .sort((a, b) => b.vgv - a.vgv || b.vendas - a.vendas)
-      .slice(0, 5)
+      .slice(0, 10)
       .map((item, index) => ({ posicao: index + 1, ...item }));
 
     return {
@@ -1775,6 +1799,133 @@ export class DashboardService {
       corretores: rankingCorretores,
       gerentes: rankingGerentes,
       construtoras,
+    };
+  }
+
+  async listVendasCorretor(
+    corretorId: string,
+    requester: AuthenticatedUser,
+    filtros: { mes?: number; ano?: number } = {},
+  ) {
+    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
+      throw new ForbiddenException(
+        'Vendas do corretor disponíveis para admin e gerente.',
+      );
+    }
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      corretorId,
+    );
+    if (!allowed) {
+      throw new ForbiddenException('Corretor fora do seu escopo.');
+    }
+
+    const tenantId = requireTenantId(requester);
+    const { mesAtual } = janelasBrasil({
+      mes: filtros.mes,
+      ano: filtros.ano,
+    });
+    const corretor = await this.prisma.user.findFirst({
+      where: { id: corretorId, tenantId },
+      select: { id: true, name: true, creci: true },
+    });
+    if (!corretor) {
+      throw new NotFoundException('Corretor não encontrado.');
+    }
+
+    const rows = await this.prisma.documentacao.findMany({
+      where: {
+        tenantId,
+        AND: [
+          status2VendidoWhere(),
+          documentacaoVendaNoPeriodoWhere(mesAtual),
+          {
+            OR: [
+              { corretorId },
+              { lead: { corretorId } },
+            ],
+          },
+        ],
+      },
+      select: {
+        id: true,
+        nome: true,
+        vgv: true,
+        dataVenda: true,
+        createdAt: true,
+        status2: true,
+        construtora: { select: { nome: true } },
+        gerente: { select: { name: true } },
+        empreendimento: {
+          select: {
+            nome: true,
+            construtora: { select: { nome: true } },
+          },
+        },
+        corretor: {
+          select: {
+            id: true,
+            name: true,
+            creci: true,
+            equipe: { select: { gerente: { select: { name: true } } } },
+          },
+        },
+        lead: {
+          select: {
+            construtora: { select: { nome: true } },
+            corretor: {
+              select: {
+                id: true,
+                name: true,
+                creci: true,
+                equipe: { select: { gerente: { select: { name: true } } } },
+              },
+            },
+            propostas: {
+              where: { clienteCpf: { not: null } },
+              select: { clienteCpf: true },
+              orderBy: { updatedAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: [{ dataVenda: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const items = rows
+      .filter((row) => isStatusVendido(row.status2))
+      .map((row) => {
+        const credited = row.corretor ?? row.lead.corretor;
+        return {
+          id: row.id,
+          corretorId: credited?.id ?? corretor.id,
+          corretor: credited?.name ?? corretor.name,
+          creci: credited?.creci ?? corretor.creci,
+          gerente:
+            row.gerente?.name ??
+            credited?.equipe?.gerente?.name ??
+            null,
+          construtora:
+            row.construtora?.nome ??
+            row.empreendimento?.construtora?.nome ??
+            row.lead.construtora?.nome ??
+            null,
+          empreendimento: row.empreendimento?.nome ?? null,
+          vgv: moneyNumber(row.vgv),
+          cliente: row.nome,
+          clienteCpf: row.lead.propostas[0]?.clienteCpf ?? null,
+          dataVenda: (row.dataVenda ?? row.createdAt).toISOString().slice(0, 10),
+        };
+      });
+
+    return {
+      corretor,
+      totais: {
+        vendas: items.length,
+        vgv: items.reduce((sum, item) => sum + item.vgv, 0),
+      },
+      items,
     };
   }
 }

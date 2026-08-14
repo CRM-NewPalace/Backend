@@ -12,6 +12,7 @@ import { prismaTableOrderBy } from "../common/utils/table-sort";
 import {
   isStatusVendido,
   status2VendidoWhere,
+  documentacaoVendaNoPeriodoWhere,
 } from "../common/utils/documentacao-status";
 import { TeamScopeService } from "../equipes/team-scope.service";
 import { QueryConstrutorasDto } from "./dto/query-construtoras.dto";
@@ -47,6 +48,15 @@ function normalizeDriveFolderUrl(url?: string | null): string | null {
   if (url == null) return null;
   const trimmed = url.trim();
   return trimmed ? trimmed : null;
+}
+
+function periodoBrasil(mes?: number, ano?: number) {
+  if (mes == null || ano == null) return null;
+  const offsetMs = 3 * 60 * 60 * 1000;
+  return {
+    inicio: new Date(Date.UTC(ano, mes - 1, 1) + offsetMs),
+    fim: new Date(Date.UTC(ano, mes, 1) + offsetMs),
+  };
 }
 
 function isoDateOnly(value: Date | null | undefined) {
@@ -124,7 +134,11 @@ export class ConstrutorasService {
     );
   }
 
-  async listVendas(id: string, requester: AuthenticatedUser) {
+  async listVendas(
+    id: string,
+    requester: AuthenticatedUser,
+    periodo?: { mes?: number; ano?: number },
+  ) {
     const tenantId = requireTenantId(requester);
     const construtora = await this.prisma.construtora.findFirst({
       where: { id, tenantId },
@@ -135,10 +149,14 @@ export class ConstrutorasService {
     }
 
     const visibleIds = await this.teamScope.getVisibleCorretorIds(requester);
+    const janela = periodoBrasil(periodo?.mes, periodo?.ano);
     const rows = await this.prisma.documentacao.findMany({
       where: {
         tenantId,
-        AND: [status2VendidoWhere()],
+        AND: [
+          status2VendidoWhere(),
+          ...(janela ? [documentacaoVendaNoPeriodoWhere(janela)] : []),
+        ],
         OR: [
           { construtoraId: id },
           { construtoraId: null, empreendimento: { construtoraId: id } },

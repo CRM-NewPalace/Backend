@@ -18,6 +18,7 @@ import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { CreateConstrutoraDto } from "./dto/create-construtora.dto";
 import { UpdateConstrutoraDto } from "./dto/update-construtora.dto";
 import { QueryConstrutorasDto } from "./dto/query-construtoras.dto";
+import { QueryVendasPeriodoDto } from "./dto/query-vendas-periodo.dto";
 import { ConstrutorasService } from "./construtoras.service";
 
 @Controller("construtoras")
@@ -38,9 +39,10 @@ export class ConstrutorasController {
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
   listVendas(
     @Param("id", ParseUUIDPipe) id: string,
+    @Query() query: QueryVendasPeriodoDto,
     @CurrentUser() requester: AuthenticatedUser,
   ) {
-    return this.construtorasService.listVendas(id, requester);
+    return this.construtorasService.listVendas(id, requester, query);
   }
 
   @Get(":id")
