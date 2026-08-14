@@ -10,6 +10,7 @@ export const publicUserSelect = {
   whatsapp: true,
   dataNascimento: true,
   cargo: true,
+  creci: true,
   cor: true,
   corAside: true,
   corPrincipal: true,

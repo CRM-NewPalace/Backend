@@ -1,6 +1,7 @@
 import { Role, UserStatus } from '@prisma/client';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -22,6 +23,11 @@ export class QueryUsersDto {
   @IsOptional()
   @IsEnum(UserStatus, { message: 'Status inválido.' })
   status?: UserStatus;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  comCreci?: boolean;
 
   @IsOptional()
   @Type(() => Number)

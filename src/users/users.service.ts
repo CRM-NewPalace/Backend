@@ -85,6 +85,7 @@ export class UsersService {
         whatsapp: dto.whatsapp,
         dataNascimento: parseDataNascimento(dto.dataNascimento) ?? null,
         cargo: dto.cargo,
+        creci: dto.creci?.trim() || null,
         cor: normalizeCor(dto.cor),
         role: dto.role,
         status: dto.status ?? UserStatus.ativo,
@@ -197,7 +198,14 @@ export class UsersService {
               { name: { contains: query.search, mode: 'insensitive' } },
               { email: { contains: query.search, mode: 'insensitive' } },
               { cargo: { contains: query.search, mode: 'insensitive' } },
+              { phone: { contains: query.search, mode: 'insensitive' } },
+              { creci: { contains: query.search, mode: 'insensitive' } },
             ],
+          }
+        : {}),
+      ...(query.comCreci
+        ? {
+            AND: [{ creci: { not: null } }, { NOT: { creci: '' } }],
           }
         : {}),
     };
@@ -307,6 +315,9 @@ export class UsersService {
         ...(dto.whatsapp !== undefined ? { whatsapp: dto.whatsapp } : {}),
         ...(dataNascimento !== undefined ? { dataNascimento } : {}),
         ...(dto.cargo !== undefined ? { cargo: dto.cargo } : {}),
+        ...(dto.creci !== undefined
+          ? { creci: dto.creci?.trim() ? dto.creci.trim() : null }
+          : {}),
         ...(dto.cor !== undefined ? { cor: normalizeCor(dto.cor) } : {}),
         ...(dto.role !== undefined ? { role: dto.role } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),

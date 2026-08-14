@@ -52,6 +52,11 @@ export class CreateUserDto {
   cargo?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  creci?: string;
+
+  @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== '')
   @IsString()
   @Matches(/^#[0-9A-Fa-f]{6}$/, {

@@ -8,6 +8,7 @@ import {
   IsString,
   Matches,
   MinLength,
+  MaxLength,
   ValidateIf,
 } from 'class-validator';
 
@@ -39,6 +40,12 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   cargo?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsString()
+  @MaxLength(40)
+  creci?: string | null;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== '')

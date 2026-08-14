@@ -197,6 +197,8 @@ model User {
   /// Data de nascimento (útil no cadastro de corretor e demais usuários).
   dataNascimento DateTime?
   cargo     String?
+  /// CRECI do corretor/usuário, quando informado no cadastro.
+  creci     String?
   /// Cor de destaque em hex (#RRGGBB) para badges (ex.: Documentação).
   cor       String?
   /// Preferências visuais pessoais em hex (#RRGGBB).

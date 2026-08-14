@@ -119,6 +119,105 @@ export class AnaliseService {
     });
   }
 
+  /** Totais e ranking por corretor a partir das fichas reais de análise. */
+  async resumo(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    await this.backfillMissing(requester);
+
+    const isGlobal =
+      requester.role === Role.admin || requester.role === Role.analista;
+    const leadFilter: Prisma.LeadWhereInput = {
+      perdidoAt: null,
+      ...(isGlobal ? {} : await this.teamScope.leadScope(requester)),
+    };
+
+    const vendaSlugs = await this.funis.getSlugsByPapel(
+      tenantId,
+      FunilEtapaPapel.venda,
+    );
+    const vendaSet = new Set(vendaSlugs);
+
+    const rows = await this.prisma.analise.findMany({
+      where: { tenantId, lead: leadFilter },
+      select: {
+        status: true,
+        stageSituacao: true,
+        lead: {
+          select: {
+            stage: true,
+            corretorId: true,
+            corretor: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    const totais = {
+      emAnalise: 0,
+      aprovado: 0,
+      reprovado: 0,
+      vendidos: 0,
+    };
+    type RankingBucket = {
+      corretorId: string | null;
+      nome: string;
+      total: number;
+      emAnalise: number;
+      aprovados: number;
+      reprovados: number;
+      vendidos: number;
+    };
+    const byCorretor = new Map<string, RankingBucket>();
+
+    const isVendido = (stage: string, stageSituacao: string) =>
+      vendaSet.has(stage) || vendaSet.has(stageSituacao);
+
+    for (const row of rows) {
+      const vendido = isVendido(row.lead.stage, row.stageSituacao);
+      if (
+        row.status === AnaliseStatus.em_analise ||
+        row.status === AnaliseStatus.pendente
+      ) {
+        totais.emAnalise += 1;
+      } else if (row.status === AnaliseStatus.aprovado) {
+        totais.aprovado += 1;
+      } else if (row.status === AnaliseStatus.reprovado) {
+        totais.reprovado += 1;
+      }
+      if (vendido) totais.vendidos += 1;
+
+      const key = row.lead.corretorId ?? '__none__';
+      const bucket = byCorretor.get(key) ?? {
+        corretorId: row.lead.corretorId,
+        nome: row.lead.corretor?.name ?? 'Sem corretor',
+        total: 0,
+        emAnalise: 0,
+        aprovados: 0,
+        reprovados: 0,
+        vendidos: 0,
+      };
+      bucket.total += 1;
+      if (
+        row.status === AnaliseStatus.em_analise ||
+        row.status === AnaliseStatus.pendente
+      ) {
+        bucket.emAnalise += 1;
+      } else if (row.status === AnaliseStatus.aprovado) {
+        bucket.aprovados += 1;
+      } else if (row.status === AnaliseStatus.reprovado) {
+        bucket.reprovados += 1;
+      }
+      if (vendido) bucket.vendidos += 1;
+      byCorretor.set(key, bucket);
+    }
+
+    const ranking = [...byCorretor.values()].sort(
+      (a, b) => b.total - a.total || a.nome.localeCompare(b.nome, 'pt-BR'),
+    );
+
+    return { totais, ranking, vendaSlugs };
+  }
+
   async findOne(id: string, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     const item = await this.prisma.analise.findFirst({
