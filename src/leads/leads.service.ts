@@ -1030,6 +1030,23 @@ export class LeadsService {
       throw new BadRequestException('Informe o motivo da exclusão.');
     }
 
+    if (isCorretorLike(requester.role)) {
+      const catalogMotivo = await this.prisma.catalogItem.findFirst({
+        where: {
+          tenantId,
+          type: CatalogType.motivo_perda,
+          label: motivoTrim,
+          active: true,
+        },
+        select: { id: true },
+      });
+      if (!catalogMotivo) {
+        throw new BadRequestException(
+          'Use um motivo de perda cadastrado pela gerência.',
+        );
+      }
+    }
+
     const existing = await this.prisma.lead.findFirst({
       where: { id, tenantId },
       select: leadSelect,

@@ -27,7 +27,7 @@ import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
  * Mutação geral: admin e gerente.
  * Analista: documentação, origens, motivos de perda e tags (criar/editar/excluir).
  * Treinee: origens e tags.
- * Corretor: motivos de perda.
+ * Corretor: somente leitura (motivos de perda vêm da gerência).
  */
 @Controller('catalog')
 export class CatalogController {
@@ -47,7 +47,7 @@ export class CatalogController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee, Role.corretor)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   create(
     @Body() dto: CreateCatalogItemDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -75,7 +75,7 @@ export class CatalogController {
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee, Role.corretor)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCatalogItemDto,

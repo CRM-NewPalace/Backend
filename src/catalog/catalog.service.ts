@@ -16,7 +16,6 @@ import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 import { QueryCatalogDto } from './dto/query-catalog.dto';
 import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
 import { slugify } from './catalog.util';
-import { isCorretorLike } from '../common/utils/roles';
 import {
   canonicalizeStatus1,
   canonicalizeStatus2,
@@ -42,11 +41,10 @@ const ANALISTA_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.documentacao_status2,
 ]);
 
-/** Treinee: origens, tags e motivos de perda (igual ao corretor). */
+/** Treinee: origens e tags. Motivos de perda são definidos pela gerência. */
 const TREINEE_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.origem,
   CatalogType.tag,
-  CatalogType.motivo_perda,
 ]);
 
 const DOCUMENTACAO_CATALOG_DEFAULTS: Record<
@@ -391,12 +389,6 @@ export class CatalogService {
     ) {
       return;
     }
-    if (
-      isCorretorLike(requester.role) &&
-      type === CatalogType.motivo_perda
-    ) {
-      return;
-    }
     if (requester.role === Role.analista) {
       throw new ForbiddenException(
         'Analistas só podem alterar documentação, origens, motivos de perda e tags.',
@@ -409,7 +401,7 @@ export class CatalogService {
     }
     if (requester.role === Role.corretor) {
       throw new ForbiddenException(
-        'Corretores só podem criar ou editar motivos de perda.',
+        'Corretores não podem criar ou editar itens de catálogo. Use os motivos de perda cadastrados pela gerência.',
       );
     }
     throw new ForbiddenException('Sem permissão para alterar este catálogo.');
