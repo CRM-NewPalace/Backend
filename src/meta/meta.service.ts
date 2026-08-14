@@ -85,6 +85,146 @@ export class MetaService {
   }
 
   /**
+   * App em Development Mode não dispara webhook para lead de anúncio de
+   * quem não tem papel no app. A Graph API (token da Página) ainda lista
+   * esses leads — puxamos periodicamente e gravamos no CRM.
+   */
+  async syncActiveConnections(): Promise<{
+    created: number;
+    skipped: number;
+    failed: number;
+  }> {
+    const connections = await this.prisma.tenantMetaConnection.findMany({
+      where: { ativo: true },
+      select: { tenantId: true, pageAccessToken: true, pageId: true },
+    });
+
+    const totals = { created: 0, skipped: 0, failed: 0 };
+    for (const connection of connections) {
+      const result = await this.syncConnection(connection);
+      totals.created += result.created;
+      totals.skipped += result.skipped;
+      totals.failed += result.failed;
+    }
+    return totals;
+  }
+
+  private async syncConnection(connection: TenantMetaConn & { pageId: string }) {
+    const result = { created: 0, skipped: 0, failed: 0 };
+    let forms: { id: string }[];
+    try {
+      forms = await this.graphApi.listLeadgenForms(
+        connection.pageId,
+        connection.pageAccessToken,
+      );
+    } catch (error) {
+      result.failed += 1;
+      this.logger.error(
+        `Falha ao listar formulários page_id=${connection.pageId}: ${
+          error instanceof Error ? error.message : 'erro'
+        }`,
+      );
+      return result;
+    }
+
+    for (const form of forms) {
+      let leads: MetaLeadPayload[];
+      try {
+        leads = await this.graphApi.listFormLeads(
+          form.id,
+          connection.pageAccessToken,
+        );
+      } catch (error) {
+        result.failed += 1;
+        this.logger.error(
+          `Falha ao listar leads form_id=${form.id}: ${
+            error instanceof Error ? error.message : 'erro'
+          }`,
+        );
+        continue;
+      }
+
+      for (const metaLead of leads) {
+        try {
+          const outcome = await this.importGraphLead(
+            connection,
+            form.id,
+            metaLead,
+          );
+          if (outcome === 'created') result.created += 1;
+          else result.skipped += 1;
+        } catch (error) {
+          result.failed += 1;
+          this.logger.error(
+            `Falha ao importar leadgen_id=${metaLead.id}: ${
+              error instanceof Error ? error.message : 'erro'
+            }`,
+          );
+        }
+      }
+    }
+
+    this.logger.log(
+      `Sync Graph page_id=${connection.pageId} tenantId=${connection.tenantId} created=${result.created} skipped=${result.skipped} failed=${result.failed}`,
+    );
+    return result;
+  }
+
+  private async importGraphLead(
+    connection: TenantMetaConn & { pageId: string },
+    formId: string,
+    metaLead: MetaLeadPayload,
+  ): Promise<'created' | 'skipped'> {
+    const leadgenId = String(metaLead.id ?? '').trim();
+    if (!leadgenId || leadgenId === META_DUMMY_ID) return 'skipped';
+    if (this.isMetaPlaceholderLead(metaLead.field_data ?? [])) return 'skipped';
+
+    const existingLink = await this.prisma.leadMetaLink.findUnique({
+      where: { leadgenId },
+      select: { leadId: true },
+    });
+    if (existingLink) return 'skipped';
+
+    const event: LeadgenEvent = {
+      leadgenId,
+      pageId: connection.pageId,
+      formId: metaLead.form_id ?? formId,
+      adId: metaLead.ad_id ?? null,
+      adgroupId: null,
+      pageIdSource: 'value',
+    };
+    const mapped = this.mapFieldData(metaLead.field_data ?? []);
+
+    this.logger.log(
+      `Importando lead da Graph leadgen_id=${leadgenId} tenantId=${connection.tenantId}`,
+    );
+
+    const lead = await this.findOrCreateLead(
+      mapped,
+      event,
+      metaLead,
+      connection.tenantId,
+    );
+
+    await this.prisma.leadMetaLink.upsert({
+      where: { leadgenId },
+      create: {
+        leadId: lead.id,
+        leadgenId,
+        pageId: connection.pageId,
+        formId: event.formId ?? null,
+        adId: event.adId ?? null,
+      },
+      update: {},
+    });
+
+    this.logger.log(
+      `Lead importado leadgen_id=${leadgenId} crmLeadId=${lead.id} tenantId=${connection.tenantId}`,
+    );
+    return 'created';
+  }
+
+  /**
    * HTTP 200 mesmo sem connection: a Meta reenvia 4xx/5xx. Retry não cria a
    * connection; o teste dummy (page_id 444444444444) ficaria em loop.
    * O isolamento de tenant continua: sem connection, nenhum lead é gravado.
@@ -425,6 +565,14 @@ export class MetaService {
   private isDummyEvent(event: LeadgenEvent) {
     return (
       event.pageId === META_DUMMY_ID || event.leadgenId === META_DUMMY_ID
+    );
+  }
+
+  private isMetaPlaceholderLead(fields: MetaLeadField[]) {
+    return fields.some((field) =>
+      (field.values ?? []).some((value) =>
+        value.toLowerCase().includes('<test lead:'),
+      ),
     );
   }
 }

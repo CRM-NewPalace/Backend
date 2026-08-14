@@ -46,9 +46,16 @@ function createService(opts: {
     form_id?: string;
     ad_id?: string;
   };
+  graphForms?: { id: string; name?: string }[];
+  graphFormLeads?: {
+    id: string;
+    field_data: { name: string; values: string[] }[];
+    form_id?: string;
+  }[];
   graphError?: Error;
   duplicateDelivery?: boolean;
   existingLink?: { leadId: string } | null;
+  existingLeadgenIds?: string[];
 }) {
   const createdLeads: unknown[] = [];
   const deletedKeys: string[] = [];
@@ -82,7 +89,12 @@ function createService(opts: {
       },
     },
     leadMetaLink: {
-      findUnique: async () => opts.existingLink ?? null,
+      findUnique: async (args: { where: { leadgenId: string } }) => {
+        if (opts.existingLeadgenIds?.includes(args.where.leadgenId)) {
+          return { leadId: 'already-there' };
+        }
+        return opts.existingLink ?? null;
+      },
       upsert: async (args: unknown) => {
         upserts.push(args);
         return {};
@@ -113,6 +125,8 @@ function createService(opts: {
         }
       );
     },
+    listLeadgenForms: async () => opts.graphForms ?? [{ id: 'form-1' }],
+    listFormLeads: async () => opts.graphFormLeads ?? [],
   };
 
   const service = new MetaService(
@@ -211,5 +225,53 @@ describe('MetaService.handleWebhook', () => {
     const created = createdLeads[0] as { nome: string; tenantId: string };
     assert.equal(created.nome, 'Lead de teste Meta');
     assert.equal(created.tenantId, TENANT_ID);
+  });
+});
+
+describe('MetaService.syncActiveConnections', () => {
+  it('importa lead real da Graph e ignora placeholder da ferramenta de teste', async () => {
+    const { service, createdLeads } = createService({
+      connection: { tenantId: TENANT_ID, pageAccessToken: 'page-token' },
+      graphFormLeads: [
+        {
+          id: '1054456354112245',
+          field_data: [
+            {
+              name: 'full_name',
+              values: ['<test lead: dummy data for full_name>'],
+            },
+          ],
+        },
+        {
+          id: '1563367468605320',
+          field_data: [
+            { name: 'full_name', values: ['Carmen Guimaraes'] },
+            { name: 'phone_number', values: ['14996516819'] },
+          ],
+        },
+      ],
+    });
+    const result = await service.syncActiveConnections();
+    assert.equal(result.created, 1);
+    assert.equal(result.skipped, 1);
+    assert.equal(createdLeads.length, 1);
+    assert.equal((createdLeads[0] as { nome: string }).nome, 'Carmen Guimaraes');
+  });
+
+  it('não reimporta leadgen já vinculado', async () => {
+    const { service, createdLeads } = createService({
+      connection: { tenantId: TENANT_ID, pageAccessToken: 'page-token' },
+      existingLeadgenIds: ['1563367468605320'],
+      graphFormLeads: [
+        {
+          id: '1563367468605320',
+          field_data: [{ name: 'full_name', values: ['Carmen Guimaraes'] }],
+        },
+      ],
+    });
+    const result = await service.syncActiveConnections();
+    assert.equal(result.created, 0);
+    assert.equal(result.skipped, 1);
+    assert.equal(createdLeads.length, 0);
   });
 });
