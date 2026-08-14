@@ -459,11 +459,13 @@ export class DashboardService {
       this.prisma.documentacao.groupBy({
         by: ['status2'],
         where: docVendaWhere(mesAtual),
+        _count: { _all: true },
         _sum: { vgv: true },
       }),
       this.prisma.documentacao.groupBy({
         by: ['status2'],
         where: docVendaWhere(mesAnterior),
+        _count: { _all: true },
         _sum: { vgv: true },
       }),
       this.prisma.documentacao.groupBy({
@@ -607,14 +609,23 @@ export class DashboardService {
     );
     const metas = await this.buildMetasProgress(tenantId, metasAtivas);
 
-    const taxaConversao = (vendas: number, entradas: number) =>
-      entradas === 0 ? 0 : Number(((vendas / entradas) * 100).toFixed(1));
+    const taxaConversao = (vendas: number, documentacoes: number) =>
+      documentacoes === 0
+        ? 0
+        : Number(((vendas / documentacoes) * 100).toFixed(1));
 
-    const taxaMes = taxaConversao(vendasDaEntradaMes, entradasMes);
-    const taxaMesAnt = taxaConversao(
-      vendasDaEntradaMesAnt,
-      entradasMesAnt,
+    const docsMes = documentacaoStatusMes.reduce(
+      (total, row) => total + row._count._all,
+      0,
     );
+    const docsMesAnt = documentacaoStatusMesAnt.reduce(
+      (total, row) => total + row._count._all,
+      0,
+    );
+    const vendasDocsMes = countStatusVendido(vgvMes);
+    const vendasDocsMesAnt = countStatusVendido(vgvMesAnt);
+    const taxaMes = taxaConversao(vendasDocsMes, docsMes);
+    const taxaMesAnt = taxaConversao(vendasDocsMesAnt, docsMesAnt);
 
     const brasilAgora = new Date(windows.agora.getTime() - BRASIL_UTC_OFFSET_MS);
     const ehMesCorrente =
@@ -677,12 +688,13 @@ export class DashboardService {
             total: 0,
           })),
       /**
-       * Regra de negócio: % dos leads que entraram no período e viraram venda.
-       * Coorte = createdAt no mês; venda = etapa com papel venda ou documentação vendida.
+       * Conversão = vendas do mês ÷ documentações criadas no mês.
+       * Ex.: 60 fichas de documentação e 3 vendas → 5%.
        */
       conversao: {
         entradas: metric(entradasMes, entradasMesAnt),
-        vendas: metric(vendasDaEntradaMes, vendasDaEntradaMesAnt),
+        documentacoes: metric(docsMes, docsMesAnt),
+        vendas: metric(vendasDocsMes, vendasDocsMesAnt),
         taxa: metric(taxaMes, taxaMesAnt),
         vgv: metric(vgvMesTotal, vgvMesAntTotal),
       },
@@ -923,6 +935,48 @@ export class DashboardService {
     }
 
     return { vendas, vgv };
+  }
+
+  private async countDocumentacoesPorCorretor(
+    tenantId: string,
+    ids: string[],
+    periodo: Periodo,
+    origem?: string,
+  ) {
+    if (ids.length === 0) {
+      return [] as Array<{ corretorId: string; _count: { _all: number } }>;
+    }
+    const rows = await this.prisma.documentacao.findMany({
+      where: {
+        tenantId,
+        OR: [
+          { corretorId: { in: ids } },
+          { lead: { corretorId: { in: ids } } },
+        ],
+        createdAt: { gte: periodo.inicio, lt: periodo.fim },
+        ...(origem ? { lead: { origem } } : {}),
+      },
+      select: {
+        corretorId: true,
+        lead: { select: { corretorId: true } },
+      },
+    });
+    const counts = new Map<string, number>();
+    const idSet = new Set(ids);
+    for (const row of rows) {
+      const credited =
+        row.corretorId && idSet.has(row.corretorId)
+          ? row.corretorId
+          : row.lead.corretorId && idSet.has(row.lead.corretorId)
+            ? row.lead.corretorId
+            : null;
+      if (!credited) continue;
+      counts.set(credited, (counts.get(credited) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([corretorId, _all]) => ({
+      corretorId,
+      _count: { _all },
+    }));
   }
 
   private async buildRanking(
@@ -1335,8 +1389,10 @@ export class DashboardService {
     const origem = filtros.origem?.trim() || undefined;
     const origemWhere = origem ? { origem } : {};
     const corretorIds = await this.teamScope.getVisibleCorretorIds(requester);
-    const taxaConversao = (vendas: number, entradas: number) =>
-      entradas === 0 ? 0 : Number(((vendas / entradas) * 100).toFixed(1));
+    const taxaConversao = (vendas: number, documentacoes: number) =>
+      documentacoes === 0
+        ? 0
+        : Number(((vendas / documentacoes) * 100).toFixed(1));
 
     const [corretores, equipes, metasAtivas] = await Promise.all([
       this.prisma.user.findMany({
@@ -1424,6 +1480,7 @@ export class DashboardService {
       entradasMesAnt,
       visitasMes,
       docsMes,
+      docsMesAnt,
       vendasAtualAgg,
       vendasAnteriorAgg,
       perdidosMes,
@@ -1481,40 +1538,15 @@ export class DashboardService {
           }),
       ids.length === 0
         ? emptyGroup
-        : this.prisma.documentacao
-            .findMany({
-              where: {
-                tenantId,
-                OR: [
-                  { corretorId: { in: ids } },
-                  { lead: { corretorId: { in: ids } } },
-                ],
-                createdAt: { gte: mesAtual.inicio, lt: mesAtual.fim },
-                ...(origem ? { lead: { origem } } : {}),
-              },
-              select: {
-                corretorId: true,
-                lead: { select: { corretorId: true } },
-              },
-            })
-            .then((rows) => {
-              const counts = new Map<string, number>();
-              const idSet = new Set(ids);
-              for (const row of rows) {
-                const credited =
-                  row.corretorId && idSet.has(row.corretorId)
-                    ? row.corretorId
-                    : row.lead.corretorId && idSet.has(row.lead.corretorId)
-                      ? row.lead.corretorId
-                      : null;
-                if (!credited) continue;
-                counts.set(credited, (counts.get(credited) ?? 0) + 1);
-              }
-              return [...counts.entries()].map(([corretorId, _all]) => ({
-                corretorId,
-                _count: { _all },
-              }));
-            }),
+        : this.countDocumentacoesPorCorretor(tenantId, ids, mesAtual, origem),
+      ids.length === 0
+        ? emptyGroup
+        : this.countDocumentacoesPorCorretor(
+            tenantId,
+            ids,
+            mesAnterior,
+            origem,
+          ),
       this.aggregateVendasPorCorretor(tenantId, ids, mesAtual, {
         origem,
       }),
@@ -1550,6 +1582,7 @@ export class DashboardService {
       visitasMes.map((r) => [r.autorId!, r._count._all]),
     );
     const docsMap = toMap(docsMes);
+    const docsAntMap = toMap(docsMesAnt);
     const vendasMap = vendasAtualAgg.vendas;
     const vendasAntMap = vendasAnteriorAgg.vendas;
     const vgvMap = vendasAtualAgg.vgv;
@@ -1574,8 +1607,10 @@ export class DashboardService {
         const vendas = vendasMap.get(c.id) ?? 0;
         const vendasAnt = vendasAntMap.get(c.id) ?? 0;
         const entradasAnt = entradasAntMap.get(c.id) ?? 0;
-        const taxa = taxaConversao(vendas, entradas);
-        const taxaAnt = taxaConversao(vendasAnt, entradasAnt);
+        const documentacoes = docsMap.get(c.id) ?? 0;
+        const documentacoesAnt = docsAntMap.get(c.id) ?? 0;
+        const taxa = taxaConversao(vendas, documentacoes);
+        const taxaAnt = taxaConversao(vendasAnt, documentacoesAnt);
         return {
           corretorId: c.id,
           nome: c.name,
@@ -1586,7 +1621,7 @@ export class DashboardService {
           leads: leadsMap.get(c.id) ?? 0,
           entradas: metric(entradas, entradasAnt),
           visitas: visitasMap.get(c.id) ?? 0,
-          documentacoes: docsMap.get(c.id) ?? 0,
+          documentacoes,
           vendas: metric(vendas, vendasAnt),
           vgv: metric(vgvMap.get(c.id) ?? 0, vgvAntMap.get(c.id) ?? 0),
           taxaConversao: metric(taxa, taxaAnt),
@@ -1617,6 +1652,8 @@ export class DashboardService {
               let entradas = 0;
               let entradasAnt = 0;
               let visitas = 0;
+              let documentacoes = 0;
+              let documentacoesAnt = 0;
               let vendas = 0;
               let vendasAnt = 0;
               let vgv = 0;
@@ -1629,14 +1666,16 @@ export class DashboardService {
                 entradas += row.entradas.valor;
                 entradasAnt += row.entradas.valorMesAnterior;
                 visitas += row.visitas;
+                documentacoes += row.documentacoes;
+                documentacoesAnt += docsAntMap.get(m.id) ?? 0;
                 vendas += row.vendas.valor;
                 vendasAnt += row.vendas.valorMesAnterior;
                 vgv += row.vgv.valor;
                 vgvAnt += row.vgv.valorMesAnterior;
                 perdidos += row.perdidos;
               }
-              const taxa = taxaConversao(vendas, entradas);
-              const taxaAnt = taxaConversao(vendasAnt, entradasAnt);
+              const taxa = taxaConversao(vendas, documentacoes);
+              const taxaAnt = taxaConversao(vendasAnt, documentacoesAnt);
               return {
                 gerenteId: eq.gerente.id,
                 nome: eq.gerente.name,
@@ -1646,6 +1685,7 @@ export class DashboardService {
                 leads,
                 entradas: metric(entradas, entradasAnt),
                 visitas,
+                documentacoes,
                 vendas: metric(vendas, vendasAnt),
                 vgv: metric(vgv, vgvAnt),
                 taxaConversao: metric(taxa, taxaAnt),
@@ -1663,13 +1703,21 @@ export class DashboardService {
     const totais = rankingCorretores.reduce(
       (acc, r) => {
         acc.entradas += r.entradas.valor || 0;
+        acc.documentacoes += r.documentacoes || 0;
         acc.vendas += r.vendas.valor || 0;
         acc.vgv += r.vgv.valor || 0;
         acc.visitas += r.visitas || 0;
         acc.perdidos += r.perdidos || 0;
         return acc;
       },
-      { entradas: 0, vendas: 0, vgv: 0, visitas: 0, perdidos: 0 },
+      {
+        entradas: 0,
+        documentacoes: 0,
+        vendas: 0,
+        vgv: 0,
+        visitas: 0,
+        perdidos: 0,
+      },
     );
     const vendasPorConstrutora = await this.prisma.documentacao.findMany({
       where: {
@@ -1720,7 +1768,7 @@ export class DashboardService {
       },
       totais: {
         ...totais,
-        taxaConversao: taxaConversao(totais.vendas, totais.entradas),
+        taxaConversao: taxaConversao(totais.vendas, totais.documentacoes),
         corretores: rankingCorretores.length,
         gerentes: rankingGerentes.length,
       },
