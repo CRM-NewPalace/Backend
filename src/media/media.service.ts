@@ -9,7 +9,7 @@ import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 import sharp from 'sharp';
 import { IMAGE_MAX_BYTES } from './media.constants';
 
-const SHARP_FORMATS = new Set(['jpeg', 'jpg', 'png', 'webp']);
+const SHARP_FORMATS = new Set(['jpeg', 'png', 'webp']);
 
 export type UploadedMedia = {
   url: string;
@@ -41,7 +41,7 @@ export class MediaService {
         failOn: 'none',
         animated: false,
       }).metadata();
-      const format = meta.format === 'jpg' ? 'jpeg' : meta.format;
+      const format = meta.format;
       if (!format || !SHARP_FORMATS.has(format)) {
         throw new BadRequestException('Envie uma imagem JPG, PNG ou WebP.');
       }
