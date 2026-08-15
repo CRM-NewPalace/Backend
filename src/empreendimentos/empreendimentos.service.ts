@@ -241,10 +241,11 @@ export class EmpreendimentosService {
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
       requester.role !== Role.analista &&
-      requester.role !== Role.treinee
+      requester.role !== Role.treinee &&
+      requester.role !== Role.corretor
     ) {
       throw new ForbiddenException(
-        "Apenas administradores, gerentes, analistas e treinees podem editar empreendimentos.",
+        "Apenas administradores, gerentes, analistas, treinees e corretores podem editar empreendimentos.",
       );
     }
   }

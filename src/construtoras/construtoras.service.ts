@@ -366,7 +366,8 @@ export class ConstrutorasService {
         ...(dto.viabilizadorNome !== undefined
           ? { viabilizadorNome: dto.viabilizadorNome?.trim() || null }
           : {}),
-        ...(dto.viabilizadorContato !== undefined
+        ...(dto.viabilizadorContato !== undefined &&
+        requester.role !== Role.corretor
           ? { viabilizadorContato: dto.viabilizadorContato?.trim() || null }
           : {}),
         ...(cca !== undefined ? { cca } : {}),
@@ -517,10 +518,11 @@ export class ConstrutorasService {
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
       requester.role !== Role.analista &&
-      requester.role !== Role.treinee
+      requester.role !== Role.treinee &&
+      requester.role !== Role.corretor
     ) {
       throw new ForbiddenException(
-        "Apenas administradores, gerentes, analistas e treinees podem editar construtoras.",
+        "Apenas administradores, gerentes, analistas, treinees e corretores podem editar construtoras.",
       );
     }
   }
@@ -530,10 +532,11 @@ export class ConstrutorasService {
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
       requester.role !== Role.analista &&
-      requester.role !== Role.treinee
+      requester.role !== Role.treinee &&
+      requester.role !== Role.corretor
     ) {
       throw new ForbiddenException(
-        "Apenas administradores, gerentes, analistas e treinees podem cadastrar construtoras.",
+        "Apenas administradores, gerentes, analistas, treinees e corretores podem cadastrar construtoras.",
       );
     }
   }

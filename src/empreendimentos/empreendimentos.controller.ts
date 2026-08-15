@@ -72,7 +72,7 @@ export class EmpreendimentosController {
   }
 
   @Patch(":id")
-  @Roles(...IMAGE_ROLES)
+  @Roles(...IMAGE_ROLES, Role.corretor)
   update(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateEmpreendimentoDto,

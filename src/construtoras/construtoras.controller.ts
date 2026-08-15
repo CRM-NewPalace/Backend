@@ -24,7 +24,13 @@ import { QueryConstrutorasDto } from "./dto/query-construtoras.dto";
 import { QueryVendasPeriodoDto } from "./dto/query-vendas-periodo.dto";
 import { ConstrutorasService } from "./construtoras.service";
 
-const IMAGE_ROLES = [Role.admin, Role.gerente, Role.analista, Role.treinee] as const;
+const IMAGE_ROLES = [
+  Role.admin,
+  Role.gerente,
+  Role.analista,
+  Role.treinee,
+  Role.corretor,
+] as const;
 
 @Controller("construtoras")
 @UseGuards(RolesGuard)

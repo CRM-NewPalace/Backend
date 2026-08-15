@@ -30,7 +30,7 @@ export class LocalidadesController {
   }
 
   @Post()
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee, Role.corretor)
   create(
     @Body() dto: CreateLocalidadeDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -39,7 +39,7 @@ export class LocalidadesController {
   }
 
   @Patch(":id")
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee, Role.corretor)
   update(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateLocalidadeDto,
@@ -49,7 +49,7 @@ export class LocalidadesController {
   }
 
   @Delete(":id")
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee, Role.corretor)
   remove(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
