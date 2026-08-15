@@ -549,6 +549,9 @@ model Construtora {
   cca                 String?
   /// Pasta do Google Drive (hub de arquivos por construtora).
   driveFolderUrl      String?
+  /// Logo única (Cloudinary).
+  logoUrl             String?
+  logoPublicId        String?
 
   empreendimentos Empreendimento[]
   documentacoes   Documentacao[]
@@ -599,7 +602,10 @@ model Empreendimento {
   banheiros   Int?
   areaM2      Float?
   externalUrl String?
+  /// Capa (primeira da galeria). Mantida para listagens.
   imagemUrl   String?
+  /// Galeria (máx. 2): [{ "url": string, "publicId": string }]
+  imagens     Json    @default("[]")
   /// Chave estável interna (ex.: manual-slug-timestamp).
   externalKey String
   ativo       Boolean @default(true)

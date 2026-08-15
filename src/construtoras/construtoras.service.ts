@@ -18,6 +18,7 @@ import { TeamScopeService } from "../equipes/team-scope.service";
 import { QueryConstrutorasDto } from "./dto/query-construtoras.dto";
 import { CreateConstrutoraDto } from "./dto/create-construtora.dto";
 import { UpdateConstrutoraDto } from "./dto/update-construtora.dto";
+import { MediaService } from "../media/media.service";
 
 const construtoraSelect = {
   id: true,
@@ -29,6 +30,8 @@ const construtoraSelect = {
   viabilizadorContato: true,
   cca: true,
   driveFolderUrl: true,
+  logoUrl: true,
+  logoPublicId: true,
   createdAt: true,
   updatedAt: true,
   localidades: {
@@ -82,6 +85,7 @@ export class ConstrutorasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teamScope: TeamScopeService,
+    private readonly media: MediaService,
   ) {}
 
   async list(query: QueryConstrutorasDto, requester: AuthenticatedUser) {
@@ -107,9 +111,7 @@ export class ConstrutorasService {
       orderBy: prismaTableOrderBy(query.sort, "nome"),
     });
     if (!this.canViewVendas(requester)) {
-      return items.map((item) =>
-        this.hideViabilizadorContatoIfNeeded(item, requester),
-      );
+      return items.map((item) => this.expose(item, requester));
     }
     const vendasMap = await this.vendasTotaisPorConstrutora(
       tenantId,
@@ -117,7 +119,7 @@ export class ConstrutorasService {
     );
     return items.map((item) => {
       const totais = vendasMap.get(item.id) ?? { vendas: 0, vgv: 0 };
-      return this.hideViabilizadorContatoIfNeeded(
+      return this.expose(
         { ...item, vendas: totais.vendas, vgv: totais.vgv },
         requester,
       );
@@ -132,11 +134,11 @@ export class ConstrutorasService {
     });
     if (!item) throw new NotFoundException("Construtora não encontrada.");
     if (!this.canViewVendas(requester)) {
-      return this.hideViabilizadorContatoIfNeeded(item, requester);
+      return this.expose(item, requester);
     }
     const vendasMap = await this.vendasTotaisPorConstrutora(tenantId, [item.id]);
     const totais = vendasMap.get(item.id) ?? { vendas: 0, vgv: 0 };
-    return this.hideViabilizadorContatoIfNeeded(
+    return this.expose(
       { ...item, vendas: totais.vendas, vgv: totais.vgv },
       requester,
     );
@@ -283,7 +285,55 @@ export class ConstrutorasService {
           : {}),
       },
       select: construtoraSelect,
+    }).then((item) => this.expose(item, requester));
+  }
+
+  async uploadLogo(
+    id: string,
+    rawFile: Express.Multer.File | undefined,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertCanManage(requester);
+    const tenantId = requireTenantId(requester);
+    const row = await this.prisma.construtora.findFirst({
+      where: { id, tenantId },
+      select: construtoraSelect,
     });
+    if (!row) throw new NotFoundException("Construtora não encontrada.");
+    const file = this.media.requireFile(rawFile);
+    const uploaded = await this.media.uploadImage({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      folder: this.media.folder(tenantId, "construtoras", id),
+      maxWidth: 800,
+      maxHeight: 800,
+    });
+    await this.media.destroy(row.logoPublicId);
+    return this.prisma.construtora
+      .update({
+        where: { id },
+        data: { logoUrl: uploaded.url, logoPublicId: uploaded.publicId },
+        select: construtoraSelect,
+      })
+      .then((item) => this.expose(item, requester));
+  }
+
+  async removeLogo(id: string, requester: AuthenticatedUser) {
+    this.assertCanManage(requester);
+    const tenantId = requireTenantId(requester);
+    const row = await this.prisma.construtora.findFirst({
+      where: { id, tenantId },
+      select: construtoraSelect,
+    });
+    if (!row) throw new NotFoundException("Construtora não encontrada.");
+    await this.media.destroy(row.logoPublicId);
+    return this.prisma.construtora
+      .update({
+        where: { id },
+        data: { logoUrl: null, logoPublicId: null },
+        select: construtoraSelect,
+      })
+      .then((item) => this.expose(item, requester));
   }
 
   async update(
@@ -328,12 +378,18 @@ export class ConstrutorasService {
           : {}),
       },
       select: construtoraSelect,
-    });
+    }).then((item) => this.expose(item, requester));
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
     this.assertAdmin(requester);
-    await this.findOne(id, requester);
+    const tenantId = requireTenantId(requester);
+    const row = await this.prisma.construtora.findFirst({
+      where: { id, tenantId },
+      select: { id: true, logoPublicId: true },
+    });
+    if (!row) throw new NotFoundException("Construtora não encontrada.");
+    await this.media.destroy(row.logoPublicId);
     await this.prisma.construtora.delete({ where: { id } });
     return { ok: true };
   }
@@ -429,6 +485,16 @@ export class ConstrutorasService {
         "Apenas administradores e gerentes podem ver vendas das construtoras.",
       );
     }
+  }
+
+  private expose<
+    T extends {
+      logoPublicId: string | null;
+      viabilizadorContato: string | null;
+    },
+  >(item: T, requester: AuthenticatedUser) {
+    const { logoPublicId: _publicId, ...rest } = item;
+    return this.hideViabilizadorContatoIfNeeded(rest, requester);
   }
 
   private hideViabilizadorContatoIfNeeded<

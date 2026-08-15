@@ -1,9 +1,10 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { requireTenantId } from "../common/utils/tenant";
@@ -12,9 +13,17 @@ import { UpdateEmpreendimentoDto } from "./dto/update-empreendimento.dto";
 import { QueryEmpreendimentosDto } from "./dto/query-empreendimentos.dto";
 import { normalizeCor } from "../common/utils/cor";
 import { prismaTableOrderBy } from "../common/utils/table-sort";
+import { MediaService } from "../media/media.service";
+import {
+  EMPREENDIMENTO_MAX_IMAGES,
+  resolveEmpreendimentoImages,
+  serializeStoredImages,
+  type StoredImage,
+} from "../media/stored-image";
 
 const empreendimentoSelect = {
   id: true,
+  tenantId: true,
   nome: true,
   cor: true,
   construtoraId: true,
@@ -25,6 +34,7 @@ const empreendimentoSelect = {
   areaM2: true,
   externalUrl: true,
   imagemUrl: true,
+  imagens: true,
   externalKey: true,
   ativo: true,
   createdAt: true,
@@ -32,13 +42,20 @@ const empreendimentoSelect = {
   construtora: { select: { id: true, nome: true, cor: true } },
 } as const;
 
+type EmpreendimentoRow = Prisma.EmpreendimentoGetPayload<{
+  select: typeof empreendimentoSelect;
+}>;
+
 @Injectable()
 export class EmpreendimentosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly media: MediaService,
+  ) {}
 
-  list(query: QueryEmpreendimentosDto, requester: AuthenticatedUser) {
+  async list(query: QueryEmpreendimentosDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    return this.prisma.empreendimento.findMany({
+    const items = await this.prisma.empreendimento.findMany({
       where: {
         tenantId,
         ...(query.construtoraId ? { construtoraId: query.construtoraId } : {}),
@@ -47,9 +64,20 @@ export class EmpreendimentosService {
       select: empreendimentoSelect,
       orderBy: prismaTableOrderBy(query.sort, "nome"),
     });
+    return items.map((item) => this.present(item));
   }
 
   async findOne(id: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const item = await this.prisma.empreendimento.findFirst({
+      where: { id, tenantId },
+      select: empreendimentoSelect,
+    });
+    if (!item) throw new NotFoundException("Empreendimento não encontrado.");
+    return this.present(item);
+  }
+
+  private async findRow(id: string, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     const item = await this.prisma.empreendimento.findFirst({
       where: { id, tenantId },
@@ -85,11 +113,12 @@ export class EmpreendimentosService {
         areaM2: dto.areaM2 ?? null,
         externalUrl: dto.externalUrl?.trim() || null,
         imagemUrl: null,
+        imagens: [],
         externalKey: `manual-${key}-${Date.now()}`,
         ativo: dto.ativo ?? true,
       },
       select: empreendimentoSelect,
-    });
+    }).then((item) => this.present(item));
   }
 
   async update(
@@ -98,7 +127,7 @@ export class EmpreendimentosService {
     requester: AuthenticatedUser,
   ) {
     this.assertCanManage(requester);
-    await this.findOne(id, requester);
+    await this.findRow(id, requester);
     return this.prisma.empreendimento.update({
       where: { id },
       data: {
@@ -122,14 +151,81 @@ export class EmpreendimentosService {
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },
       select: empreendimentoSelect,
+    }).then((item) => this.present(item));
+  }
+
+  async uploadImagem(
+    id: string,
+    rawFile: Express.Multer.File | undefined,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertCanManage(requester);
+    const row = await this.findRow(id, requester);
+    const current = resolveEmpreendimentoImages(row);
+    if (current.length >= EMPREENDIMENTO_MAX_IMAGES) {
+      throw new BadRequestException(
+        `Cada empreendimento pode ter no máximo ${EMPREENDIMENTO_MAX_IMAGES} imagens.`,
+      );
+    }
+    const file = this.media.requireFile(rawFile);
+    const uploaded = await this.media.uploadImage({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      folder: this.media.folder(row.tenantId, "empreendimentos", row.id),
+      maxWidth: 1920,
+      maxHeight: 1280,
     });
+    const next = [...current, uploaded];
+    return this.persistImagens(row.id, next);
+  }
+
+  async removeImagem(
+    id: string,
+    index: number,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertCanManage(requester);
+    const row = await this.findRow(id, requester);
+    const current = resolveEmpreendimentoImages(row);
+    if (index < 0 || index >= current.length) {
+      throw new NotFoundException("Imagem não encontrada.");
+    }
+    const [removed] = current.splice(index, 1);
+    await this.media.destroy(removed?.publicId);
+    return this.persistImagens(row.id, current);
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
     this.assertCanRemove(requester);
-    await this.findOne(id, requester);
+    const row = await this.findRow(id, requester);
+    await this.media.destroyMany(
+      resolveEmpreendimentoImages(row).map((image) => image.publicId),
+    );
     await this.prisma.empreendimento.delete({ where: { id } });
     return { ok: true };
+  }
+
+  private persistImagens(id: string, images: StoredImage[]) {
+    return this.prisma.empreendimento
+      .update({
+        where: { id },
+        data: {
+          imagens: serializeStoredImages(images),
+          imagemUrl: images[0]?.url ?? null,
+        },
+        select: empreendimentoSelect,
+      })
+      .then((item) => this.present(item));
+  }
+
+  private present(item: EmpreendimentoRow) {
+    const stored = resolveEmpreendimentoImages(item);
+    const { tenantId: _tenantId, ...rest } = item;
+    return {
+      ...rest,
+      imagens: stored.map((image) => image.url),
+      imagemUrl: stored[0]?.url ?? null,
+    };
   }
 
   private assertCanRemove(requester: AuthenticatedUser) {

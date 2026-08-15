@@ -4,21 +4,27 @@ import {
   Delete,
   Get,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import { Role } from "@prisma/client";
 import { Roles } from "../common/decorators/roles.decorator";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { imageUploadInterceptor } from "../media/media.constants";
 import { CreateEmpreendimentoDto } from "./dto/create-empreendimento.dto";
 import { UpdateEmpreendimentoDto } from "./dto/update-empreendimento.dto";
 import { QueryEmpreendimentosDto } from "./dto/query-empreendimentos.dto";
 import { EmpreendimentosService } from "./empreendimentos.service";
+
+const IMAGE_ROLES = [Role.admin, Role.gerente, Role.analista, Role.treinee] as const;
 
 @Controller("empreendimentos")
 @UseGuards(RolesGuard)
@@ -46,7 +52,7 @@ export class EmpreendimentosController {
   }
 
   @Post()
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
+  @Roles(...IMAGE_ROLES)
   create(
     @Body() dto: CreateEmpreendimentoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -54,14 +60,35 @@ export class EmpreendimentosController {
     return this.empreendimentosService.create(dto, requester);
   }
 
+  @Post(":id/imagens")
+  @Roles(...IMAGE_ROLES)
+  @UseInterceptors(imageUploadInterceptor())
+  uploadImagem(
+    @Param("id", ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.empreendimentosService.uploadImagem(id, file, requester);
+  }
+
   @Patch(":id")
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
+  @Roles(...IMAGE_ROLES)
   update(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateEmpreendimentoDto,
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.empreendimentosService.update(id, dto, requester);
+  }
+
+  @Delete(":id/imagens/:index")
+  @Roles(...IMAGE_ROLES)
+  removeImagem(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("index", ParseIntPipe) index: number,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.empreendimentosService.removeImagem(id, index, requester);
   }
 
   @Delete(":id")
