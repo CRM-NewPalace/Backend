@@ -98,7 +98,7 @@ export class MediaService {
         `Falha no upload Cloudinary: ${this.errorMessage(error)}`,
       );
       throw new ServiceUnavailableException(
-        'Não foi possível enviar a imagem. Confira CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET no Render.',
+        this.cloudinaryFailureMessage(error),
       );
     }
   }
@@ -137,8 +137,16 @@ export class MediaService {
     const apiKey = this.config.get<string>('CLOUDINARY_API_KEY')?.trim();
     const apiSecret = this.config.get<string>('CLOUDINARY_API_SECRET')?.trim();
     if (!cloudName || !apiKey || !apiSecret) {
+      const missing = [
+        !cloudName ? 'CLOUDINARY_CLOUD_NAME' : null,
+        !apiKey ? 'CLOUDINARY_API_KEY' : null,
+        !apiSecret ? 'CLOUDINARY_API_SECRET' : null,
+      ].filter(Boolean);
+      this.logger.error(
+        `Cloudinary incompleto no servidor. Faltando: ${missing.join(', ')}.`,
+      );
       throw new ServiceUnavailableException(
-        'Upload de imagens não está configurado. No Render, defina CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET.',
+        `Upload de imagens não está configurado. No Dokploy, defina ${missing.join(', ')} e faça um novo deploy.`,
       );
     }
     cloudinary.config({
@@ -150,10 +158,33 @@ export class MediaService {
     this.configured = true;
   }
 
+  private cloudinaryFailureMessage(error: unknown): string {
+    const code = this.httpCode(error);
+    if (code === 401 || code === 403) {
+      return 'Credenciais do Cloudinary inválidas. No Dokploy, confira CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET e faça um novo deploy.';
+    }
+    return 'Não foi possível enviar a imagem. No Dokploy, confira CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET e faça um novo deploy.';
+  }
+
+  private httpCode(error: unknown): number | null {
+    if (!error || typeof error !== 'object') return null;
+    const rec = error as Record<string, unknown>;
+    const nested =
+      rec.error && typeof rec.error === 'object'
+        ? (rec.error as Record<string, unknown>)
+        : rec;
+    const code = nested.http_code ?? rec.http_code;
+    return typeof code === 'number' ? code : null;
+  }
+
   private errorMessage(error: unknown): string {
     if (error && typeof error === 'object') {
       const rec = error as Record<string, unknown>;
-      const message = rec.message ?? rec.error;
+      const nested =
+        rec.error && typeof rec.error === 'object'
+          ? (rec.error as Record<string, unknown>)
+          : null;
+      const message = nested?.message ?? rec.message ?? rec.error;
       if (typeof message === 'string' && message.trim()) return message.trim();
     }
     return error instanceof Error ? error.message : 'erro desconhecido';
