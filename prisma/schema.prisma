@@ -574,7 +574,8 @@ model Localidade {
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   nome     String
 
-  construtoras Construtora[] @relation("ConstrutoraLocalidades")
+  construtoras    Construtora[]     @relation("ConstrutoraLocalidades")
+  empreendimentos Empreendimento[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -583,6 +584,19 @@ model Localidade {
   @@index([tenantId])
   @@index([nome])
   @@map("localidades")
+}
+
+enum EmpreendimentoTipo {
+  vertical
+  casa
+  loteamento
+  comercial
+}
+
+enum EmpreendimentoStatus {
+  lancamento
+  em_obras
+  pronto
 }
 
 /// Empreendimento / imóvel (cadastro manual + vínculo opcional à construtora).
@@ -596,8 +610,19 @@ model Empreendimento {
   construtoraId String?
   construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
 
+  localidadeId String?
+  localidade   Localidade? @relation(fields: [localidadeId], references: [id], onDelete: SetNull)
+
   cidade      String?
   endereco    String?
+  tipo        EmpreendimentoTipo?
+  status      EmpreendimentoStatus?
+  previsaoEntrega DateTime? @db.Date
+  litoral     Boolean @default(false)
+  aceitaFgts  Boolean @default(false)
+  aceitaMcmv  Boolean @default(false)
+  aceitaCaixa Boolean @default(false)
+  observacao  String?
   quartos     Int?
   banheiros   Int?
   areaM2      Float?
@@ -620,6 +645,7 @@ model Empreendimento {
   @@unique([tenantId, externalKey])
   @@index([tenantId])
   @@index([construtoraId])
+  @@index([localidadeId])
   @@index([ativo])
   @@index([nome])
   @@map("empreendimentos")

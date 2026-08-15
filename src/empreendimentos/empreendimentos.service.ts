@@ -27,8 +27,17 @@ const empreendimentoSelect = {
   nome: true,
   cor: true,
   construtoraId: true,
+  localidadeId: true,
   cidade: true,
   endereco: true,
+  tipo: true,
+  status: true,
+  previsaoEntrega: true,
+  litoral: true,
+  aceitaFgts: true,
+  aceitaMcmv: true,
+  aceitaCaixa: true,
+  observacao: true,
   quartos: true,
   banheiros: true,
   areaM2: true,
@@ -40,6 +49,7 @@ const empreendimentoSelect = {
   createdAt: true,
   updatedAt: true,
   construtora: { select: { id: true, nome: true, cor: true } },
+  localidade: { select: { id: true, nome: true } },
 } as const;
 
 type EmpreendimentoRow = Prisma.EmpreendimentoGetPayload<{
@@ -99,6 +109,10 @@ export class EmpreendimentosService {
         throw new NotFoundException("Construtora não encontrada.");
       }
     }
+    const localidade = await this.resolveLocalidade(
+      tenantId,
+      dto.localidadeId,
+    );
     const key = this.slugify(dto.nome);
     return this.prisma.empreendimento.create({
       data: {
@@ -106,8 +120,17 @@ export class EmpreendimentosService {
         nome: dto.nome.trim(),
         cor: normalizeCor(dto.cor),
         construtoraId: dto.construtoraId ?? null,
-        cidade: dto.cidade?.trim() || null,
+        localidadeId: localidade?.id ?? null,
+        cidade: dto.cidade?.trim() || localidade?.nome || null,
         endereco: dto.endereco?.trim() || null,
+        tipo: dto.tipo ?? null,
+        status: dto.status ?? null,
+        previsaoEntrega: this.toDate(dto.previsaoEntrega),
+        litoral: dto.litoral ?? false,
+        aceitaFgts: dto.aceitaFgts ?? false,
+        aceitaMcmv: dto.aceitaMcmv ?? false,
+        aceitaCaixa: dto.aceitaCaixa ?? false,
+        observacao: dto.observacao?.trim() || null,
         quartos: dto.quartos ?? null,
         banheiros: dto.banheiros ?? null,
         areaM2: dto.areaM2 ?? null,
@@ -127,7 +150,11 @@ export class EmpreendimentosService {
     requester: AuthenticatedUser,
   ) {
     this.assertCanManage(requester);
-    await this.findRow(id, requester);
+    const row = await this.findRow(id, requester);
+    const localidade =
+      dto.localidadeId !== undefined
+        ? await this.resolveLocalidade(row.tenantId, dto.localidadeId)
+        : undefined;
     return this.prisma.empreendimento.update({
       where: { id },
       data: {
@@ -136,11 +163,32 @@ export class EmpreendimentosService {
         ...(dto.construtoraId !== undefined
           ? { construtoraId: dto.construtoraId }
           : {}),
+        ...(dto.localidadeId !== undefined
+          ? { localidadeId: localidade?.id ?? null }
+          : {}),
         ...(dto.cidade !== undefined
           ? { cidade: dto.cidade?.trim() || null }
-          : {}),
+          : localidade
+            ? { cidade: localidade.nome }
+            : dto.localidadeId === null
+              ? { cidade: null }
+              : {}),
         ...(dto.endereco !== undefined
           ? { endereco: dto.endereco?.trim() || null }
+          : {}),
+        ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.previsaoEntrega !== undefined
+          ? { previsaoEntrega: this.toDate(dto.previsaoEntrega) }
+          : {}),
+        ...(dto.litoral !== undefined ? { litoral: dto.litoral } : {}),
+        ...(dto.aceitaFgts !== undefined ? { aceitaFgts: dto.aceitaFgts } : {}),
+        ...(dto.aceitaMcmv !== undefined ? { aceitaMcmv: dto.aceitaMcmv } : {}),
+        ...(dto.aceitaCaixa !== undefined
+          ? { aceitaCaixa: dto.aceitaCaixa }
+          : {}),
+        ...(dto.observacao !== undefined
+          ? { observacao: dto.observacao?.trim() || null }
           : {}),
         ...(dto.quartos !== undefined ? { quartos: dto.quartos } : {}),
         ...(dto.banheiros !== undefined ? { banheiros: dto.banheiros } : {}),
@@ -220,12 +268,37 @@ export class EmpreendimentosService {
 
   private present(item: EmpreendimentoRow) {
     const stored = resolveEmpreendimentoImages(item);
-    const { tenantId: _tenantId, ...rest } = item;
+    const { tenantId: _tenantId, previsaoEntrega, ...rest } = item;
     return {
       ...rest,
+      previsaoEntrega: previsaoEntrega
+        ? previsaoEntrega.toISOString().slice(0, 10)
+        : null,
       imagens: stored.map((image) => image.url),
       imagemUrl: stored[0]?.url ?? null,
     };
+  }
+
+  private toDate(value?: string | null) {
+    if (value === undefined) return undefined;
+    if (!value) return null;
+    const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private async resolveLocalidade(
+    tenantId: string,
+    localidadeId?: string | null,
+  ) {
+    if (!localidadeId) return null;
+    const localidade = await this.prisma.localidade.findFirst({
+      where: { id: localidadeId, tenantId },
+      select: { id: true, nome: true },
+    });
+    if (!localidade) {
+      throw new NotFoundException("Localidade não encontrada.");
+    }
+    return localidade;
   }
 
   private assertCanRemove(requester: AuthenticatedUser) {
