@@ -38,7 +38,7 @@ import { FunisService } from '../funis/funis.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
-const DIAS_PARADO_DEFAULT = 7;
+const DIAS_PARADO_DEFAULT = 3;
 
 type Periodo = { inicio: Date; fim: Date };
 
