@@ -33,10 +33,7 @@ const empreendimentoSelect = {
   tipo: true,
   status: true,
   previsaoEntrega: true,
-  litoral: true,
-  aceitaFgts: true,
-  aceitaMcmv: true,
-  aceitaCaixa: true,
+  tags: true,
   observacao: true,
   quartos: true,
   banheiros: true,
@@ -123,13 +120,10 @@ export class EmpreendimentosService {
         localidadeId: localidade?.id ?? null,
         cidade: dto.cidade?.trim() || localidade?.nome || null,
         endereco: dto.endereco?.trim() || null,
-        tipo: dto.tipo ?? null,
-        status: dto.status ?? null,
+        tipo: dto.tipo?.trim() || null,
+        status: dto.status?.trim() || null,
         previsaoEntrega: this.toDate(dto.previsaoEntrega),
-        litoral: dto.litoral ?? false,
-        aceitaFgts: dto.aceitaFgts ?? false,
-        aceitaMcmv: dto.aceitaMcmv ?? false,
-        aceitaCaixa: dto.aceitaCaixa ?? false,
+        tags: this.normalizeTags(dto.tags),
         observacao: dto.observacao?.trim() || null,
         quartos: dto.quartos ?? null,
         banheiros: dto.banheiros ?? null,
@@ -176,17 +170,14 @@ export class EmpreendimentosService {
         ...(dto.endereco !== undefined
           ? { endereco: dto.endereco?.trim() || null }
           : {}),
-        ...(dto.tipo !== undefined ? { tipo: dto.tipo } : {}),
-        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.tipo !== undefined ? { tipo: dto.tipo?.trim() || null } : {}),
+        ...(dto.status !== undefined
+          ? { status: dto.status?.trim() || null }
+          : {}),
         ...(dto.previsaoEntrega !== undefined
           ? { previsaoEntrega: this.toDate(dto.previsaoEntrega) }
           : {}),
-        ...(dto.litoral !== undefined ? { litoral: dto.litoral } : {}),
-        ...(dto.aceitaFgts !== undefined ? { aceitaFgts: dto.aceitaFgts } : {}),
-        ...(dto.aceitaMcmv !== undefined ? { aceitaMcmv: dto.aceitaMcmv } : {}),
-        ...(dto.aceitaCaixa !== undefined
-          ? { aceitaCaixa: dto.aceitaCaixa }
-          : {}),
+        ...(dto.tags !== undefined ? { tags: this.normalizeTags(dto.tags) } : {}),
         ...(dto.observacao !== undefined
           ? { observacao: dto.observacao?.trim() || null }
           : {}),
@@ -277,6 +268,21 @@ export class EmpreendimentosService {
       imagens: stored.map((image) => image.url),
       imagemUrl: stored[0]?.url ?? null,
     };
+  }
+
+  private normalizeTags(tags?: string[] | null) {
+    if (!tags) return [];
+    const seen = new Set<string>();
+    const next: string[] = [];
+    for (const tag of tags) {
+      const label = tag.trim();
+      if (!label) continue;
+      const key = label.toLocaleLowerCase("pt-BR");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      next.push(label);
+    }
+    return next;
   }
 
   private toDate(value?: string | null) {

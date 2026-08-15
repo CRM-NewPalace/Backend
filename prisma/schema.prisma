@@ -586,19 +586,6 @@ model Localidade {
   @@map("localidades")
 }
 
-enum EmpreendimentoTipo {
-  vertical
-  casa
-  loteamento
-  comercial
-}
-
-enum EmpreendimentoStatus {
-  lancamento
-  em_obras
-  pronto
-}
-
 /// Empreendimento / imóvel (cadastro manual + vínculo opcional à construtora).
 model Empreendimento {
   id            String  @id @default(uuid())
@@ -615,13 +602,10 @@ model Empreendimento {
 
   cidade      String?
   endereco    String?
-  tipo        EmpreendimentoTipo?
-  status      EmpreendimentoStatus?
+  tipo        String?
+  status      String?
   previsaoEntrega DateTime? @db.Date
-  litoral     Boolean @default(false)
-  aceitaFgts  Boolean @default(false)
-  aceitaMcmv  Boolean @default(false)
-  aceitaCaixa Boolean @default(false)
+  tags        String[] @default([])
   observacao  String?
   quartos     Int?
   banheiros   Int?
@@ -1043,6 +1027,9 @@ enum CatalogType {
   documentacao_status1
   documentacao_status2
   cca
+  empreendimento_tipo
+  empreendimento_status
+  empreendimento_tag
 }
 
 /// Papel semântico da etapa no funil — dispara fluxos (análise, venda, perda)

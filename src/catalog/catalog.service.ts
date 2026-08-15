@@ -24,6 +24,9 @@ import {
   DEFAULT_DOCUMENTACAO_FONTES,
   DEFAULT_DOCUMENTACAO_STATUS1,
   DEFAULT_DOCUMENTACAO_STATUS2,
+  DEFAULT_EMPREENDIMENTO_STATUS,
+  DEFAULT_EMPREENDIMENTO_TAGS,
+  DEFAULT_EMPREENDIMENTO_TIPOS,
   DEFAULT_INITIAL_STAGE_SLUG,
   DEFAULT_MOTIVOS_PERDA,
 } from './catalog.defaults';
@@ -40,13 +43,19 @@ const ANALISTA_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.documentacao_fonte,
   CatalogType.documentacao_status1,
   CatalogType.documentacao_status2,
+  CatalogType.empreendimento_tipo,
+  CatalogType.empreendimento_status,
+  CatalogType.empreendimento_tag,
 ]);
 
-/** Treinee: origens, tags e CCAs. Motivos de perda são definidos pela gerência. */
+/** Treinee: origens, tags, CCAs e catálogos de empreendimento. Motivos de perda são definidos pela gerência. */
 const TREINEE_CATALOG_TYPES = new Set<CatalogType>([
   CatalogType.origem,
   CatalogType.tag,
   CatalogType.cca,
+  CatalogType.empreendimento_tipo,
+  CatalogType.empreendimento_status,
+  CatalogType.empreendimento_tag,
 ]);
 
 const HEX_COR = /^#[0-9A-Fa-f]{6}$/;
@@ -96,6 +105,7 @@ export class CatalogService {
     const tenantId = requireTenantId(requester);
     await this.ensureDocumentacaoCatalogDefaults(tenantId);
     await this.ensureMotivoPerdaDefaults(tenantId);
+    await this.ensureEmpreendimentoCatalogDefaults(tenantId);
 
     const items = await this.prisma.catalogItem.findMany({
       where: {
@@ -116,6 +126,9 @@ export class CatalogService {
       [CatalogType.documentacao_fonte]: [],
       [CatalogType.documentacao_status1]: [],
       [CatalogType.documentacao_status2]: [],
+      [CatalogType.empreendimento_tipo]: [],
+      [CatalogType.empreendimento_status]: [],
+      [CatalogType.empreendimento_tag]: [],
     } as GroupedCatalog;
 
     if (activeOnly) {
@@ -178,6 +191,45 @@ export class CatalogService {
           active: true,
         },
       });
+    }
+  }
+
+  private async ensureEmpreendimentoCatalogDefaults(tenantId: string) {
+    const defaults: Array<{
+      type: CatalogType;
+      items: readonly { label: string; color: string }[];
+    }> = [
+      {
+        type: CatalogType.empreendimento_tipo,
+        items: DEFAULT_EMPREENDIMENTO_TIPOS,
+      },
+      {
+        type: CatalogType.empreendimento_status,
+        items: DEFAULT_EMPREENDIMENTO_STATUS,
+      },
+      {
+        type: CatalogType.empreendimento_tag,
+        items: DEFAULT_EMPREENDIMENTO_TAGS,
+      },
+    ];
+    for (const group of defaults) {
+      const count = await this.prisma.catalogItem.count({
+        where: { tenantId, type: group.type },
+      });
+      if (count > 0) continue;
+      for (const [index, item] of group.items.entries()) {
+        await this.prisma.catalogItem.create({
+          data: {
+            tenantId,
+            type: group.type,
+            label: item.label,
+            slug: slugify(item.label),
+            color: item.color,
+            sortOrder: index,
+            active: true,
+          },
+        });
+      }
     }
   }
 
@@ -248,6 +300,12 @@ export class CatalogService {
         label,
       );
       await this.propagateCcaLabel(
+        tenantId,
+        existing.type,
+        existing.label,
+        label,
+      );
+      await this.propagateEmpreendimentoLabel(
         tenantId,
         existing.type,
         existing.label,
@@ -381,6 +439,41 @@ export class CatalogService {
     }
   }
 
+  private async propagateEmpreendimentoLabel(
+    tenantId: string,
+    type: CatalogType,
+    oldLabel: string,
+    newLabel: string,
+  ): Promise<void> {
+    if (type === CatalogType.empreendimento_tipo) {
+      await this.prisma.empreendimento.updateMany({
+        where: { tenantId, tipo: oldLabel },
+        data: { tipo: newLabel },
+      });
+      return;
+    }
+    if (type === CatalogType.empreendimento_status) {
+      await this.prisma.empreendimento.updateMany({
+        where: { tenantId, status: oldLabel },
+        data: { status: newLabel },
+      });
+      return;
+    }
+    if (type !== CatalogType.empreendimento_tag) return;
+    const rows = await this.prisma.empreendimento.findMany({
+      where: { tenantId, tags: { has: oldLabel } },
+      select: { id: true, tags: true },
+    });
+    for (const row of rows) {
+      await this.prisma.empreendimento.update({
+        where: { id: row.id },
+        data: {
+          tags: row.tags.map((tag) => (tag === oldLabel ? newLabel : tag)),
+        },
+      });
+    }
+  }
+
   private async propagateCcaLabel(
     tenantId: string,
     type: CatalogType,
@@ -430,12 +523,12 @@ export class CatalogService {
     }
     if (requester.role === Role.analista) {
       throw new ForbiddenException(
-        'Analistas só podem alterar documentação, origens, motivos de perda, tags e CCAs.',
+        'Analistas só podem alterar documentação, origens, motivos de perda, tags, CCAs e catálogos de imóveis.',
       );
     }
     if (requester.role === Role.treinee) {
       throw new ForbiddenException(
-        'Treinees só podem alterar origens, tags e CCAs.',
+        'Treinees só podem alterar origens, tags, CCAs e catálogos de imóveis.',
       );
     }
     if (requester.role === Role.corretor) {

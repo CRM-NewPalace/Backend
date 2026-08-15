@@ -1,7 +1,7 @@
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
-  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -14,7 +14,6 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { EmpreendimentoStatus, EmpreendimentoTipo } from '@prisma/client';
 import { HEX_COR_REGEX } from '../../common/utils/cor';
 
 function emptyToNull({ value }: { value: unknown }) {
@@ -65,15 +64,15 @@ export class CreateEmpreendimentoDto {
 
   @IsOptional()
   @Transform(emptyToNull)
-  @ValidateIf((_, v) => v !== null && v !== undefined)
-  @IsEnum(EmpreendimentoTipo, { message: 'Tipo de empreendimento inválido.' })
-  tipo?: EmpreendimentoTipo | null;
+  @IsString()
+  @MaxLength(80)
+  tipo?: string | null;
 
   @IsOptional()
   @Transform(emptyToNull)
-  @ValidateIf((_, v) => v !== null && v !== undefined)
-  @IsEnum(EmpreendimentoStatus, { message: 'Status do empreendimento inválido.' })
-  status?: EmpreendimentoStatus | null;
+  @IsString()
+  @MaxLength(80)
+  status?: string | null;
 
   @IsOptional()
   @Transform(toDateOnly)
@@ -82,20 +81,10 @@ export class CreateEmpreendimentoDto {
   previsaoEntrega?: string | null;
 
   @IsOptional()
-  @IsBoolean()
-  litoral?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  aceitaFgts?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  aceitaMcmv?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  aceitaCaixa?: boolean;
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  tags?: string[];
 
   @IsOptional()
   @IsString()
