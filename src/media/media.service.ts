@@ -7,7 +7,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 import sharp from 'sharp';
-import { IMAGE_MAX_BYTES, IMAGE_MIMES } from './media.constants';
+import { IMAGE_MAX_BYTES } from './media.constants';
+
+const SHARP_FORMATS = new Set(['jpeg', 'jpg', 'png', 'webp']);
 
 export type UploadedMedia = {
   url: string;
@@ -29,16 +31,24 @@ export class MediaService {
     maxHeight: number;
   }): Promise<UploadedMedia> {
     this.ensureConfigured();
-    if (!IMAGE_MIMES.includes(params.mimetype as (typeof IMAGE_MIMES)[number])) {
-      throw new BadRequestException('Envie uma imagem JPG, PNG ou WebP.');
-    }
     if (params.buffer.length > IMAGE_MAX_BYTES) {
       throw new BadRequestException('A imagem deve ter no máximo 5 MB.');
     }
 
     let processed: Buffer;
     try {
-      processed = await sharp(params.buffer, { failOn: 'error' })
+      const meta = await sharp(params.buffer, {
+        failOn: 'none',
+        animated: false,
+      }).metadata();
+      const format = meta.format === 'jpg' ? 'jpeg' : meta.format;
+      if (!format || !SHARP_FORMATS.has(format)) {
+        throw new BadRequestException('Envie uma imagem JPG, PNG ou WebP.');
+      }
+      processed = await sharp(params.buffer, {
+        failOn: 'none',
+        animated: false,
+      })
         .rotate()
         .resize(params.maxWidth, params.maxHeight, {
           fit: 'inside',
@@ -46,38 +56,51 @@ export class MediaService {
         })
         .webp({ quality: 82 })
         .toBuffer();
-    } catch {
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.warn(
+        `Imagem rejeitada (${params.mimetype}): ${this.errorMessage(error)}`,
+      );
       throw new BadRequestException('Arquivo de imagem inválido.');
     }
 
-    const result = await new Promise<UploadApiResponse>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: params.folder,
-          resource_type: 'image',
-          unique_filename: true,
-          overwrite: false,
-          format: 'webp',
-        },
-        (error, uploaded) => {
-          if (error || !uploaded) {
-            reject(error ?? new Error('Falha no upload da imagem.'));
-            return;
-          }
-          resolve(uploaded);
-        },
-      );
-      stream.end(processed);
-    });
+    try {
+      const result = await new Promise<UploadApiResponse>((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: params.folder,
+            resource_type: 'image',
+            unique_filename: true,
+            overwrite: false,
+          },
+          (error, uploaded) => {
+            if (error || !uploaded) {
+              reject(error ?? new Error('Falha no upload da imagem.'));
+              return;
+            }
+            resolve(uploaded);
+          },
+        );
+        stream.end(processed);
+      });
 
-    const url = result.secure_url?.trim();
-    const publicId = result.public_id?.trim();
-    if (!url || !publicId) {
+      const url = result.secure_url?.trim();
+      const publicId = result.public_id?.trim();
+      if (!url || !publicId) {
+        throw new ServiceUnavailableException(
+          'O Cloudinary não retornou a URL da imagem.',
+        );
+      }
+      return { url, publicId };
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      this.logger.error(
+        `Falha no upload Cloudinary: ${this.errorMessage(error)}`,
+      );
       throw new ServiceUnavailableException(
-        'O Cloudinary não retornou a URL da imagem.',
+        'Não foi possível enviar a imagem. Confira CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET no Render.',
       );
     }
-    return { url, publicId };
   }
 
   async destroy(publicId: string | null | undefined): Promise<void> {
@@ -88,9 +111,7 @@ export class MediaService {
       await cloudinary.uploader.destroy(id, { resource_type: 'image' });
     } catch (error) {
       this.logger.warn(
-        `Não foi possível remover a imagem ${id} no Cloudinary: ${
-          error instanceof Error ? error.message : 'erro desconhecido'
-        }`,
+        `Não foi possível remover a imagem ${id} no Cloudinary: ${this.errorMessage(error)}`,
       );
     }
   }
@@ -105,7 +126,7 @@ export class MediaService {
 
   requireFile(file?: Express.Multer.File): Express.Multer.File {
     if (!file?.buffer?.length) {
-      throw new BadRequestException('Envie uma imagem.');
+      throw new BadRequestException('Envie uma imagem JPG, PNG ou WebP.');
     }
     return file;
   }
@@ -117,7 +138,7 @@ export class MediaService {
     const apiSecret = this.config.get<string>('CLOUDINARY_API_SECRET')?.trim();
     if (!cloudName || !apiKey || !apiSecret) {
       throw new ServiceUnavailableException(
-        'Upload de imagens não está configurado. Defina CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET.',
+        'Upload de imagens não está configurado. No Render, defina CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET.',
       );
     }
     cloudinary.config({
@@ -127,5 +148,14 @@ export class MediaService {
       secure: true,
     });
     this.configured = true;
+  }
+
+  private errorMessage(error: unknown): string {
+    if (error && typeof error === 'object') {
+      const rec = error as Record<string, unknown>;
+      const message = rec.message ?? rec.error;
+      if (typeof message === 'string' && message.trim()) return message.trim();
+    }
+    return error instanceof Error ? error.message : 'erro desconhecido';
   }
 }
