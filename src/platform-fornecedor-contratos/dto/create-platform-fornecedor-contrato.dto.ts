@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsDateString,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -8,6 +9,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { FinanceiroTituloTipo } from '@prisma/client';
 
 export class CreatePlatformFornecedorContratoDto {
   @IsUUID()
@@ -15,6 +17,10 @@ export class CreatePlatformFornecedorContratoDto {
 
   @IsString()
   titulo!: string;
+
+  @IsOptional()
+  @IsEnum(FinanceiroTituloTipo)
+  tipo?: FinanceiroTituloTipo;
 
   @IsString()
   centro!: string;

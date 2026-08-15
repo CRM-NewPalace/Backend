@@ -828,9 +828,17 @@ export class FinanceiroService {
           ...(tipo ? { tipo } : {}),
           ...(grupoParcelasId ? { grupoParcelasId } : {}),
           ...(origem === "contrato"
-            ? { platformContratoId: { not: null } }
+            ? {
+                OR: [
+                  { platformContratoId: { not: null } },
+                  { platformFornecedorContratoId: { not: null } },
+                ],
+              }
             : origem === "normal"
-              ? { platformContratoId: null }
+              ? {
+                  platformContratoId: null,
+                  platformFornecedorContratoId: null,
+                }
               : {}),
         },
         include: { movimento: { select: { formaPagamento: true } } },
@@ -2846,7 +2854,7 @@ export class FinanceiroService {
         categoria: t.categoria,
         centro: t.centro,
         status: t.status,
-        contrato: Boolean(t.platformContratoId),
+        contrato: Boolean(t.platformContratoId || t.platformFornecedorContratoId),
       });
     }
 
@@ -3268,6 +3276,7 @@ export class FinanceiroService {
     parcela: string;
     grupoParcelasId?: string | null;
     platformContratoId?: string | null;
+    platformFornecedorContratoId?: string | null;
     movimento?: { formaPagamento: string } | null;
   }) {
     return {
@@ -3284,7 +3293,8 @@ export class FinanceiroService {
       status: row.status,
       parcela: row.parcela,
       grupoParcelasId: row.grupoParcelasId ?? null,
-      platformContratoId: row.platformContratoId ?? null,
+      platformContratoId:
+        row.platformContratoId ?? row.platformFornecedorContratoId ?? null,
       formaPagamento: row.movimento?.formaPagamento || "",
     };
   }

@@ -5,7 +5,7 @@ import {
   Role,
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { PLATFORM_TENANT_ID } from '../common/utils/tenant';
+import { resolveFinanceiroTenantId } from '../common/utils/tenant';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlatformFornecedorContratoDto } from './dto/create-platform-fornecedor-contrato.dto';
@@ -33,14 +33,23 @@ export class PlatformFornecedorContratosService {
     dto: CreatePlatformFornecedorContratoDto,
     requester: AuthenticatedUser,
   ) {
-    if (requester.role !== Role.super_admin) {
-      throw new ForbiddenException('Apenas o administrador da plataforma pode criar contratos de fornecedor.');
-    }
+    this.assertAccess(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const tituloTipo =
+      dto.tipo === FinanceiroTituloTipo.receber
+        ? FinanceiroTituloTipo.receber
+        : FinanceiroTituloTipo.pagar;
 
     const parceiro = await this.prisma.financeiroParceiro.findFirst({
-      where: { id: dto.parceiroId, tenantId: PLATFORM_TENANT_ID, ativo: true },
+      where: { id: dto.parceiroId, tenantId, ativo: true },
     });
-    if (!parceiro) throw new NotFoundException('Fornecedor não encontrado.');
+    if (!parceiro) {
+      throw new NotFoundException(
+        tituloTipo === FinanceiroTituloTipo.receber
+          ? 'Parceiro não encontrado.'
+          : 'Fornecedor não encontrado.',
+      );
+    }
 
     const adesaoCount = dto.valorAdesao > 0 ? dto.qtdParcelasAdesao ?? 1 : 0;
     const adhesionValues = adesaoCount ? splitValue(dto.valorAdesao, adesaoCount) : [];
@@ -81,15 +90,16 @@ export class PlatformFornecedorContratosService {
       await tx.platformFornecedorContratoParcela.createMany({
         data: parcelas.map((parcela) => ({ ...parcela, contratoId: contrato.id })),
       });
+      const categoria = dto.centro.trim();
       await tx.financeiroTitulo.createMany({
         data: parcelas.map((parcela) => ({
-          tenantId: PLATFORM_TENANT_ID,
-          tipo: FinanceiroTituloTipo.pagar,
+          tenantId,
+          tipo: tituloTipo,
           descricao: `${dto.titulo.trim()} — ${parcela.descricao}`,
           parceiroId: parceiro.id,
           parceiroNome: parceiro.nome,
-          categoria: dto.centro.trim(),
-          centro: dto.centro.trim(),
+          categoria,
+          centro: tituloTipo === FinanceiroTituloTipo.pagar ? categoria : '',
           vencimento: parcela.vencimento,
           valor: parcela.valor,
           status: FinanceiroTituloStatus.aberto,
@@ -103,12 +113,23 @@ export class PlatformFornecedorContratosService {
   }
 
   list(requester: AuthenticatedUser) {
-    if (requester.role !== Role.super_admin) {
-      throw new ForbiddenException('Apenas o administrador da plataforma pode consultar contratos de fornecedor.');
-    }
+    this.assertAccess(requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
     return this.prisma.platformFornecedorContrato.findMany({
+      where: { parceiro: { tenantId } },
       include: { parceiro: true, parcelas: { orderBy: { numero: 'asc' } } },
       orderBy: { vencimento: 'asc' },
     });
+  }
+
+  private assertAccess(requester: AuthenticatedUser) {
+    if (
+      requester.role !== Role.admin &&
+      requester.role !== Role.super_admin
+    ) {
+      throw new ForbiddenException(
+        'Somente administradores gerenciam contratos financeiros.',
+      );
+    }
   }
 }
