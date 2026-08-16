@@ -1125,7 +1125,8 @@ export class LeadsService {
 
   /**
    * Lista corretores ativos para o select de atribuição.
-   * Admin/gerente/analista: todos os corretores do tenant.
+   * Admin/analista: todos os corretores do tenant.
+   * Gerente: apenas corretores da própria equipe.
    * Corretor: apenas o próprio.
    * Inclui gerenteId da equipe do corretor (para auto-preencher documentação).
    */
@@ -1191,11 +1192,10 @@ export class LeadsService {
       return [mapAssignee(self)];
     }
 
-    // Admin, gerente e analista veem todos os corretores do tenant.
+    // Admin e analista veem todos os corretores do tenant.
+    // Gerente usa o escopo da equipe (TeamScopeService).
     const seeAllCorretores =
-      requester.role === Role.admin ||
-      requester.role === Role.gerente ||
-      requester.role === Role.analista;
+      requester.role === Role.admin || requester.role === Role.analista;
     const ids = seeAllCorretores
       ? null
       : await this.teamScope.getVisibleCorretorIds(requester);
