@@ -143,6 +143,8 @@ model Tenant {
   financeiroCategorias         FinanceiroCategoria[]
   platformContratos            PlatformContrato[]
   sessionSegments         UserSessionSegment[]
+  treinamentoSecoes       TreinamentoSecao[]
+  treinamentoLinks        TreinamentoLink[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1591,4 +1593,47 @@ model LoginAttempt {
   @@index([email, createdAt])
   @@index([ip, createdAt])
   @@map("login_attempts")
+}
+
+/// Pasta / seção do Treinamento (árvore por tenant).
+model TreinamentoSecao {
+  id       String  @id @default(uuid())
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   TreinamentoSecao?  @relation("TreinamentoArvore", fields: [parentId], references: [id], onDelete: Cascade)
+  children TreinamentoSecao[] @relation("TreinamentoArvore")
+
+  titulo    String
+  sortOrder Int     @default(0)
+  links     TreinamentoLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, parentId])
+  @@index([tenantId, sortOrder])
+  @@map("treinamento_secoes")
+}
+
+/// Link (Drive ou outro material) dentro de uma seção de treinamento.
+model TreinamentoLink {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  secaoId String
+  secao   TreinamentoSecao @relation(fields: [secaoId], references: [id], onDelete: Cascade)
+
+  titulo    String
+  url       String
+  sortOrder Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, secaoId])
+  @@index([secaoId, sortOrder])
+  @@map("treinamento_links")
 }
