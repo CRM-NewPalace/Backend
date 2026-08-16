@@ -1268,6 +1268,11 @@ model FinanceiroTitulo {
   platformFornecedorContratoId String?
   platformFornecedorContrato   PlatformFornecedorContrato? @relation(fields: [platformFornecedorContratoId], references: [id], onDelete: SetNull)
   movimento       FinanceiroMovimento?
+  /// Comissão que originou este título (várias fatias por comissão).
+  comissaoId      String?
+  comissao        FinanceiroComissao?    @relation(fields: [comissaoId], references: [id], onDelete: SetNull)
+  /// Fatia da comissão: caixa | socios | corretor | gerente | tributos.
+  comissaoPapel   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1279,6 +1284,8 @@ model FinanceiroTitulo {
   @@index([parceiroId])
   @@index([platformContratoId])
   @@index([platformFornecedorContratoId])
+  @@index([comissaoId])
+  @@unique([comissaoId, comissaoPapel])
   @@map("financeiro_titulos")
 }
 
@@ -1437,6 +1444,7 @@ model FinanceiroComissao {
   percentualSocios      Decimal                  @db.Decimal(7, 4)
   valorSocios           Decimal                  @db.Decimal(18, 2)
   status          FinanceiroComissaoStatus @default(pendente)
+  titulos         FinanceiroTitulo[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
