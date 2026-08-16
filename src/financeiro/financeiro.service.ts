@@ -208,7 +208,7 @@ type FluxoEvento = {
   tipo: "entrada" | "saida";
   valor: number;
   natureza: "realizado" | "previsto";
-  origem: "titulo" | "movimento";
+  origem: "titulo" | "movimento" | "comissao";
   id: string;
   descricao: string;
   parceiro: string;
@@ -1460,6 +1460,7 @@ export class FinanceiroService {
         empreendimento: doc.empreendimento?.nome ?? "",
         cliente: doc.nome,
         dataVenda: doc.dataVenda ?? doc.createdAt,
+        dataPrevistaRecebimento: parseDayStart(dto.dataPrevistaRecebimento),
         status: FinanceiroComissaoStatus.pendente,
         ...values,
       },
@@ -1490,7 +1491,17 @@ export class FinanceiroService {
     const values = this.calculateComissao(Number(existing.vgv), percentages);
     const row = await this.prisma.financeiroComissao.update({
       where: { id },
-      data: { ...values, ...(dto.status ? { status: dto.status } : {}) },
+      data: {
+        ...values,
+        ...(dto.dataPrevistaRecebimento
+          ? {
+              dataPrevistaRecebimento: parseDayStart(
+                dto.dataPrevistaRecebimento,
+              ),
+            }
+          : {}),
+        ...(dto.status ? { status: dto.status } : {}),
+      },
     });
     if (row.status === FinanceiroComissaoStatus.paga) {
       await this.syncTitulosDaComissao(row);
@@ -2812,7 +2823,7 @@ export class FinanceiroService {
     const fromDate = parseDayStart(from);
     const toExclusive = parseDayEnd(to);
 
-    const [movimentos, titulos] = await Promise.all([
+    const [movimentos, titulos, comissoesPrevistas] = await Promise.all([
       this.prisma.financeiroMovimento.findMany({
         where: {
           tenantId,
@@ -2830,6 +2841,13 @@ export class FinanceiroService {
             ],
           },
           vencimento: { gte: fromDate, lt: toExclusive },
+        },
+      }),
+      this.prisma.financeiroComissao.findMany({
+        where: {
+          tenantId,
+          status: { not: FinanceiroComissaoStatus.paga },
+          dataPrevistaRecebimento: { gte: fromDate, lt: toExclusive },
         },
       }),
     ]);
@@ -2868,6 +2886,24 @@ export class FinanceiroService {
         centro: t.centro,
         status: t.status,
         contrato: Boolean(t.platformContratoId || t.platformFornecedorContratoId),
+      });
+    }
+
+    for (const c of comissoesPrevistas) {
+      const valor = Number(c.comissaoBruta);
+      if (valor < 0.01) continue;
+      eventos.push({
+        data: isoDateOnly(c.dataPrevistaRecebimento),
+        tipo: "entrada",
+        valor,
+        natureza: "previsto",
+        origem: "comissao",
+        id: c.id,
+        descricao: this.comissaoTituloDescricao(c, "Bruta"),
+        parceiro: c.cliente.trim() || "Cliente",
+        categoria: "Comissão de venda",
+        centro: "",
+        status: c.status,
       });
     }
 
@@ -3323,6 +3359,7 @@ export class FinanceiroService {
     const result = {
       ...row,
       dataVenda: isoDateOnly(row.dataVenda),
+      dataPrevistaRecebimento: isoDateOnly(row.dataPrevistaRecebimento),
       vgv: Number(row.vgv),
       percentualImobiliaria: Number(row.percentualImobiliaria),
       comissaoBruta: Number(row.comissaoBruta),
@@ -3532,6 +3569,7 @@ export class FinanceiroService {
     cliente: string;
     empreendimento: string;
     dataVenda: Date;
+    dataPrevistaRecebimento: Date;
     valorCaixa: Prisma.Decimal | number;
     valorSocios: Prisma.Decimal | number;
     valorCorretor: Prisma.Decimal | number;
@@ -3625,7 +3663,7 @@ export class FinanceiroService {
             parceiroNome: peca.parceiroNome,
             categoria: peca.categoria,
             centro: peca.centro,
-            vencimento: row.dataVenda,
+            vencimento: row.dataPrevistaRecebimento ?? row.dataVenda,
             dataPagamento,
             valor: peca.valor,
             status: FinanceiroTituloStatus.pago,

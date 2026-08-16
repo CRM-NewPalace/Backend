@@ -1,9 +1,12 @@
-import { IsNumber, IsUUID, Max, Min } from 'class-validator';
+import { IsDateString, IsNumber, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateComissaoDto {
   @IsUUID()
   documentacaoId!: string;
+
+  @IsDateString({}, { message: 'Data prevista de recebimento inválida.' })
+  dataPrevistaRecebimento!: string;
 
   @Type(() => Number)
   @IsNumber()

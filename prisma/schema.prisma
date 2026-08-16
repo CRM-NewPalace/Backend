@@ -1428,7 +1428,8 @@ model FinanceiroComissao {
   equipe          String                   @default("")
   empreendimento  String                   @default("")
   cliente         String                   @default("")
-  dataVenda       DateTime
+  dataVenda                 DateTime
+  dataPrevistaRecebimento   DateTime
   vgv                   Decimal                  @db.Decimal(18, 2)
   percentualImobiliaria Decimal                  @db.Decimal(7, 4)
   comissaoBruta         Decimal                  @db.Decimal(18, 2)
@@ -1451,6 +1452,7 @@ model FinanceiroComissao {
 
   @@index([tenantId])
   @@index([tenantId, dataVenda])
+  @@index([tenantId, dataPrevistaRecebimento])
   @@index([documentacaoId])
   @@index([corretorId])
   @@index([gerenteId])

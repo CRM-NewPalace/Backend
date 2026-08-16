@@ -1,8 +1,12 @@
 import { FinanceiroComissaoStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { IsDateString, IsEnum, IsNumber, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateComissaoDto {
+  @IsOptional()
+  @IsDateString({}, { message: 'Data prevista de recebimento inválida.' })
+  dataPrevistaRecebimento?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
