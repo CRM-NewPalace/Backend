@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
@@ -23,7 +23,7 @@ const linkSelect = {
   sortOrder: true,
   createdAt: true,
   updatedAt: true,
-} as const;
+} satisfies Prisma.TreinamentoLinkSelect;
 
 const secaoSelect = {
   id: true,
@@ -32,8 +32,11 @@ const secaoSelect = {
   sortOrder: true,
   createdAt: true,
   updatedAt: true,
-  links: { select: linkSelect, orderBy: [{ sortOrder: 'asc' }, { titulo: 'asc' }] },
-} as const;
+  links: {
+    select: linkSelect,
+    orderBy: [{ sortOrder: 'asc' }, { titulo: 'asc' }],
+  },
+} satisfies Prisma.TreinamentoSecaoSelect;
 
 export type TreinamentoSecaoNode = {
   id: string;
