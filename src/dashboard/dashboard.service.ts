@@ -36,6 +36,10 @@ import { AgendaService } from '../agenda/agenda.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { FunisService } from '../funis/funis.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  janelaPeriodoBrasil,
+  type PeriodoGranularidade,
+} from '../common/utils/periodo-brasil';
 
 const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DIAS_PARADO_DEFAULT = 3;
@@ -84,10 +88,11 @@ function emptyComissaoResumo(): ComissaoResumo {
 
 
 type JanelasOpts = {
-  /** Mês 1–12. Omite = mês corrente (BR). */
+  /** Mês 1–12. Omite = mês corrente (BR). Alinha ao início do recorte. */
   mes?: number;
   /** Ano calendário. Omite = ano corrente (BR). */
   ano?: number;
+  granularidade?: PeriodoGranularidade;
   now?: Date;
 };
 
@@ -100,8 +105,14 @@ function janelasBrasil(opts: JanelasOpts = {}) {
   const dow = brasil.getUTCDay();
   const mondayOffset = (dow + 6) % 7;
 
-  const y = opts.ano ?? realY;
-  const m = opts.mes != null ? opts.mes - 1 : realM;
+  const janela = janelaPeriodoBrasil({
+    mes: opts.mes,
+    ano: opts.ano,
+    granularidade: opts.granularidade,
+    now,
+  });
+  const y = janela.ano;
+  const m = janela.mesInicio - 1;
 
   const toInstant = (yy: number, mm: number, dd: number) =>
     new Date(Date.UTC(yy, mm, dd) + BRASIL_UTC_OFFSET_MS);
@@ -109,9 +120,6 @@ function janelasBrasil(opts: JanelasOpts = {}) {
   const inicioHoje = toInstant(realY, realM, d);
   const inicioAmanha = toInstant(realY, realM, d + 1);
   const inicioSemana = toInstant(realY, realM, d - mondayOffset);
-  const inicioMesAtual = toInstant(y, m, 1);
-  const inicioProximoMes = toInstant(y, m + 1, 1);
-  const inicioMesAnterior = toInstant(y, m - 1, 1);
 
   return {
     agora: now,
@@ -120,11 +128,8 @@ function janelasBrasil(opts: JanelasOpts = {}) {
     inicioSemana,
     ano: y,
     mes: m,
-    mesAtual: { inicio: inicioMesAtual, fim: inicioProximoMes } satisfies Periodo,
-    mesAnterior: {
-      inicio: inicioMesAnterior,
-      fim: inicioMesAtual,
-    } satisfies Periodo,
+    mesAtual: janela.atual satisfies Periodo,
+    mesAnterior: janela.anterior satisfies Periodo,
   };
 }
 
@@ -300,7 +305,12 @@ export class DashboardService {
 
   async resumoAdmin(
     requester: AuthenticatedUser,
-    filtros: { mes?: number; ano?: number; origem?: string } = {},
+    filtros: {
+      mes?: number;
+      ano?: number;
+      origem?: string;
+      granularidade?: PeriodoGranularidade;
+    } = {},
   ) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
@@ -309,7 +319,11 @@ export class DashboardService {
     }
 
     const tenantId = requireTenantId(requester);
-    const windows = janelasBrasil({ mes: filtros.mes, ano: filtros.ano });
+    const windows = janelasBrasil({
+      mes: filtros.mes,
+      ano: filtros.ano,
+      granularidade: filtros.granularidade,
+    });
     const { mesAtual, mesAnterior, inicioHoje, inicioAmanha, inicioSemana } =
       windows;
     const origem = filtros.origem?.trim() || undefined;
@@ -1235,7 +1249,12 @@ export class DashboardService {
   async esteiraCorretor(
     corretorId: string,
     requester: AuthenticatedUser,
-    filtros: { mes?: number; ano?: number; origem?: string } = {},
+    filtros: {
+      mes?: number;
+      ano?: number;
+      origem?: string;
+      granularidade?: PeriodoGranularidade;
+    } = {},
   ) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
@@ -1271,6 +1290,7 @@ export class DashboardService {
     const { mesAtual } = janelasBrasil({
       mes: filtros.mes,
       ano: filtros.ano,
+      granularidade: filtros.granularidade,
     });
     const leads = await this.prisma.lead.findMany({
       where: {
@@ -1373,7 +1393,12 @@ export class DashboardService {
 
   async rankingCompleto(
     requester: AuthenticatedUser,
-    filtros: { mes?: number; ano?: number; origem?: string } = {},
+    filtros: {
+      mes?: number;
+      ano?: number;
+      origem?: string;
+      granularidade?: PeriodoGranularidade;
+    } = {},
   ) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
@@ -1385,6 +1410,7 @@ export class DashboardService {
     const { mesAtual, mesAnterior, agora } = janelasBrasil({
       mes: filtros.mes,
       ano: filtros.ano,
+      granularidade: filtros.granularidade,
     });
     const origem = filtros.origem?.trim() || undefined;
     const origemWhere = origem ? { origem } : {};
@@ -1805,7 +1831,11 @@ export class DashboardService {
   async listVendasCorretor(
     corretorId: string,
     requester: AuthenticatedUser,
-    filtros: { mes?: number; ano?: number } = {},
+    filtros: {
+      mes?: number;
+      ano?: number;
+      granularidade?: PeriodoGranularidade;
+    } = {},
   ) {
     if (requester.role !== Role.admin && requester.role !== Role.gerente) {
       throw new ForbiddenException(
@@ -1824,6 +1854,7 @@ export class DashboardService {
     const { mesAtual } = janelasBrasil({
       mes: filtros.mes,
       ano: filtros.ano,
+      granularidade: filtros.granularidade,
     });
     const corretor = await this.prisma.user.findFirst({
       where: { id: corretorId, tenantId },

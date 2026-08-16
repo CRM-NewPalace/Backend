@@ -19,6 +19,10 @@ import { QueryConstrutorasDto } from "./dto/query-construtoras.dto";
 import { CreateConstrutoraDto } from "./dto/create-construtora.dto";
 import { UpdateConstrutoraDto } from "./dto/update-construtora.dto";
 import { MediaService } from "../media/media.service";
+import {
+  janelaPeriodoBrasil,
+  type PeriodoGranularidade,
+} from "../common/utils/periodo-brasil";
 
 const construtoraSelect = {
   id: true,
@@ -53,13 +57,13 @@ function normalizeDriveFolderUrl(url?: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-function periodoBrasil(mes?: number, ano?: number) {
-  if (mes == null || ano == null) return null;
-  const offsetMs = 3 * 60 * 60 * 1000;
-  return {
-    inicio: new Date(Date.UTC(ano, mes - 1, 1) + offsetMs),
-    fim: new Date(Date.UTC(ano, mes, 1) + offsetMs),
-  };
+function periodoBrasil(
+  mes?: number,
+  ano?: number,
+  granularidade?: PeriodoGranularidade,
+) {
+  if (mes == null && ano == null && !granularidade) return null;
+  return janelaPeriodoBrasil({ mes, ano, granularidade }).atual;
 }
 
 function isoDateOnly(value: Date | null | undefined) {
@@ -147,7 +151,11 @@ export class ConstrutorasService {
   async listVendas(
     id: string,
     requester: AuthenticatedUser,
-    periodo?: { mes?: number; ano?: number },
+    periodo?: {
+      mes?: number;
+      ano?: number;
+      granularidade?: PeriodoGranularidade;
+    },
   ) {
     this.assertCanViewVendas(requester);
     const tenantId = requireTenantId(requester);
@@ -160,7 +168,11 @@ export class ConstrutorasService {
     }
 
     const visibleIds = await this.teamScope.getVisibleCorretorIds(requester);
-    const janela = periodoBrasil(periodo?.mes, periodo?.ano);
+    const janela = periodoBrasil(
+      periodo?.mes,
+      periodo?.ano,
+      periodo?.granularidade,
+    );
     const rows = await this.prisma.documentacao.findMany({
       where: {
         tenantId,
