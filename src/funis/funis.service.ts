@@ -421,9 +421,25 @@ export class FunisService {
       );
     }
 
-    await this.prisma.funilEtapa.update({
+    const siblings = await this.prisma.funilEtapa.findMany({
+      where: { funilId, active: true, id: { not: etapaId } },
+      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+      select: { slug: true, papel: true, active: true },
+    });
+    const fallbackSlug =
+      siblings.find(
+        (e) => this.resolveEtapaPapel(e) === FunilEtapaPapel.inicial,
+      )?.slug ?? siblings[0]?.slug;
+
+    if (fallbackSlug && fallbackSlug !== etapa.slug) {
+      await this.prisma.lead.updateMany({
+        where: { tenantId, perdidoAt: null, stage: etapa.slug },
+        data: { stage: fallbackSlug },
+      });
+    }
+
+    await this.prisma.funilEtapa.delete({
       where: { id: etapaId },
-      data: { active: false },
     });
 
     return this.findOne(funilId, requester);
