@@ -224,7 +224,23 @@ export class FunisService {
       );
     }
 
+    const ativo = await this.prisma.funil.findFirst({
+      where: { tenantId, ativo: true, NOT: { id } },
+      select: { id: true },
+    });
+
     await this.prisma.funil.delete({ where: { id } });
+
+    if (ativo) {
+      const remaining = await this.prisma.funil.findFirst({
+        where: { id: ativo.id },
+        select: funilSelect,
+      });
+      if (remaining) {
+        await this.attachOrphanStages(tenantId, remaining);
+      }
+    }
+
     return { ok: true };
   }
 
@@ -760,7 +776,7 @@ export class FunisService {
       where: { tenantId, ativo: true },
       select: funilSelect,
     });
-    if (ativo) return ativo;
+    if (ativo) return this.attachOrphanStages(tenantId, ativo);
 
     const qualquer = await this.prisma.funil.findFirst({
       where: { tenantId },
@@ -772,10 +788,13 @@ export class FunisService {
         where: { id: qualquer.id },
         data: { ativo: true },
       });
-      return this.prisma.funil.findFirstOrThrow({
-        where: { id: qualquer.id },
-        select: funilSelect,
-      });
+      return this.attachOrphanStages(
+        tenantId,
+        await this.prisma.funil.findFirstOrThrow({
+          where: { id: qualquer.id },
+          select: funilSelect,
+        }),
+      );
     }
 
     const fromCatalog = await this.prisma.catalogItem.findMany({
@@ -809,14 +828,121 @@ export class FunisService {
       if (etapas[0]) etapas[0].papel = FunilEtapaPapel.inicial;
     }
 
-    return this.prisma.funil.create({
-      data: {
-        tenantId,
-        name: 'Funil padrão',
-        ativo: true,
-        etapas: { create: etapas },
-      },
+    return this.attachOrphanStages(
+      tenantId,
+      await this.prisma.funil.create({
+        data: {
+          tenantId,
+          name: 'Funil padrão',
+          ativo: true,
+          etapas: { create: etapas },
+        },
+        select: funilSelect,
+      }),
+    );
+  }
+
+  async recoverOrphanStages(funilId: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    await this.ensureOwned(funilId, tenantId);
+    const funil = await this.prisma.funil.findFirst({
+      where: { id: funilId },
       select: funilSelect,
     });
+    if (!funil) throw new NotFoundException('Funil não encontrado.');
+    return this.attachOrphanStages(tenantId, funil);
+  }
+
+  /**
+   * Recria no funil as etapas que os leads ainda usam (slug em Lead.stage)
+   * depois que um funil antigo foi excluído.
+   */
+  private async attachOrphanStages(
+    tenantId: string,
+    funil: Prisma.FunilGetPayload<{ select: typeof funilSelect }>,
+  ) {
+    const existingSlugs = new Set(funil.etapas.map((e) => e.slug));
+    const orphanWhere: Prisma.LeadWhereInput = {
+      tenantId,
+      perdidoAt: null,
+      ...(existingSlugs.size > 0
+        ? { stage: { notIn: [...existingSlugs] } }
+        : {}),
+    };
+    const orphan = await this.prisma.lead.findFirst({
+      where: orphanWhere,
+      select: { id: true },
+    });
+    if (!orphan) return funil;
+
+    const grouped = await this.prisma.lead.groupBy({
+      by: ['stage'],
+      where: orphanWhere,
+    });
+
+    const existingLabels = new Set(
+      funil.etapas.map((e) => e.label.toLowerCase()),
+    );
+    const usedPapeis = new Set(
+      funil.etapas
+        .map((e) => this.resolveEtapaPapel(e))
+        .filter((p): p is FunilEtapaPapel => p != null),
+    );
+    let sortOrder =
+      funil.etapas.reduce((max, e) => Math.max(max, e.sortOrder), -1) + 1;
+
+    for (const row of grouped) {
+      const slug = row.stage?.trim();
+      if (!slug || existingSlugs.has(slug)) continue;
+
+      const def = DEFAULT_FUNNEL_STAGES.find((s) => s.slug === slug);
+      let label = def?.label ?? this.labelFromSlug(slug);
+      if (existingLabels.has(label.toLowerCase())) {
+        label = `${label} (${slug})`;
+      }
+
+      let papel: FunilEtapaPapel | null =
+        (def?.papel as FunilEtapaPapel | undefined) ??
+        LEGACY_PAPEL_BY_SLUG[slug] ??
+        null;
+      if (papel && usedPapeis.has(papel)) papel = null;
+
+      try {
+        await this.prisma.funilEtapa.create({
+          data: {
+            funilId: funil.id,
+            label,
+            slug,
+            color: def?.color ?? 'bg-slate-200 text-slate-700',
+            sortOrder,
+            active: true,
+            papel,
+          },
+        });
+        existingSlugs.add(slug);
+        existingLabels.add(label.toLowerCase());
+        if (papel) usedPapeis.add(papel);
+        sortOrder += 1;
+      } catch (err) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    return this.prisma.funil.findFirstOrThrow({
+      where: { id: funil.id },
+      select: funilSelect,
+    });
+  }
+
+  private labelFromSlug(slug: string): string {
+    const cleaned = slug.replace(/[-_]+/g, ' ').trim();
+    if (!cleaned) return 'Etapa';
+    return cleaned.replace(/\b\w/g, (ch) => ch.toUpperCase());
   }
 }

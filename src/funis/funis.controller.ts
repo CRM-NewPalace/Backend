@@ -135,4 +135,13 @@ export class FunisController {
   ) {
     return this.funisService.installDefaults(id, requester);
   }
+
+  @Post(':id/recuperar-etapas')
+  @Roles(Role.admin, Role.gerente)
+  recoverOrphanStages(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.recoverOrphanStages(id, requester);
+  }
 }
