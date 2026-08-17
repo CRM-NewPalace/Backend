@@ -53,6 +53,7 @@ export type LeadMonitoramento = {
   tempoSemMovimentacaoMs: number;
   tempoSemMovimentacaoLabel: string;
   inatividadeThresholdMs: number;
+  inatividadeConfig: { valor: number; unidade: PrazoUnidade };
   podeAdiar: boolean;
 };
 

@@ -58,6 +58,8 @@ type EtapaCtx = {
 
 type FunilCtx = {
   inatividadeMs: number;
+  inatividadeValor: number;
+  inatividadeUnidade: PrazoUnidade;
   etapasBySlug: Map<string, EtapaCtx>;
   terminalSlugs: string[];
 };
@@ -111,24 +113,33 @@ export class LeadMonitoramentoService {
   ) {}
 
   async loadFunilContext(tenantId: string): Promise<FunilCtx> {
-    const funil = await this.prisma.funil.findFirst({
-      where: { tenantId, ativo: true },
-      select: {
-        inatividadeValor: true,
-        inatividadeUnidade: true,
-        etapas: {
-          where: { active: true },
-          select: {
-            slug: true,
-            label: true,
-            papel: true,
-            prazoValor: true,
-            prazoUnidade: true,
-            alertaAntecedenciaPercent: true,
-          },
+    const funilSelect = {
+      inatividadeValor: true,
+      inatividadeUnidade: true,
+      etapas: {
+        where: { active: true },
+        select: {
+          slug: true,
+          label: true,
+          papel: true,
+          prazoValor: true,
+          prazoUnidade: true,
+          alertaAntecedenciaPercent: true,
         },
       },
-    });
+    } as const;
+
+    const funil =
+      (await this.prisma.funil.findFirst({
+        where: { tenantId, ativo: true },
+        orderBy: { updatedAt: 'desc' },
+        select: funilSelect,
+      })) ??
+      (await this.prisma.funil.findFirst({
+        where: { tenantId },
+        orderBy: { updatedAt: 'desc' },
+        select: funilSelect,
+      }));
 
     const etapasBySlug = new Map<string, EtapaCtx>();
     const terminalSlugs: string[] = [];
@@ -137,12 +148,19 @@ export class LeadMonitoramentoService {
       if (isEtapaTerminal(e.papel)) terminalSlugs.push(e.slug);
     }
 
-    const inatividadeMs = prazoToMs(
-      funil?.inatividadeValor ?? DEFAULT_INATIVIDADE_VALOR,
-      funil?.inatividadeUnidade ?? DEFAULT_INATIVIDADE_UNIDADE,
-    );
+    const inatividadeValor =
+      funil?.inatividadeValor ?? DEFAULT_INATIVIDADE_VALOR;
+    const inatividadeUnidade =
+      funil?.inatividadeUnidade ?? DEFAULT_INATIVIDADE_UNIDADE;
+    const inatividadeMs = prazoToMs(inatividadeValor, inatividadeUnidade);
 
-    return { inatividadeMs, etapasBySlug, terminalSlugs };
+    return {
+      inatividadeMs,
+      inatividadeValor,
+      inatividadeUnidade,
+      etapasBySlug,
+      terminalSlugs,
+    };
   }
 
   async stageChangeData(
@@ -460,7 +478,9 @@ export class LeadMonitoramentoService {
 
     const tenantId = requireTenantId(requester);
     const ctx = await this.loadFunilContext(tenantId);
-    const leadScope = await this.teamScope.leadScope(requester);
+    const leadScope = await this.teamScope.leadScope(requester, {
+      includeAdminPool: false,
+    });
     const now = new Date();
     const idleBefore = new Date(now.getTime() - ctx.inatividadeMs);
 
@@ -533,7 +553,9 @@ export class LeadMonitoramentoService {
     const tenantId = requireTenantId(requester);
     const ctx = await this.loadFunilContext(tenantId);
     await this.backfillPrazoCache(tenantId, ctx);
-    const leadScope = await this.teamScope.leadScope(requester);
+    const leadScope = await this.teamScope.leadScope(requester, {
+      includeAdminPool: false,
+    });
     const now = new Date();
 
     const leads = await this.prisma.lead.findMany({
@@ -821,6 +843,10 @@ export class LeadMonitoramentoService {
       tempoSemMovimentacaoMs: idleMs,
       tempoSemMovimentacaoLabel: formatDurationPt(idleMs),
       inatividadeThresholdMs: ctx.inatividadeMs,
+      inatividadeConfig: {
+        valor: ctx.inatividadeValor,
+        unidade: ctx.inatividadeUnidade,
+      },
       podeAdiar: canAdiar,
     };
   }

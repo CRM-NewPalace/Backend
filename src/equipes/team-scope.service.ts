@@ -8,7 +8,7 @@ import { isCorretorLike } from '../common/utils/roles';
 /**
  * Escopo de dados por equipe, sempre aninhado ao tenant do requester:
  * - admin / analista → todos do tenant
- * - gerente → equipe própria + carteira própria + pool do admin (leads sem dono)
+ * - gerente → equipe própria + carteira própria (+ pool do admin, se includeAdminPool)
  * - corretor → só o próprio
  */
 @Injectable()
@@ -44,9 +44,15 @@ export class TeamScopeService {
     return [...new Set([requester.id, ...membroIds])];
   }
 
-  /** Filtro Prisma para leads/documentação baseado na equipe + tenant. */
+  /**
+   * Filtro Prisma para leads/documentação baseado na equipe + tenant.
+   * `includeAdminPool` (padrão true) inclui leads sem dono na lista operacional
+   * do gerente (distribuição). No monitoramento de atraso isso fica desligado:
+   * gerente vê só a carteira própria e a da equipe.
+   */
   async leadScope(
     requester: AuthenticatedUser,
+    options?: { includeAdminPool?: boolean },
   ): Promise<Prisma.LeadWhereInput> {
     const tenantId = requireTenantId(requester);
     const ids = await this.getVisibleCorretorIds(requester);
@@ -57,6 +63,7 @@ export class TeamScopeService {
         where: { gerenteId: requester.id, tenantId },
         select: { id: true },
       });
+      const includeAdminPool = options?.includeAdminPool ?? true;
       return {
         tenantId,
         OR: [
@@ -66,8 +73,9 @@ export class TeamScopeService {
             equipeId: equipe.id,
             corretorId: null as null,
           })),
-          // Pool do admin (leads aguardando distribuição).
-          { equipeId: null, corretorId: null },
+          ...(includeAdminPool
+            ? [{ equipeId: null as null, corretorId: null as null }]
+            : []),
         ],
       };
     }
