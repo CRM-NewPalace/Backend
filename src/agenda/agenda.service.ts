@@ -22,6 +22,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { resolveFinanceiroTenantId as requireTenantId } from '../common/utils/tenant';
 import { isCorretorLike } from '../common/utils/roles';
@@ -98,6 +99,7 @@ export class AgendaService {
     private readonly prisma: PrismaService,
     private readonly teamScope: TeamScopeService,
     private readonly notificacoes: NotificacoesService,
+    private readonly monitoramento: LeadMonitoramentoService,
   ) {}
 
   /** Compromissos no calendário/tabela.
@@ -769,6 +771,11 @@ export class AgendaService {
         lead.stage,
         requester.id,
         tenantId,
+      );
+    } else if (lead && created.tipo !== AgendamentoTipo.bloqueio) {
+      await this.monitoramento.recordMovement(
+        lead.id,
+        created.tipo === AgendamentoTipo.tarefa ? 'tarefa' : 'atividade',
       );
     }
 
@@ -2191,9 +2198,20 @@ export class AgendaService {
     tenantId: string,
   ) {
     const stageNovo = 'visita-agendada';
+    const now = new Date();
+    const timing = await this.monitoramento.stageChangeData(
+      tenantId,
+      stageNovo,
+      now,
+    );
     await this.prisma.lead.update({
       where: { id: leadId },
-      data: { stage: stageNovo },
+      data: {
+        stage: stageNovo,
+        ...timing,
+        lastAtividadeAt: now,
+        lastTriagemAt: now,
+      },
     });
 
     const [fromLabel, toLabel] = await Promise.all([

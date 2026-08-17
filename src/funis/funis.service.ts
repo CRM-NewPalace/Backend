@@ -8,6 +8,7 @@ import { CatalogType, FunilEtapaPapel, Prisma } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
+import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import {
   DEFAULT_FUNNEL_STAGES,
   DEFAULT_INITIAL_STAGE_SLUG,
@@ -39,6 +40,9 @@ const etapaSelect = {
   sortOrder: true,
   active: true,
   papel: true,
+  prazoValor: true,
+  prazoUnidade: true,
+  alertaAntecedenciaPercent: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.FunilEtapaSelect;
@@ -48,6 +52,8 @@ const funilSelect = {
   tenantId: true,
   name: true,
   ativo: true,
+  inatividadeValor: true,
+  inatividadeUnidade: true,
   createdAt: true,
   updatedAt: true,
   etapas: {
@@ -65,7 +71,10 @@ type EtapaComPapel = {
 
 @Injectable()
 export class FunisService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly monitoramento: LeadMonitoramentoService,
+  ) {}
 
   async list(requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
@@ -152,6 +161,7 @@ export class FunisService {
     const tenantId = requireTenantId(requester);
     await this.ensureOwned(id, tenantId);
 
+    const data: Prisma.FunilUpdateInput = {};
     if (dto.name !== undefined) {
       const name = dto.name.trim();
       if (!name) throw new BadRequestException('Informe o nome do funil.');
@@ -161,9 +171,19 @@ export class FunisService {
       if (clash) {
         throw new ConflictException('Já existe um funil com este nome.');
       }
+      data.name = name;
+    }
+    if (dto.inatividadeValor !== undefined) {
+      data.inatividadeValor = dto.inatividadeValor;
+    }
+    if (dto.inatividadeUnidade !== undefined) {
+      data.inatividadeUnidade = dto.inatividadeUnidade;
+    }
+
+    if (Object.keys(data).length > 0) {
       await this.prisma.funil.update({
         where: { id },
-        data: { name },
+        data,
       });
     }
 
@@ -243,6 +263,11 @@ export class FunisService {
             sortOrder: dto.sortOrder ?? (last?.sortOrder ?? -1) + 1,
             active: true,
             papel,
+            prazoValor: dto.prazoValor ?? null,
+            ...(dto.prazoUnidade ? { prazoUnidade: dto.prazoUnidade } : {}),
+            ...(dto.alertaAntecedenciaPercent !== undefined
+              ? { alertaAntecedenciaPercent: dto.alertaAntecedenciaPercent }
+              : {}),
           },
         });
       } catch (err) {
@@ -317,6 +342,11 @@ export class FunisService {
     if (dto.color !== undefined) data.color = dto.color.trim();
     if (dto.active !== undefined) data.active = dto.active;
     if (dto.papel !== undefined) data.papel = dto.papel;
+    if (dto.prazoValor !== undefined) data.prazoValor = dto.prazoValor;
+    if (dto.prazoUnidade !== undefined) data.prazoUnidade = dto.prazoUnidade;
+    if (dto.alertaAntecedenciaPercent !== undefined) {
+      data.alertaAntecedenciaPercent = dto.alertaAntecedenciaPercent;
+    }
 
     await this.prisma.$transaction(async (tx) => {
       if (dto.papel) {
@@ -337,6 +367,14 @@ export class FunisService {
         throw err;
       }
     });
+
+    if (
+      dto.prazoValor !== undefined ||
+      dto.prazoUnidade !== undefined ||
+      dto.alertaAntecedenciaPercent !== undefined
+    ) {
+      await this.monitoramento.recalculateStagePrazos(tenantId, etapa.slug);
+    }
 
     return this.findOne(funilId, requester);
   }
@@ -659,6 +697,11 @@ export class FunisService {
         sortOrder: e.sortOrder ?? index,
         active: true,
         papel,
+        prazoValor: e.prazoValor ?? null,
+        ...(e.prazoUnidade ? { prazoUnidade: e.prazoUnidade } : {}),
+        ...(e.alertaAntecedenciaPercent !== undefined
+          ? { alertaAntecedenciaPercent: e.alertaAntecedenciaPercent }
+          : {}),
       };
     });
 
@@ -674,6 +717,7 @@ export class FunisService {
           sortOrder: 0,
           active: true,
           papel: FunilEtapaPapel.inicial,
+          prazoValor: null,
         });
         rows.forEach((r, i) => {
           r.sortOrder = i;

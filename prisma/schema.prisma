@@ -73,6 +73,13 @@ enum ContatoTipo {
   cliente
 }
 
+/// Unidade de prazo de permanência na etapa ou de inatividade do lead.
+enum PrazoUnidade {
+  minutos
+  horas
+  dias
+}
+
 /// Imobiliária / empresa cliente da plataforma (tenant).
 model Tenant {
   id     String     @id @default(uuid())
@@ -124,6 +131,7 @@ model Tenant {
   localidades       Localidade[]
   catalogItems      CatalogItem[]
   funis             Funil[]
+  leadPrazoAdiamentos LeadPrazoAdiamento[]
   documentacoes     Documentacao[]
   propostas         Proposta[]
   analises          Analise[]
@@ -269,6 +277,9 @@ model User {
   // Notificações in-app destinadas a este usuário.
   notificacoes Notificacao[] @relation("NotificacaoDestinatario")
 
+  // Adiamentos de prazo de etapa registrados por este usuário.
+  leadPrazoAdiamentos LeadPrazoAdiamento[] @relation("LeadPrazoAdiamentoAutor")
+
   // Metas em que este usuário é o corretor acompanhado.
   metasComoCorretor Meta[] @relation("MetaCorretor")
 
@@ -406,7 +417,23 @@ model Lead {
   perdidoPor   User?     @relation("LeadPerdidoPor", fields: [perdidoPorId], references: [id], onDelete: SetNull)
   perdidoPorId String?
 
+  /// Momento em que o lead entrou na etapa atual (não usa createdAt como movimentação contínua).
+  stageEnteredAt DateTime @default(now())
+  /// Última movimentação relevante (etapa, triagem, tarefa ou atividade).
+  lastMovementAt DateTime @default(now())
+  lastStageChangeAt DateTime?
+  lastTriagemAt     DateTime?
+  lastTarefaAt      DateTime?
+  lastAtividadeAt   DateTime?
+  /// Deadline efetivo da etapa (calculado ou adiado). Null = etapa sem prazo.
+  prazoDueAt DateTime?
+  /// Início da janela "próximo do vencimento".
+  alertaProximoAt DateTime?
+  /// true quando o prazo atual veio de um adiamento (não recalcular pela etapa).
+  prazoAdiado Boolean @default(false)
+
   triagemEvents TriagemEvent[]
+  prazoAdiamentos LeadPrazoAdiamento[]
   documentacoes Documentacao[]
   propostas     Proposta[]
   analise       Analise?
@@ -421,6 +448,9 @@ model Lead {
   @@index([tenantId])
   @@index([tenantId, tipo])
   @@index([tenantId, stage])
+  @@index([tenantId, lastMovementAt])
+  @@index([tenantId, prazoDueAt])
+  @@index([tenantId, alertaProximoAt])
   @@index([tipo])
   @@index([stage])
   @@index([corretorId])
@@ -430,6 +460,32 @@ model Lead {
   @@index([createdAt])
   @@index([perdidoAt])
   @@map("leads")
+}
+
+/// Histórico de adiamentos do prazo de permanência na etapa.
+model LeadPrazoAdiamento {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leadId   String
+  lead     Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId  String
+  autor    User   @relation("LeadPrazoAdiamentoAutor", fields: [autorId], references: [id], onDelete: Cascade)
+
+  prazoAnteriorAt      DateTime?
+  prazoNovoAt          DateTime
+  prazoAnteriorValor   Int?
+  prazoAnteriorUnidade PrazoUnidade?
+  prazoNovoValor       Int
+  prazoNovoUnidade     PrazoUnidade
+  motivo               String?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([tenantId])
+  @@index([autorId])
+  @@map("lead_prazo_adiamentos")
 }
 
 /// Vínculo entre um lead do CRM e o chat correspondente na instância OZap.
@@ -992,6 +1048,8 @@ enum NotificacaoTipo {
   agenda_lembrete_1d
   agenda_lembrete_2h
   agenda_lembrete_1h
+  lead_prazo_proximo
+  lead_prazo_ultrapassado
 }
 
 /// Aviso in-app para o usuário (ex.: resultado da análise para o corretor).
@@ -1010,11 +1068,14 @@ model Notificacao {
   lead           Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   analiseId      String?
   agendamentoId  String?
+  /// Fingerprint do evento (ex.: stageEnteredAt|prazoDueAt) para impedir duplicatas.
+  eventoChave    String?
 
   createdAt DateTime @default(now())
 
   @@index([tenantId])
   @@index([userId, lida])
+  @@index([userId, leadId, tipo, eventoChave])
   @@index([createdAt])
   @@map("notificacoes")
 }
@@ -1051,6 +1112,9 @@ model Funil {
   name     String
   /// Funil em uso no kanban, dashboard e novos leads.
   ativo    Boolean @default(false)
+  /// Sem movimentação relevante após este período gera alerta no card.
+  inatividadeValor   Int          @default(48)
+  inatividadeUnidade PrazoUnidade @default(horas)
 
   etapas FunilEtapa[]
 
@@ -1074,6 +1138,11 @@ model FunilEtapa {
   active    Boolean          @default(true)
   /// null = etapa intermediária sem fluxo especial.
   papel     FunilEtapaPapel?
+  /// Prazo máximo de permanência. Null = etapa sem SLA.
+  prazoValor Int?
+  prazoUnidade PrazoUnidade @default(horas)
+  /// Percentual restante do prazo para disparar alerta laranja (1–90).
+  alertaAntecedenciaPercent Int @default(20)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

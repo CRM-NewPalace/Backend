@@ -211,6 +211,49 @@ export class NotificacoesService {
     });
   }
 
+  /**
+   * Alerta de prazo do lead. Idempotente por usuário + lead + tipo + eventoChave
+   * (ex.: entrada na etapa + deadline), para não repetir a cada polling.
+   */
+  async createLeadPrazoAlerta(params: {
+    userId: string;
+    leadId: string;
+    leadNome: string;
+    eventoChave: string;
+    tipo:
+      | typeof NotificacaoTipo.lead_prazo_proximo
+      | typeof NotificacaoTipo.lead_prazo_ultrapassado;
+    detalhe: string;
+  }) {
+    const existing = await this.prisma.notificacao.findFirst({
+      where: {
+        userId: params.userId,
+        leadId: params.leadId,
+        tipo: params.tipo,
+        eventoChave: params.eventoChave,
+      },
+      select: { id: true },
+    });
+    if (existing) return null;
+
+    const tenantId = await this.resolveTenantId(params.userId);
+    const proximo = params.tipo === NotificacaoTipo.lead_prazo_proximo;
+    return this.prisma.notificacao.create({
+      data: {
+        tenantId,
+        userId: params.userId,
+        tipo: params.tipo,
+        titulo: proximo
+          ? `Prazo próximo do vencimento — ${params.leadNome}`
+          : `Prazo da etapa ultrapassado — ${params.leadNome}`,
+        corpo: params.detalhe,
+        leadId: params.leadId,
+        eventoChave: params.eventoChave,
+      },
+      select: notifSelect,
+    });
+  }
+
   /** Avisa o corretor sobre tarefa atribuída na agenda por gerente/admin. */
   async createAgendaAtribuicao(params: {
     userId: string;

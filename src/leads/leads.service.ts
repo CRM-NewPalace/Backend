@@ -22,18 +22,25 @@ import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
 import { FunisService } from '../funis/funis.service';
+import { LeadMonitoramentoService } from './monitoramento/lead-monitoramento.service';
 import { leadSelect, LeadEntity } from './lead-select';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { ImportLeadsDto } from './dto/import-leads.dto';
+import { AdiarPrazoDto } from './dto/adiar-prazo.dto';
+import type { LeadMonitoramento } from './monitoramento/lead-monitoramento.types';
 import {
   DistribuirCorretoresDto,
   DistribuirEquipesDto,
 } from './dto/distribuir-leads.dto';
 
+export type LeadWithMonitoramento = LeadEntity & {
+  monitoramento: LeadMonitoramento;
+};
+
 export interface PaginatedLeads {
-  data: LeadEntity[];
+  data: Array<LeadEntity & { monitoramento?: LeadMonitoramento }>;
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
@@ -57,6 +64,7 @@ export class LeadsService {
     private readonly teamScope: TeamScopeService,
     private readonly analiseService: AnaliseService,
     private readonly funis: FunisService,
+    private readonly monitoramento: LeadMonitoramentoService,
   ) {}
 
   async create(
@@ -92,8 +100,13 @@ export class LeadsService {
       `contato.${phoneDigits || Date.now()}@sem-email.local`;
 
     const createdAt = parseOptionalCreatedAt(dto.createdAt);
+    const timing = await this.monitoramento.stageChangeData(
+      tenantId,
+      stage,
+      createdAt ?? new Date(),
+    );
 
-    return this.prisma.lead.create({
+    const created = await this.prisma.lead.create({
       data: {
         tenantId,
         tipo: dto.tipo === 'cliente' ? ContatoTipo.cliente : ContatoTipo.lead,
@@ -113,9 +126,11 @@ export class LeadsService {
         corretorId: assignment.corretorId,
         equipeId: assignment.equipeId,
         ...(createdAt ? { createdAt } : {}),
+        ...timing,
       },
       select: leadSelect,
     });
+    return this.decorateOne(created, requester);
   }
 
   async importMany(dto: ImportLeadsDto, requester: AuthenticatedUser) {
@@ -128,6 +143,10 @@ export class LeadsService {
     await this.ensureStageIsValid(tenantId, defaultStage);
     const tipo =
       dto.tipo === 'cliente' ? ContatoTipo.cliente : ContatoTipo.lead;
+    const importTiming = await this.monitoramento.stageChangeData(
+      tenantId,
+      defaultStage,
+    );
 
     const created: LeadEntity[] = [];
     const errors: Array<{ index: number; nome: string; message: string }> = [];
@@ -175,6 +194,7 @@ export class LeadsService {
             estadoCivil: item.estadoCivil?.trim() || null,
             tags: ['Importação'],
             corretorId,
+            ...importTiming,
           },
           select: leadSelect,
         });
@@ -654,6 +674,24 @@ export class LeadsService {
       ];
     }
 
+    const tenantId = requireTenantId(requester);
+    const monCtx = await this.monitoramento.loadFunilContext(tenantId);
+    const monWhere = this.monitoramento.monitoramentoWhere(
+      query.monitoramento,
+      new Date(),
+      monCtx,
+    );
+    if (monWhere) {
+      where.AND = [
+        ...(Array.isArray(where.AND)
+          ? where.AND
+          : where.AND
+            ? [where.AND]
+            : []),
+        monWhere,
+      ];
+    }
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.lead.findMany({
         where,
@@ -666,7 +704,7 @@ export class LeadsService {
     ]);
 
     return {
-      data,
+      data: this.monitoramento.decorateLeads(data, monCtx, requester),
       meta: {
         total,
         page,
@@ -701,11 +739,11 @@ export class LeadsService {
       if (!adminLead && !corretorCliente) {
         throw new NotFoundException('Lead não encontrado.');
       }
-      return lead;
+      return this.decorateOne(lead, requester);
     }
 
     await this.ensureCanAccess(lead, requester);
-    return lead;
+    return this.decorateOne(lead, requester);
   }
 
   /**
@@ -849,7 +887,20 @@ export class LeadsService {
       await this.ensureStageIsValid(tenantId, dto.stage);
     }
 
-    return this.prisma.lead.update({
+    const currentStage =
+      dto.stage !== undefined
+        ? await this.prisma.lead.findFirst({
+            where: { id, tenantId },
+            select: { stage: true },
+          })
+        : null;
+    const stageChanged =
+      dto.stage !== undefined && currentStage && currentStage.stage !== dto.stage;
+    const timing = stageChanged
+      ? await this.monitoramento.stageChangeData(tenantId, dto.stage!)
+      : null;
+
+    const updated = await this.prisma.lead.update({
       where: { id },
       data: {
         ...(dto.nome !== undefined ? { nome: dto.nome.trim() } : {}),
@@ -897,9 +948,11 @@ export class LeadsService {
                 parseOptionalCreatedAt(dto.createdAt) ?? undefined,
             }
           : {}),
+        ...(timing ?? {}),
       },
       select: leadSelect,
     });
+    return this.decorateOne(updated, requester);
   }
 
   async updateStage(
@@ -950,6 +1003,11 @@ export class LeadsService {
       if (dto.empreendimentoId) empreendimentoId = dto.empreendimentoId;
     }
 
+    const stageChanged = Boolean(stageAnterior && stageAnterior !== stage);
+    const timing = stageChanged
+      ? await this.monitoramento.stageChangeData(tenantId, stage)
+      : null;
+
     const lead = await this.prisma.lead.update({
       where: { id },
       data: {
@@ -957,6 +1015,7 @@ export class LeadsService {
         ...(isAnalise && (dto.construtoraId || dto.empreendimentoId)
           ? { construtoraId, empreendimentoId }
           : {}),
+        ...(timing ?? {}),
       },
       select: leadSelect,
     });
@@ -986,6 +1045,7 @@ export class LeadsService {
           origem: TriagemOrigem.funil,
         },
       });
+      await this.monitoramento.recordMovement(id, 'triagem');
     }
 
     if (isAnalise) {
@@ -998,7 +1058,7 @@ export class LeadsService {
       });
     }
 
-    return lead;
+    return this.decorateOne(lead, requester);
   }
 
   /** Label amigável da etapa do funil (fallback para o slug). */
@@ -1062,16 +1122,22 @@ export class LeadsService {
       (await this.funis.getSlugByPapel(tenantId, FunilEtapaPapel.perdido)) ??
       undefined;
 
-    return this.prisma.lead.update({
+    const timing = perdidoStage
+      ? await this.monitoramento.stageChangeData(tenantId, perdidoStage)
+      : null;
+
+    const updated = await this.prisma.lead.update({
       where: { id },
       data: {
         perdidoAt: new Date(),
         motivoPerda: motivoTrim,
         perdidoPorId: requester.id,
         ...(perdidoStage ? { stage: perdidoStage } : {}),
+        ...(timing ?? {}),
       },
       select: leadSelect,
     });
+    return this.decorateOne(updated, requester);
   }
 
   async remove(id: string, requester: AuthenticatedUser): Promise<void> {
@@ -1416,5 +1482,30 @@ export class LeadsService {
     if (!validStages.includes(stage)) {
       throw new BadRequestException('Etapa do funil inválida.');
     }
+  }
+
+  adiarPrazo(id: string, dto: AdiarPrazoDto, requester: AuthenticatedUser) {
+    return this.monitoramento.adiarPrazo(id, dto, requester);
+  }
+
+  listPrazoAdiamentos(id: string, requester: AuthenticatedUser) {
+    return this.monitoramento.listAdiamentos(id, requester);
+  }
+
+  listCorretoresMonitoramento(requester: AuthenticatedUser) {
+    return this.monitoramento.listCorretores(requester);
+  }
+
+  syncMonitoramentoNotificacoes(requester: AuthenticatedUser) {
+    return this.monitoramento.syncNotificacoes(requester);
+  }
+
+  private async decorateOne(
+    lead: LeadEntity,
+    requester: AuthenticatedUser,
+  ): Promise<LeadWithMonitoramento> {
+    const tenantId = requireTenantId(requester);
+    const ctx = await this.monitoramento.loadFunilContext(tenantId);
+    return this.monitoramento.decorateLead(lead, ctx, requester);
   }
 }

@@ -66,4 +66,26 @@ export class QueryLeadsDto {
       'Ordenação inválida. Use created_desc, created_asc, nome_asc ou nome_desc.',
   })
   sort?: 'created_desc' | 'created_asc' | 'nome_asc' | 'nome_desc';
+
+  /** Filtro de monitoramento de prazo/inatividade (calculado no backend). */
+  @IsOptional()
+  @IsIn(
+    [
+      'todos',
+      'sem_movimentacao',
+      'proximo_vencimento',
+      'em_atraso',
+      'dentro_prazo',
+    ],
+    {
+      message:
+        'Filtro de monitoramento inválido. Use todos, sem_movimentacao, proximo_vencimento, em_atraso ou dentro_prazo.',
+    },
+  )
+  monitoramento?:
+    | 'todos'
+    | 'sem_movimentacao'
+    | 'proximo_vencimento'
+    | 'em_atraso'
+    | 'dentro_prazo';
 }

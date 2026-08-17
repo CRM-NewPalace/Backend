@@ -16,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { FunisService } from '../funis/funis.service';
 import { AnaliseService } from '../analise/analise.service';
+import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   isStatusAnalise,
@@ -110,6 +111,7 @@ export class DocumentacaoService {
     private readonly teamScope: TeamScopeService,
     private readonly funis: FunisService,
     private readonly analiseService: AnaliseService,
+    private readonly monitoramento: LeadMonitoramentoService,
   ) {}
 
   async list(query: QueryDocumentacaoDto, requester: AuthenticatedUser) {
@@ -710,9 +712,13 @@ export class DocumentacaoService {
         select: { stage: true, perdidoAt: true },
       });
       if (lead && !lead.perdidoAt && lead.stage !== analiseSlug) {
+        const timing = await this.monitoramento.stageChangeData(
+          input.tenantId,
+          analiseSlug,
+        );
         await this.prisma.lead.update({
           where: { id: input.leadId },
-          data: { stage: analiseSlug },
+          data: { stage: analiseSlug, ...timing },
         });
         await this.prisma.documentacao.updateMany({
           where: { tenantId: input.tenantId, leadId: input.leadId },
@@ -800,10 +806,16 @@ export class DocumentacaoService {
     if (!targetStage || analiseSlugs.includes(targetStage)) return;
 
     const parecerLabel = isStatusAprovado(status1) ? 'aprovado' : 'reprovado';
+    const now = new Date();
+    const timing = await this.monitoramento.stageChangeData(
+      tenantId,
+      targetStage,
+      now,
+    );
     await this.prisma.$transaction([
       this.prisma.lead.update({
         where: { id: leadId },
-        data: { stage: targetStage },
+        data: { stage: targetStage, ...timing, lastTriagemAt: now },
       }),
       this.prisma.documentacao.updateMany({
         where: { tenantId, leadId },
@@ -859,11 +871,17 @@ export class DocumentacaoService {
     if (leads.length === 0) return;
 
     const leadIdsMoved = leads.map((l) => l.id);
+    const now = new Date();
+    const timing = await this.monitoramento.stageChangeData(
+      tenantId,
+      vendaSlug,
+      now,
+    );
 
     await this.prisma.$transaction([
       this.prisma.lead.updateMany({
         where: { id: { in: leadIdsMoved } },
-        data: { stage: vendaSlug },
+        data: { stage: vendaSlug, ...timing, lastTriagemAt: now },
       }),
       // Mantém o snapshot da ficha alinhado à etapa atual do funil.
       this.prisma.documentacao.updateMany({

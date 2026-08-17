@@ -10,6 +10,7 @@ import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
 import { FunisService } from '../funis/funis.service';
+import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { isCorretorLike } from '../common/utils/roles';
@@ -54,6 +55,7 @@ export class TriagemService {
     private readonly teamScope: TeamScopeService,
     private readonly analiseService: AnaliseService,
     private readonly funis: FunisService,
+    private readonly monitoramento: LeadMonitoramentoService,
   ) {}
 
   /**
@@ -217,13 +219,23 @@ export class TriagemService {
       stageNovo = lead.stage;
     }
 
+    const now = new Date();
+    const timing =
+      shouldUpdateStage && targetStage
+        ? await this.monitoramento.stageChangeData(tenantId, targetStage, now)
+        : null;
+
     const event = await this.prisma.$transaction(async (tx) => {
-      if (shouldUpdateStage && targetStage) {
-        await tx.lead.update({
-          where: { id: lead.id },
-          data: { stage: targetStage },
-        });
-      }
+      await tx.lead.update({
+        where: { id: lead.id },
+        data: {
+          ...(shouldUpdateStage && targetStage ? { stage: targetStage } : {}),
+          ...(timing ?? {
+            lastMovementAt: now,
+          }),
+          lastTriagemAt: now,
+        },
+      });
 
       return tx.triagemEvent.create({
         data: {

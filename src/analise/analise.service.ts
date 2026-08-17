@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { FunisService } from '../funis/funis.service';
+import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { isCorretorLike } from '../common/utils/roles';
@@ -82,6 +83,7 @@ export class AnaliseService {
     private readonly teamScope: TeamScopeService,
     private readonly notificacoes: NotificacoesService,
     private readonly funis: FunisService,
+    private readonly monitoramento: LeadMonitoramentoService,
   ) {}
 
   async list(query: QueryAnaliseDto, requester: AuthenticatedUser) {
@@ -452,10 +454,16 @@ export class AnaliseService {
 
     const parecerLabel =
       analiseStatus === AnaliseStatus.aprovado ? 'aprovado' : 'reprovado';
+    const now = new Date();
+    const timing = await this.monitoramento.stageChangeData(
+      tenantId,
+      targetStage,
+      now,
+    );
     await this.prisma.$transaction([
       this.prisma.lead.update({
         where: { id: leadId },
-        data: { stage: targetStage },
+        data: { stage: targetStage, ...timing, lastTriagemAt: now },
       }),
       this.prisma.documentacao.updateMany({
         where: { tenantId, leadId },
@@ -682,15 +690,11 @@ export class AnaliseService {
     const analiseSlug = analiseSlugs[0] ?? null;
     if (analiseSlug && pendingIds.size > 0) {
       const leadIds = [...pendingIds.keys()];
-      await this.prisma.lead.updateMany({
-        where: {
-          id: { in: leadIds },
-          tenantId,
-          perdidoAt: null,
-          NOT: { stage: analiseSlug },
-        },
-        data: { stage: analiseSlug },
-      });
+      await this.monitoramento.applyStageToLeads(
+        tenantId,
+        leadIds,
+        analiseSlug,
+      );
       await this.prisma.documentacao.updateMany({
         where: { tenantId, leadId: { in: leadIds } },
         data: { stageSituacao: analiseSlug },

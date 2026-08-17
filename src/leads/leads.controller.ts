@@ -24,6 +24,7 @@ import { UpdateLeadStageDto } from './dto/update-lead-stage.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { MarkLeadLostDto } from './dto/mark-lead-lost.dto';
 import { ImportLeadsDto } from './dto/import-leads.dto';
+import { AdiarPrazoDto } from './dto/adiar-prazo.dto';
 import {
   DistribuirCorretoresDto,
   DistribuirEquipesDto,
@@ -120,6 +121,19 @@ export class LeadsController {
     return this.leadsService.findLostClientes(query, requester);
   }
 
+  @Get('monitoramento/corretores')
+  @UseGuards(RolesGuard)
+  @Roles(Role.admin, Role.gerente, Role.analista)
+  monitoramentoCorretores(@CurrentUser() requester: AuthenticatedUser) {
+    return this.leadsService.listCorretoresMonitoramento(requester);
+  }
+
+  @Post('monitoramento/sync')
+  @HttpCode(HttpStatus.OK)
+  syncMonitoramento(@CurrentUser() requester: AuthenticatedUser) {
+    return this.leadsService.syncMonitoramentoNotificacoes(requester);
+  }
+
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -154,6 +168,25 @@ export class LeadsController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.leadsService.markLost(id, dto.motivo, requester);
+  }
+
+  @Post(':id/prazo/adiar')
+  @UseGuards(RolesGuard)
+  @Roles(Role.admin, Role.gerente)
+  adiarPrazo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AdiarPrazoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.adiarPrazo(id, dto, requester);
+  }
+
+  @Get(':id/prazo/adiamentos')
+  listPrazoAdiamentos(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.listPrazoAdiamentos(id, requester);
   }
 
   /** Exclusão definitiva — só admin, e só de leads já perdidos. */
