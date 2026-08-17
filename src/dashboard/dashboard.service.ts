@@ -195,7 +195,7 @@ export class DashboardService {
       }),
       this.prisma.lead.groupBy({
         by: ['stage'],
-        where: leadWhere,
+        where: { ...leadWhere, tipo: ContatoTipo.lead },
         _count: { _all: true },
       }),
       this.prisma.analise.groupBy({
@@ -411,7 +411,7 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.lead.groupBy({
         by: ['stage'],
-        where: leadAtivoWhere,
+        where: { ...leadAtivoWhere, tipo: ContatoTipo.lead },
         _count: { _all: true },
       }),
       this.prisma.lead.count({
