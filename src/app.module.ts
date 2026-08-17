@@ -17,6 +17,7 @@ import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { AgendaModule } from './agenda/agenda.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { ConstrutorasModule } from './construtoras/construtoras.module';
+import { ContratosModule } from './contratos/contratos.module';
 import { LocalidadesModule } from './localidades/localidades.module';
 import { TreinamentoModule } from './treinamento/treinamento.module';
 import { EmpreendimentosModule } from './empreendimentos/empreendimentos.module';
@@ -48,6 +49,7 @@ import { THROTTLE } from './config/security.constants';
     TriagemModule,
     DocumentacaoModule,
     ConstrutorasModule,
+    ContratosModule,
     LocalidadesModule,
     TreinamentoModule,
     EmpreendimentosModule,

@@ -12,6 +12,6 @@ import { TenantLogoColorService } from './tenant-logo-color.service';
     BootstrapTenantConnectionsService,
     TenantLogoColorService,
   ],
-  exports: [TenantsService],
+  exports: [TenantsService, TenantLogoColorService],
 })
 export class TenantsModule {}

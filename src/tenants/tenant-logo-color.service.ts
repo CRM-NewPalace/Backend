@@ -52,6 +52,45 @@ export class TenantLogoColorService {
     }
   }
 
+  /** Baixa a logo, converte para PNG e extrai a cor predominante (best-effort). */
+  async loadLogoForPdf(logoUrl: string | null): Promise<{
+    png: Buffer;
+    width: number;
+    height: number;
+    primaryColor: string | null;
+  } | null> {
+    if (!logoUrl?.trim()) return null;
+    let url: URL;
+    try {
+      url = new URL(logoUrl);
+    } catch {
+      return null;
+    }
+    try {
+      const image = await this.downloadImage(url);
+      const primaryColor = await this.extractDominantSaturatedColor(image);
+      const png = await sharp(image, {
+        animated: false,
+        limitInputPixels: MAX_INPUT_PIXELS,
+        failOn: 'error',
+      })
+        .png()
+        .toBuffer();
+      const meta = await sharp(png).metadata();
+      return {
+        png,
+        width: meta.width ?? 200,
+        height: meta.height ?? 80,
+        primaryColor,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Could not load tenant logo for PDF: ${this.errorMessage(error)}`,
+      );
+      return null;
+    }
+  }
+
   private async downloadImage(
     url: URL,
     redirects = 0,
