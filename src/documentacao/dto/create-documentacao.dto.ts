@@ -12,10 +12,13 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
+/** Campos Int em reais: aceita decimal (centavos) e arredonda. */
 function toOptionalInt({ value }: { value: unknown }) {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
-  return Number(value);
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return Math.round(n);
 }
 
 export class CreateDocumentacaoDto {
