@@ -424,7 +424,7 @@ export class FunisService {
     const siblings = await this.prisma.funilEtapa.findMany({
       where: { funilId, active: true, id: { not: etapaId } },
       orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
-      select: { slug: true, papel: true, active: true },
+      select: { id: true, slug: true, papel: true, active: true },
     });
     const fallbackSlug =
       siblings.find(
