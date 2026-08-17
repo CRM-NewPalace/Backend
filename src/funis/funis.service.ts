@@ -854,85 +854,142 @@ export class FunisService {
   }
 
   /**
-   * Recria no funil as etapas que os leads ainda usam (slug em Lead.stage)
+   * Recria/reativa no funil as etapas que os leads ainda usam (Lead.stage)
    * depois que um funil antigo foi excluído.
    */
   private async attachOrphanStages(
     tenantId: string,
     funil: Prisma.FunilGetPayload<{ select: typeof funilSelect }>,
   ) {
-    const existingSlugs = new Set(funil.etapas.map((e) => e.slug));
-    const orphanWhere: Prisma.LeadWhereInput = {
-      tenantId,
-      perdidoAt: null,
-      ...(existingSlugs.size > 0
-        ? { stage: { notIn: [...existingSlugs] } }
-        : {}),
-    };
-    const orphan = await this.prisma.lead.findFirst({
-      where: orphanWhere,
-      select: { id: true },
-    });
-    if (!orphan) return funil;
-
     const grouped = await this.prisma.lead.groupBy({
       by: ['stage'],
-      where: orphanWhere,
+      where: { tenantId, perdidoAt: null },
     });
+    if (grouped.length === 0) return funil;
 
-    const existingLabels = new Set(
-      funil.etapas.map((e) => e.label.toLowerCase()),
-    );
-    const usedPapeis = new Set(
-      funil.etapas
-        .map((e) => this.resolveEtapaPapel(e))
-        .filter((p): p is FunilEtapaPapel => p != null),
-    );
-    let sortOrder =
-      funil.etapas.reduce((max, e) => Math.max(max, e.sortOrder), -1) + 1;
+    const etapas = [...funil.etapas];
+
+    const findMatch = (stage: string) => {
+      const trimmed = stage.trim();
+      const normalized = slugify(trimmed);
+      return (
+        etapas.find((e) => e.slug === trimmed) ||
+        etapas.find((e) => e.slug === normalized) ||
+        etapas.find((e) => slugify(e.slug) === normalized) ||
+        etapas.find((e) => slugify(e.label) === normalized) ||
+        null
+      );
+    };
+
+    let changed = false;
 
     for (const row of grouped) {
-      const slug = row.stage?.trim();
-      if (!slug || existingSlugs.has(slug)) continue;
+      const raw = row.stage;
+      const stage = raw?.trim();
+      if (!stage) continue;
 
-      const def = DEFAULT_FUNNEL_STAGES.find((s) => s.slug === slug);
-      let label = def?.label ?? this.labelFromSlug(slug);
-      if (existingLabels.has(label.toLowerCase())) {
-        label = `${label} (${slug})`;
+      const found = findMatch(stage);
+      if (found) {
+        if (!found.active) {
+          await this.prisma.funilEtapa.update({
+            where: { id: found.id },
+            data: { active: true },
+          });
+          found.active = true;
+          changed = true;
+        }
+        if (found.slug !== raw) {
+          await this.prisma.lead.updateMany({
+            where: { tenantId, perdidoAt: null, stage: raw },
+            data: { stage: found.slug },
+          });
+          changed = true;
+        }
+        continue;
       }
 
+      const def =
+        DEFAULT_FUNNEL_STAGES.find((s) => s.slug === stage) ??
+        DEFAULT_FUNNEL_STAGES.find((s) => s.slug === slugify(stage));
+      const existingLabels = new Set(
+        etapas.map((e) => e.label.toLowerCase()),
+      );
+      let label = def?.label ?? this.labelFromSlug(stage);
+      if (existingLabels.has(label.toLowerCase())) {
+        label = `${label} (${stage})`;
+      }
+
+      const usedPapeis = new Set(
+        etapas
+          .map((e) => this.resolveEtapaPapel(e))
+          .filter((p): p is FunilEtapaPapel => p != null),
+      );
       let papel: FunilEtapaPapel | null =
         (def?.papel as FunilEtapaPapel | undefined) ??
-        LEGACY_PAPEL_BY_SLUG[slug] ??
+        LEGACY_PAPEL_BY_SLUG[stage] ??
+        LEGACY_PAPEL_BY_SLUG[slugify(stage)] ??
         null;
       if (papel && usedPapeis.has(papel)) papel = null;
 
+      const sortOrder =
+        etapas.reduce((max, e) => Math.max(max, e.sortOrder), -1) + 1;
+
       try {
-        await this.prisma.funilEtapa.create({
+        const created = await this.prisma.funilEtapa.create({
           data: {
             funilId: funil.id,
             label,
-            slug,
+            slug: stage,
             color: def?.color ?? 'bg-slate-200 text-slate-700',
             sortOrder,
             active: true,
             papel,
           },
+          select: etapaSelect,
         });
-        existingSlugs.add(slug);
-        existingLabels.add(label.toLowerCase());
-        if (papel) usedPapeis.add(papel);
-        sortOrder += 1;
+        etapas.push(created);
+        changed = true;
       } catch (err) {
         if (
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2002'
         ) {
+          const clash = await this.prisma.funilEtapa.findFirst({
+            where: {
+              funilId: funil.id,
+              OR: [{ slug: stage }, { slug: slugify(stage) }, { label }],
+            },
+            select: etapaSelect,
+          });
+          if (clash) {
+            if (!clash.active) {
+              await this.prisma.funilEtapa.update({
+                where: { id: clash.id },
+                data: { active: true },
+              });
+              clash.active = true;
+            }
+            const already = etapas.some((e) => e.id === clash.id);
+            if (!already) etapas.push(clash);
+            else {
+              const idx = etapas.findIndex((e) => e.id === clash.id);
+              if (idx >= 0) etapas[idx] = { ...etapas[idx], active: true };
+            }
+            if (clash.slug !== raw) {
+              await this.prisma.lead.updateMany({
+                where: { tenantId, perdidoAt: null, stage: raw },
+                data: { stage: clash.slug },
+              });
+            }
+            changed = true;
+          }
           continue;
         }
         throw err;
       }
     }
+
+    if (!changed) return funil;
 
     return this.prisma.funil.findFirstOrThrow({
       where: { id: funil.id },
