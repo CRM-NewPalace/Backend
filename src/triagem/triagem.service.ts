@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ContatoTipo, FunilEtapaPapel, Role, TriagemOrigem } from '@prisma/client';
+import { ContatoTipo, FunilEtapaPapel, TriagemOrigem } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
@@ -13,7 +13,7 @@ import { FunisService } from '../funis/funis.service';
 import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
-import { isCorretorLike } from '../common/utils/roles';
+import { isCorretorLike, canWriteTriagem } from '../common/utils/roles';
 import { CreateTriagemDto } from './dto/create-triagem.dto';
 import { UpdateTriagemDto } from './dto/update-triagem.dto';
 import { QueryTriagemLeadsDto } from './dto/query-triagem-leads.dto';
@@ -135,18 +135,15 @@ export class TriagemService {
   }
 
   /**
-   * Corretor e gerente criam relatos; opcionalmente avançam a etapa do lead.
-   * Corretor: só da própria carteira. Gerente: leads da equipe.
+   * Treinee, corretor, gerente e admin criam relatos; opcionalmente avançam a etapa.
+   * Corretor/treinee: só da própria carteira. Gerente/admin: leads e clientes no escopo.
    */
   async create(dto: CreateTriagemDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
 
-    if (
-      !isCorretorLike(requester.role) &&
-      requester.role !== Role.gerente
-    ) {
+    if (!canWriteTriagem(requester.role)) {
       throw new ForbiddenException(
-        'Apenas corretores e gerentes podem registrar relatos na triagem.',
+        'Apenas treinee, corretor, gerente e administrador podem registrar relatos na triagem.',
       );
     }
 
@@ -154,7 +151,6 @@ export class TriagemService {
       where: { id: dto.leadId, tenantId },
       select: {
         id: true,
-        tipo: true,
         corretorId: true,
         equipeId: true,
         perdidoAt: true,
@@ -171,10 +167,6 @@ export class TriagemService {
         throw new NotFoundException('Lead não encontrado.');
       }
     } else {
-      // Gerente: só leads (não clientes) no escopo da equipe.
-      if (lead.tipo === ContatoTipo.cliente) {
-        throw new NotFoundException('Lead não encontrado.');
-      }
       const allowed = await this.teamScope.canAccessCorretor(
         requester,
         lead.corretorId,
@@ -265,8 +257,8 @@ export class TriagemService {
   }
 
   /**
-   * Corretor edita o texto do próprio relato.
-   * Guarda o texto anterior para admin/gerente consultarem.
+   * O autor edita o texto do próprio relato (treinee, corretor, gerente ou admin).
+   * Guarda o texto anterior para consulta.
    */
   async update(
     id: string,
@@ -275,9 +267,9 @@ export class TriagemService {
   ) {
     requireTenantId(requester);
 
-    if (!isCorretorLike(requester.role)) {
+    if (!canWriteTriagem(requester.role)) {
       throw new ForbiddenException(
-        'Apenas o corretor autor pode editar o relato.',
+        'Apenas o autor pode editar o próprio relato.',
       );
     }
 
@@ -340,14 +332,6 @@ export class TriagemService {
     });
 
     if (!lead || lead.perdidoAt) {
-      throw new NotFoundException('Lead não encontrado.');
-    }
-
-    // Gerente/admin não consultam clientes na triagem.
-    if (
-      !isCorretorLike(requester.role) &&
-      lead.tipo === ContatoTipo.cliente
-    ) {
       throw new NotFoundException('Lead não encontrado.');
     }
 
