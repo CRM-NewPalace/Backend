@@ -21,6 +21,7 @@ import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
 import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
+import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
 
 /**
  * Administração de tenants (imobiliárias) da plataforma.
@@ -40,6 +41,14 @@ export class TenantsController {
   @Post()
   create(@Body() dto: CreateTenantDto) {
     return this.tenantsService.create(dto);
+  }
+
+  @Post(':id/duplicate')
+  duplicate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DuplicateTenantDto = {},
+  ) {
+    return this.tenantsService.duplicate(id, dto ?? {});
   }
 
   @Get(':id')

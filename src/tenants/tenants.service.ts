@@ -35,6 +35,8 @@ import {
 } from '../common/utils/tenant';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { TenantLogoColorService } from './tenant-logo-color.service';
+import { TenantCloneService } from './tenant-clone.service';
+import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
 
 const tenantSelect = tenantAdminSelect;
 
@@ -94,6 +96,7 @@ export class TenantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantLogoColor: TenantLogoColorService,
+    private readonly cloneService: TenantCloneService,
   ) {}
 
   findAll() {
@@ -325,6 +328,16 @@ export class TenantsService {
     });
 
     return { user, temporaryPassword };
+  }
+
+  /**
+   * Cria um tenant novo e independente com cópia dos dados operacionais.
+   * Não reutiliza IDs, conexões Meta/OZap nem contratos da plataforma.
+   */
+  async duplicate(id: string, dto: DuplicateTenantDto = {}) {
+    const created = await this.cloneService.duplicate(id, dto);
+    const tenant = await this.findOne(created.id);
+    return { ...tenant, copied: created.copied };
   }
 
   /**
