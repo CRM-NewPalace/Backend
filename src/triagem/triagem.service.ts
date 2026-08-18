@@ -215,16 +215,14 @@ export class TriagemService {
     const timing =
       shouldUpdateStage && targetStage
         ? await this.monitoramento.stageChangeData(tenantId, targetStage, now)
-        : null;
+        : await this.monitoramento.followUpData(tenantId, lead.stage, now);
 
     const event = await this.prisma.$transaction(async (tx) => {
       await tx.lead.update({
         where: { id: lead.id },
         data: {
           ...(shouldUpdateStage && targetStage ? { stage: targetStage } : {}),
-          ...(timing ?? {
-            lastMovementAt: now,
-          }),
+          ...timing,
           lastTriagemAt: now,
         },
       });
@@ -283,7 +281,9 @@ export class TriagemService {
       select: {
         id: true,
         texto: true,
-        lead: { select: { tenantId: true, perdidoAt: true } },
+        lead: {
+          select: { id: true, tenantId: true, perdidoAt: true, stage: true },
+        },
       },
     });
 
@@ -302,15 +302,30 @@ export class TriagemService {
       });
     }
 
-    return this.prisma.triagemEvent.update({
-      where: { id },
-      data: {
-        textoAnterior: existing.texto,
-        texto,
-        editedAt: new Date(),
-      },
-      select: eventSelect,
-    });
+    const now = new Date();
+    const followUp = await this.monitoramento.followUpData(
+      existing.lead.tenantId,
+      existing.lead.stage,
+      now,
+    );
+
+    const [, event] = await this.prisma.$transaction([
+      this.prisma.lead.update({
+        where: { id: existing.lead.id },
+        data: followUp,
+      }),
+      this.prisma.triagemEvent.update({
+        where: { id },
+        data: {
+          textoAnterior: existing.texto,
+          texto,
+          editedAt: now,
+        },
+        select: eventSelect,
+      }),
+    ]);
+
+    return event;
   }
 
   private async ensureLeadAccessible(

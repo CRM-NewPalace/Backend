@@ -95,6 +95,14 @@ export type LeadTimingFields = {
   alertaProximoAt: Date | null;
 };
 
+export type LeadFollowUpFields = {
+  lastMovementAt: Date;
+  lastTriagemAt: Date;
+  prazoAdiado: boolean;
+  prazoDueAt: Date | null;
+  alertaProximoAt: Date | null;
+};
+
 type LeadTimingRow = {
   id: string;
   nome: string;
@@ -202,6 +210,23 @@ export class LeadMonitoramentoService {
     };
   }
 
+  /** Novo relato na mesma etapa: reinicia o SLA sem alterar a entrada na etapa. */
+  async followUpData(
+    tenantId: string,
+    stage: string,
+    now = new Date(),
+  ): Promise<LeadFollowUpFields> {
+    const ctx = await this.loadFunilContext(tenantId);
+    const etapa = ctx.etapasBySlug.get(stage) ?? null;
+    const prazo = this.prazoFieldsForEtapa(now, etapa);
+    return {
+      lastMovementAt: now,
+      lastTriagemAt: now,
+      prazoAdiado: false,
+      ...prazo,
+    };
+  }
+
   async recordMovement(
     leadId: string,
     kind: 'triagem' | 'tarefa' | 'atividade',
@@ -243,11 +268,14 @@ export class LeadMonitoramentoService {
         perdidoAt: null,
         prazoAdiado: false,
       },
-      select: { id: true, stageEnteredAt: true },
+      select: { id: true, stageEnteredAt: true, lastTriagemAt: true },
     });
 
     for (const lead of leads) {
-      const prazo = this.prazoFieldsForEtapa(lead.stageEnteredAt, etapa);
+      const prazo = this.prazoFieldsForEtapa(
+        this.slaAnchor(lead.stageEnteredAt, lead.lastTriagemAt),
+        etapa,
+      );
       await this.prisma.lead.update({
         where: { id: lead.id },
         data: {
@@ -721,12 +749,20 @@ export class LeadMonitoramentoService {
         prazoDueAt: null,
         stage: { in: slugs },
       },
-      select: { id: true, stage: true, stageEnteredAt: true },
+      select: {
+        id: true,
+        stage: true,
+        stageEnteredAt: true,
+        lastTriagemAt: true,
+      },
       take: 80,
     });
     for (const lead of missing) {
       const etapa = ctx.etapasBySlug.get(lead.stage) ?? null;
-      const prazo = this.prazoFieldsForEtapa(lead.stageEnteredAt, etapa);
+      const prazo = this.prazoFieldsForEtapa(
+        this.slaAnchor(lead.stageEnteredAt, lead.lastTriagemAt),
+        etapa,
+      );
       if (!prazo.prazoDueAt) continue;
       await this.prisma.lead.update({
         where: { id: lead.id },
@@ -915,6 +951,13 @@ export class LeadMonitoramentoService {
     return created;
   }
 
+  private slaAnchor(enteredAt: Date, lastTriagemAt: Date | null): Date {
+    if (lastTriagemAt && lastTriagemAt.getTime() > enteredAt.getTime()) {
+      return lastTriagemAt;
+    }
+    return enteredAt;
+  }
+
   private prazoFieldsForEtapa(
     enteredAt: Date,
     etapa: EtapaCtx | null,
@@ -948,7 +991,10 @@ export class LeadMonitoramentoService {
     const terminal = isEtapaTerminal(etapa?.papel);
     const enteredAt = lead.stageEnteredAt ?? lead.createdAt;
     const lastMovementAt = lead.lastMovementAt ?? lead.createdAt;
-    const computed = this.prazoFieldsForEtapa(enteredAt, etapa);
+    const computed = this.prazoFieldsForEtapa(
+      this.slaAnchor(enteredAt, lead.lastTriagemAt),
+      etapa,
+    );
     const dueAt =
       lead.prazoAdiado && lead.prazoDueAt
         ? lead.prazoDueAt
