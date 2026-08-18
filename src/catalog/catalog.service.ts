@@ -7,7 +7,7 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
-import { CatalogItem, CatalogType, Role } from '@prisma/client';
+import { CatalogItem, CatalogType, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
@@ -141,6 +141,99 @@ export class CatalogService {
       grouped[item.type].push(item);
     }
     return grouped;
+  }
+
+  /**
+   * Cadastra no catálogo as origens da importação que ainda não existem.
+   * Reaproveita o label já cadastrado (ignora maiúsculas/minúsculas) e reativa itens inativos.
+   */
+  async ensureOrigensForImport(
+    tenantId: string,
+    labels: string[],
+  ): Promise<Map<string, string>> {
+    const canonical = new Map<string, string>();
+    const unique = [
+      ...new Set(
+        labels
+          .map((label) => label.trim().slice(0, 60))
+          .filter((label) => label.length > 0),
+      ),
+    ];
+    if (unique.length === 0) return canonical;
+
+    const existing = await this.prisma.catalogItem.findMany({
+      where: { tenantId, type: CatalogType.origem },
+    });
+    const byLower = new Map(
+      existing.map((item) => [item.label.trim().toLowerCase(), item]),
+    );
+    let nextSort =
+      existing.reduce(
+        (max, item) => (item.sortOrder > max ? item.sortOrder : max),
+        -1,
+      ) + 1;
+    const defaultColor = 'bg-slate-200 text-slate-700';
+
+    for (const label of unique) {
+      const key = label.toLowerCase();
+      const found = byLower.get(key);
+      if (found) {
+        if (!found.active) {
+          const updated = await this.prisma.catalogItem.update({
+            where: { id: found.id },
+            data: { active: true },
+          });
+          byLower.set(key, updated);
+        }
+        canonical.set(label, found.label);
+        continue;
+      }
+
+      try {
+        const created = await this.prisma.catalogItem.create({
+          data: {
+            tenantId,
+            type: CatalogType.origem,
+            label,
+            slug: slugify(label),
+            color: defaultColor,
+            sortOrder: nextSort++,
+            active: true,
+          },
+        });
+        byLower.set(key, created);
+        canonical.set(label, created.label);
+      } catch (err) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          const raced = await this.prisma.catalogItem.findUnique({
+            where: {
+              tenantId_type_label: {
+                tenantId,
+                type: CatalogType.origem,
+                label,
+              },
+            },
+          });
+          if (raced) {
+            if (!raced.active) {
+              await this.prisma.catalogItem.update({
+                where: { id: raced.id },
+                data: { active: true },
+              });
+            }
+            byLower.set(key, raced);
+            canonical.set(label, raced.label);
+            continue;
+          }
+        }
+        throw err;
+      }
+    }
+
+    return canonical;
   }
 
   /** Garante fontes/status padrão da documentação no tenant. */

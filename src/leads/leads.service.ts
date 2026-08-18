@@ -147,6 +147,12 @@ export class LeadsService {
       tenantId,
       defaultStage,
     );
+    const origemByLabel = await this.catalog.ensureOrigensForImport(
+      tenantId,
+      dto.leads.map(
+        (item) => (item.origem?.trim() || 'Importação').slice(0, 60),
+      ),
+    );
 
     const created: LeadEntity[] = [];
     const errors: Array<{ index: number; nome: string; message: string }> = [];
@@ -175,6 +181,7 @@ export class LeadsService {
         const email =
           item.email?.trim().toLowerCase() ||
           `import.${digits || index}@sem-email.local`;
+        const origemRaw = (item.origem?.trim() || 'Importação').slice(0, 60);
 
         const lead = await this.prisma.lead.create({
           data: {
@@ -183,7 +190,7 @@ export class LeadsService {
             nome: item.nome.trim(),
             telefone: item.telefone.trim(),
             email,
-            origem: (item.origem?.trim() || 'Importação').slice(0, 60),
+            origem: origemByLabel.get(origemRaw) ?? origemRaw,
             interesse: item.interesse ?? 'Comprar',
             cidade: (item.cidade?.trim() || 'Não informado').slice(0, 80),
             bairro: (item.bairro?.trim() || 'Não informado').slice(0, 80),
