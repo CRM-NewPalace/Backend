@@ -37,6 +37,7 @@ import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { TenantLogoColorService } from './tenant-logo-color.service';
 import { TenantCloneService } from './tenant-clone.service';
 import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
+import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
 
 const tenantSelect = tenantAdminSelect;
 
@@ -314,20 +315,104 @@ export class TenantsService {
     }
 
     const temporaryPassword = this.generateTemporaryPassword();
-    const user = await this.prisma.user.update({
-      where: { id: admin.id },
+    const hashed = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
+    const updated = await this.prisma.user.updateMany({
+      where: { id: admin.id, tenantId },
       data: {
-        password: await bcrypt.hash(temporaryPassword, SALT_ROUNDS),
+        password: hashed,
         hashedRefreshToken: null,
         passwordResetToken: null,
         passwordResetExpires: null,
         failedLoginAttempts: 0,
         lockedUntil: null,
       },
+    });
+    if (updated.count === 0) {
+      throw new NotFoundException('Administrador não encontrado neste tenant.');
+    }
+
+    const user = await this.prisma.user.findFirstOrThrow({
+      where: { id: admin.id, tenantId },
       select: publicUserSelect,
     });
 
     return { user, temporaryPassword };
+  }
+
+  /**
+   * Atualiza nome/e-mail do admin principal deste tenant.
+   * O where inclui tenantId para não tocar no admin de outro cliente
+   * mesmo se o e-mail for igual (ex.: tenant duplicado).
+   */
+  async updateAdmin(tenantId: string, dto: UpdateTenantAdminDto) {
+    if (tenantId === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser alterado por aqui.',
+      );
+    }
+    await this.ensureExists(tenantId);
+
+    const admin = await this.prisma.user.findFirst({
+      where: { tenantId, role: Role.admin },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, tenantId: true, email: true },
+    });
+
+    if (!admin || admin.tenantId !== tenantId) {
+      throw new NotFoundException(
+        'Este tenant ainda não tem administrador. Crie o admin inicial primeiro.',
+      );
+    }
+
+    const name = dto.name?.trim();
+    const email = dto.email?.trim().toLowerCase();
+    if (!name && !email) {
+      throw new BadRequestException('Informe nome ou e-mail para atualizar.');
+    }
+
+    if (email && email !== admin.email) {
+      const clash = await this.prisma.user.findFirst({
+        where: { tenantId, email, id: { not: admin.id } },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new ConflictException(
+          'Já existe um usuário com este e-mail neste tenant.',
+        );
+      }
+    }
+
+    const emailChanged = Boolean(email && email !== admin.email);
+
+    try {
+      const updated = await this.prisma.user.updateMany({
+        where: { id: admin.id, tenantId },
+        data: {
+          ...(name ? { name } : {}),
+          ...(email ? { email } : {}),
+          ...(emailChanged
+            ? {
+                hashedRefreshToken: null,
+                passwordResetToken: null,
+                passwordResetExpires: null,
+              }
+            : {}),
+        },
+      });
+      if (updated.count === 0) {
+        throw new NotFoundException('Administrador não encontrado neste tenant.');
+      }
+    } catch (error) {
+      throw this.translateUniqueConstraint(
+        error,
+        'Este e-mail já está em uso neste tenant.',
+      );
+    }
+
+    return this.prisma.user.findFirstOrThrow({
+      where: { id: admin.id, tenantId },
+      select: publicUserSelect,
+    });
   }
 
   /**

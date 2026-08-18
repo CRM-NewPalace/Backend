@@ -342,6 +342,7 @@ export class TenantCloneService {
     const seriesIds = new Map<string, string>();
     const gruposParcelas = new Map<string, string>();
 
+    // IDs novos: usuários da cópia não compartilham linha com o tenant de origem.
     await insertMany(tx.user, snap.users.map((u) => ({
       id: mapped(users, u.id),
       tenantId,
