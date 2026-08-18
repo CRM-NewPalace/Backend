@@ -25,10 +25,21 @@ export type MotivoSemMovimentacao =
   | 'sem_tarefa';
 
 export type ProblemaMonitoramento = {
-  tipo: 'prazo_ultrapassado' | 'sem_movimentacao' | 'prazo_proximo';
+  tipo:
+    | 'prazo_ultrapassado'
+    | 'sem_movimentacao'
+    | 'prazo_proximo'
+    | 'tarefa_atrasada';
   titulo: string;
   detalhe: string;
   motivos?: MotivoSemMovimentacao[];
+};
+
+export type TarefaAtrasadaResumo = {
+  id: string;
+  titulo: string;
+  prazo: string;
+  funilStage: string | null;
 };
 
 export type LeadMonitoramento = {
@@ -55,6 +66,7 @@ export type LeadMonitoramento = {
   inatividadeThresholdMs: number;
   inatividadeConfig: { valor: number; unidade: PrazoUnidade };
   podeAdiar: boolean;
+  tarefasAtrasadas: TarefaAtrasadaResumo[];
 };
 
 export type LeadPrazoAdiamentoView = {
@@ -71,6 +83,7 @@ export type CorretorMonitoramentoLead = {
   nome: string;
   stage: string;
   problemas: ProblemaMonitoramento[];
+  tarefasAtrasadas: TarefaAtrasadaResumo[];
 };
 
 export type CorretorMonitoramento = {
@@ -79,5 +92,6 @@ export type CorretorMonitoramento = {
   totalAtrasos: number;
   semMovimentacao: number;
   foraDoPrazo: number;
+  tarefasAtrasadas: number;
   leads: CorretorMonitoramentoLead[];
 };

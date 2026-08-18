@@ -61,6 +61,7 @@ const agendamentoSelect = {
   endsAt: true,
   local: true,
   observacoes: true,
+  funilStage: true,
   motivoRecusa: true,
   aprovadoAt: true,
   createdAt: true,
@@ -705,6 +706,7 @@ export class AgendaService {
       recurrenceUntil,
       local: dto.local?.trim() || null,
       observacoes: dto.observacoes?.trim() || null,
+      funilStage: dto.funilStage?.trim() || null,
       ...(solicitacaoStatus === AgendamentoSolicitacaoStatus.aprovada
         ? {
             aprovadoPorId: requester.id,

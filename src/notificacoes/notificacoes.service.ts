@@ -254,7 +254,7 @@ export class NotificacoesService {
     });
   }
 
-  /** Avisa o corretor sobre tarefa atribuída na agenda por gerente/admin. */
+    /** Avisa o corretor sobre tarefa atribuída na agenda por gerente/admin. */
   async createAgendaAtribuicao(params: {
     userId: string;
     agendamentoId: string;
@@ -271,6 +271,45 @@ export class NotificacoesService {
         titulo: `Nova tarefa na sua agenda — ${params.titulo}`,
         corpo: `${params.autorNome} atribuiu a tarefa "${params.titulo}" para ${params.quando}.`,
         agendamentoId: params.agendamentoId,
+      },
+      select: notifSelect,
+    });
+  }
+
+  /**
+   * Tarefa atrasada. Idempotente por usuário + agendamento.
+   * Destinatários: corretor, gerente da equipe e administradores.
+   */
+  async createTarefaAtrasada(params: {
+    userId: string;
+    leadId: string | null;
+    agendamentoId: string;
+    leadNome: string;
+    titulo: string;
+    prazoLabel: string;
+  }) {
+    const existing = await this.prisma.notificacao.findFirst({
+      where: {
+        userId: params.userId,
+        agendamentoId: params.agendamentoId,
+        tipo: NotificacaoTipo.tarefa_atrasada,
+      },
+      select: { id: true },
+    });
+    if (existing) return null;
+
+    const tenantId = await this.resolveTenantId(params.userId);
+    const contato = params.leadNome ? ` do contato ${params.leadNome}` : '';
+    return this.prisma.notificacao.create({
+      data: {
+        tenantId,
+        userId: params.userId,
+        tipo: NotificacaoTipo.tarefa_atrasada,
+        titulo: `Tarefa atrasada — ${params.titulo}`,
+        corpo: `A tarefa "${params.titulo}"${contato} ultrapassou o prazo (${params.prazoLabel}) sem conclusão.`,
+        leadId: params.leadId,
+        agendamentoId: params.agendamentoId,
+        eventoChave: params.agendamentoId,
       },
       select: notifSelect,
     });

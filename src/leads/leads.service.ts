@@ -711,7 +711,11 @@ export class LeadsService {
     ]);
 
     return {
-      data: this.monitoramento.decorateLeads(data, monCtx, requester),
+      data: await this.monitoramento.decorateLeadsWithTarefas(
+        data,
+        monCtx,
+        requester,
+      ),
       meta: {
         total,
         page,
@@ -1513,6 +1517,6 @@ export class LeadsService {
   ): Promise<LeadWithMonitoramento> {
     const tenantId = requireTenantId(requester);
     const ctx = await this.monitoramento.loadFunilContext(tenantId);
-    return this.monitoramento.decorateLead(lead, ctx, requester);
+    return this.monitoramento.decorateLeadWithTarefas(lead, ctx, requester);
   }
 }

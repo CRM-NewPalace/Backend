@@ -731,6 +731,7 @@ export class TenantCloneService {
         endsAt: a.endsAt,
         local: a.local,
         observacoes: a.observacoes,
+        funilStage: a.funilStage,
         aprovadoPorId: mappedOpt(users, a.aprovadoPorId),
         aprovadoAt: a.aprovadoAt,
         motivoRecusa: a.motivoRecusa,

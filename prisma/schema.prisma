@@ -1014,6 +1014,8 @@ model Agendamento {
   endsAt       DateTime?
   local        String?
   observacoes  String?
+  /// Etapa do funil no momento da criação (quando originada no quadro).
+  funilStage   String?
 
   aprovadoPorId String?
   aprovadoPor   User?     @relation("AgendamentoAprovador", fields: [aprovadoPorId], references: [id], onDelete: SetNull)
@@ -1050,6 +1052,7 @@ enum NotificacaoTipo {
   agenda_lembrete_1h
   lead_prazo_proximo
   lead_prazo_ultrapassado
+  tarefa_atrasada
 }
 
 /// Aviso in-app para o usuário (ex.: resultado da análise para o corretor).

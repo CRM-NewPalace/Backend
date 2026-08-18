@@ -106,6 +106,13 @@ export class CreateAgendamentoDto {
   @MaxLength(2000)
   observacoes?: string | null;
 
+  /** Etapa do funil quando a tarefa nasce no quadro. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsString()
+  @MaxLength(80)
+  funilStage?: string | null;
+
   /** Recorrência de bloqueio: unica | semanal | mensal. */
   @IsOptional()
   @IsIn(AGENDAMENTO_RECURRENCE_FREQ, {

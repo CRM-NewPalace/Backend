@@ -12,6 +12,8 @@ import {
   TriagemOrigem,
   UserStatus,
   PrazoUnidade,
+  AgendamentoTipo,
+  AgendamentoStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamScopeService } from '../../equipes/team-scope.service';
@@ -38,6 +40,7 @@ import type {
   MonitoramentoFiltro,
   MotivoSemMovimentacao,
   ProblemaMonitoramento,
+  TarefaAtrasadaResumo,
 } from './lead-monitoramento.types';
 
 const MOTIVO_LABEL: Record<MotivoSemMovimentacao, string> = {
@@ -46,6 +49,25 @@ const MOTIVO_LABEL: Record<MotivoSemMovimentacao, string> = {
   sem_atividade: 'Sem atividade',
   sem_tarefa: 'Sem tarefa',
 };
+
+function overdueTarefaWhere(now: Date): Prisma.AgendamentoWhereInput {
+  return {
+    tipo: AgendamentoTipo.tarefa,
+    status: AgendamentoStatus.agendado,
+    OR: [
+      { endsAt: { lt: now } },
+      { AND: [{ endsAt: null }, { startsAt: { lt: now } }] },
+    ],
+  };
+}
+
+function formatTarefaPrazo(startsAt: Date, endsAt: Date | null): string {
+  const when = endsAt ?? startsAt;
+  return when.toLocaleString('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+}
 
 type EtapaCtx = {
   slug: string;
@@ -252,7 +274,13 @@ export class LeadMonitoramentoService {
       return { lastMovementAt: { lt: idleBefore }, ...notTerminal };
     }
     if (filtro === 'em_atraso') {
-      return { prazoDueAt: { lt: now }, ...notTerminal };
+      return {
+        ...notTerminal,
+        OR: [
+          { prazoDueAt: { lt: now } },
+          { agendamentos: { some: overdueTarefaWhere(now) } },
+        ],
+      };
     }
     if (filtro === 'proximo_vencimento') {
       return {
@@ -291,6 +319,39 @@ export class LeadMonitoramentoService {
     now = new Date(),
   ): Array<T & { monitoramento: LeadMonitoramento }> {
     return leads.map((lead) => this.decorateLead(lead, ctx, requester, now));
+  }
+
+  async decorateLeadsWithTarefas<T extends LeadTimingRow>(
+    leads: T[],
+    ctx: FunilCtx,
+    requester: AuthenticatedUser,
+    now = new Date(),
+  ): Promise<Array<T & { monitoramento: LeadMonitoramento }>> {
+    const decorated = this.decorateLeads(leads, ctx, requester, now);
+    if (decorated.length === 0) return decorated;
+    const byLead = await this.loadOverdueTarefas(
+      requireTenantId(requester),
+      decorated.map((lead) => lead.id),
+      now,
+    );
+    return decorated.map((lead) =>
+      this.mergeTarefasAtrasadas(lead, byLead.get(lead.id) ?? []),
+    );
+  }
+
+  async decorateLeadWithTarefas<T extends LeadTimingRow>(
+    lead: T,
+    ctx: FunilCtx,
+    requester: AuthenticatedUser,
+    now = new Date(),
+  ): Promise<T & { monitoramento: LeadMonitoramento }> {
+    const [row] = await this.decorateLeadsWithTarefas(
+      [lead],
+      ctx,
+      requester,
+      now,
+    );
+    return row;
   }
 
   async adiarPrazo(
@@ -414,7 +475,7 @@ export class LeadMonitoramentoService {
       },
     });
 
-    return this.decorateLead(updated, ctx, requester);
+    return this.decorateLeadWithTarefas(updated, ctx, requester);
   }
 
   async listAdiamentos(
@@ -495,6 +556,7 @@ export class LeadMonitoramentoService {
         OR: [
           { lastMovementAt: { lt: idleBefore } },
           { prazoDueAt: { lt: now } },
+          { agendamentos: { some: overdueTarefaWhere(now) } },
         ],
       },
       select: {
@@ -511,12 +573,19 @@ export class LeadMonitoramentoService {
     });
 
     const byCorretor = new Map<string, CorretorMonitoramento>();
-    for (const lead of leads) {
+    const decorated = await this.decorateLeadsWithTarefas(
+      leads,
+      ctx,
+      requester,
+      now,
+    );
+    for (const lead of decorated) {
       if (!lead.corretorId || !lead.corretor) continue;
-      const mon = this.compute(lead, ctx, requester, now);
+      const mon = lead.monitoramento;
       if (mon.visual !== 'vermelho') continue;
       const overdue = mon.problemas.some((p) => p.tipo === 'prazo_ultrapassado');
       const idle = mon.problemas.some((p) => p.tipo === 'sem_movimentacao');
+      const tarefas = mon.tarefasAtrasadas.length;
       let row = byCorretor.get(lead.corretorId);
       if (!row) {
         row = {
@@ -525,6 +594,7 @@ export class LeadMonitoramentoService {
           totalAtrasos: 0,
           semMovimentacao: 0,
           foraDoPrazo: 0,
+          tarefasAtrasadas: 0,
           leads: [],
         };
         byCorretor.set(lead.corretorId, row);
@@ -532,11 +602,13 @@ export class LeadMonitoramentoService {
       row.totalAtrasos += 1;
       if (idle) row.semMovimentacao += 1;
       if (overdue) row.foraDoPrazo += 1;
+      row.tarefasAtrasadas += tarefas;
       row.leads.push({
         id: lead.id,
         nome: lead.nome,
         stage: lead.stage,
         problemas: mon.problemas,
+        tarefasAtrasadas: mon.tarefasAtrasadas,
       });
     }
 
@@ -629,6 +701,8 @@ export class LeadMonitoramentoService {
       }
     }
 
+    created += await this.syncTarefasAtrasadas(tenantId, ctx, requester, now);
+
     return { ok: true, created };
   }
 
@@ -702,6 +776,143 @@ export class LeadMonitoramentoService {
       select: { id: true },
     });
     return active.map((u) => u.id);
+  }
+
+  private async loadOverdueTarefas(
+    tenantId: string,
+    leadIds: string[],
+    now: Date,
+  ): Promise<Map<string, TarefaAtrasadaResumo[]>> {
+    const map = new Map<string, TarefaAtrasadaResumo[]>();
+    if (leadIds.length === 0) return map;
+    const rows = await this.prisma.agendamento.findMany({
+      where: {
+        tenantId,
+        leadId: { in: leadIds },
+        ...overdueTarefaWhere(now),
+      },
+      select: {
+        id: true,
+        leadId: true,
+        titulo: true,
+        startsAt: true,
+        endsAt: true,
+        funilStage: true,
+      },
+      orderBy: { startsAt: 'asc' },
+    });
+    for (const row of rows) {
+      if (!row.leadId) continue;
+      const list = map.get(row.leadId) ?? [];
+      list.push({
+        id: row.id,
+        titulo: row.titulo,
+        prazo: formatTarefaPrazo(row.startsAt, row.endsAt),
+        funilStage: row.funilStage,
+      });
+      map.set(row.leadId, list);
+    }
+    return map;
+  }
+
+  private mergeTarefasAtrasadas<T extends { monitoramento: LeadMonitoramento }>(
+    lead: T,
+    tasks: TarefaAtrasadaResumo[],
+  ): T {
+    if (tasks.length === 0) return lead;
+    const first = tasks[0];
+    const detalhe =
+      tasks.length === 1
+        ? `"${first.titulo}" venceu em ${first.prazo}.`
+        : `${tasks.length} tarefas atrasadas. A mais antiga: "${first.titulo}" (${first.prazo}).`;
+    const problemas = [
+      ...lead.monitoramento.problemas.filter(
+        (p) => p.tipo !== 'tarefa_atrasada',
+      ),
+      {
+        tipo: 'tarefa_atrasada' as const,
+        titulo: 'Tarefa atrasada',
+        detalhe,
+      },
+    ];
+    return {
+      ...lead,
+      monitoramento: {
+        ...lead.monitoramento,
+        problemas,
+        nivel: 'atrasado',
+        visual: 'vermelho',
+        tarefasAtrasadas: tasks,
+      },
+    };
+  }
+
+  private async syncTarefasAtrasadas(
+    tenantId: string,
+    ctx: FunilCtx,
+    requester: AuthenticatedUser,
+    now: Date,
+  ): Promise<number> {
+    const leadScope = await this.teamScope.leadScope(requester, {
+      includeAdminPool: false,
+    });
+    const tasks = await this.prisma.agendamento.findMany({
+      where: {
+        tenantId,
+        leadId: { not: null },
+        ...overdueTarefaWhere(now),
+        lead: {
+          is: {
+            ...leadScope,
+            perdidoAt: null,
+            ...(ctx.terminalSlugs.length > 0
+              ? { stage: { notIn: ctx.terminalSlugs } }
+              : {}),
+          },
+        },
+      },
+      select: {
+        id: true,
+        titulo: true,
+        startsAt: true,
+        endsAt: true,
+        leadId: true,
+        autorId: true,
+        atribuidoParaId: true,
+        lead: {
+          select: {
+            id: true,
+            nome: true,
+            corretorId: true,
+            equipeId: true,
+          },
+        },
+      },
+      take: 200,
+    });
+
+    let created = 0;
+    for (const task of tasks) {
+      if (!task.lead) continue;
+      const recipients = new Set(
+        await this.resolveOverdueRecipients(tenantId, task.lead),
+      );
+      if (task.atribuidoParaId) recipients.add(task.atribuidoParaId);
+      if (task.autorId) recipients.add(task.autorId);
+      const prazoLabel = formatTarefaPrazo(task.startsAt, task.endsAt);
+      for (const userId of recipients) {
+        const n = await this.notificacoes.createTarefaAtrasada({
+          userId,
+          leadId: task.lead.id,
+          agendamentoId: task.id,
+          leadNome: task.lead.nome,
+          titulo: task.titulo,
+          prazoLabel,
+        });
+        if (n) created += 1;
+      }
+    }
+    return created;
   }
 
   private prazoFieldsForEtapa(
@@ -848,6 +1059,7 @@ export class LeadMonitoramentoService {
         unidade: ctx.inatividadeUnidade,
       },
       podeAdiar: canAdiar,
+      tarefasAtrasadas: [],
     };
   }
 
