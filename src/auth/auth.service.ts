@@ -485,6 +485,7 @@ export class AuthService {
       dataNascimento: user.dataNascimento,
       cargo: user.cargo,
       creci: user.creci,
+      creciStatus: user.creciStatus,
       cor: user.cor,
       corAside: user.corAside,
       corPrincipal: user.corPrincipal,
