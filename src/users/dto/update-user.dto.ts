@@ -1,4 +1,4 @@
-import { Role, UserStatus } from '@prisma/client';
+import { CreciProcessoStatus, Role, UserStatus } from '@prisma/client';
 import {
   IsDateString,
   IsEmail,
@@ -46,6 +46,10 @@ export class UpdateUserDto {
   @IsString()
   @MaxLength(40)
   creci?: string | null;
+
+  @IsOptional()
+  @IsEnum(CreciProcessoStatus, { message: 'Andamento do CRECI inválido.' })
+  creciStatus?: CreciProcessoStatus;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== '')

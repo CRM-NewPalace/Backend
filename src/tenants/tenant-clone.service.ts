@@ -354,6 +354,7 @@ export class TenantCloneService {
       dataNascimento: u.dataNascimento,
       cargo: u.cargo,
       creci: u.creci,
+      creciStatus: u.creciStatus,
       cor: u.cor,
       corAside: u.corAside,
       corPrincipal: u.corPrincipal,

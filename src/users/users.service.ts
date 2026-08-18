@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role, UserStatus } from '@prisma/client';
+import { CreciProcessoStatus, Prisma, Role, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -75,6 +75,14 @@ export class UsersService {
     const email = dto.email.toLowerCase().trim();
     await this.ensureEmailIsAvailable(tenantId, email);
 
+    const creci = dto.creci?.trim() || null;
+    const creciStatus =
+      dto.creciStatus ??
+      (creci
+        ? CreciProcessoStatus.creci_recebido
+        : CreciProcessoStatus.nao_iniciado);
+    this.assertCreciProcesso(creciStatus, creci);
+
     return this.prisma.user.create({
       data: {
         tenantId,
@@ -85,7 +93,8 @@ export class UsersService {
         whatsapp: dto.whatsapp,
         dataNascimento: parseDataNascimento(dto.dataNascimento) ?? null,
         cargo: dto.cargo,
-        creci: dto.creci?.trim() || null,
+        creci,
+        creciStatus,
         cor: normalizeCor(dto.cor),
         role: dto.role,
         status: dto.status ?? UserStatus.ativo,
@@ -153,6 +162,17 @@ export class UsersService {
     throw new ForbiddenException(
       'Gerentes e analistas podem cadastrar somente usuários corretores.',
     );
+  }
+
+  private assertCreciProcesso(
+    status: CreciProcessoStatus,
+    creci: string | null,
+  ) {
+    if (status === CreciProcessoStatus.creci_recebido && !creci?.trim()) {
+      throw new BadRequestException(
+        'Informe o número do CRECI ao marcar a etapa como recebido.',
+      );
+    }
   }
 
   private async assertRoleAllowed(tenantId: string, role: Role) {
@@ -306,6 +326,24 @@ export class UsersService {
         ? parseDataNascimento(dto.dataNascimento)
         : undefined;
 
+    const creci =
+      dto.creci !== undefined
+        ? dto.creci?.trim()
+          ? dto.creci.trim()
+          : null
+        : undefined;
+    const creciStatus = dto.creciStatus;
+    if (creciStatus !== undefined || creci !== undefined) {
+      const current = await this.prisma.user.findFirst({
+        where: { id, tenantId },
+        select: { creci: true, creciStatus: true },
+      });
+      this.assertCreciProcesso(
+        creciStatus ?? current?.creciStatus ?? CreciProcessoStatus.nao_iniciado,
+        creci !== undefined ? creci : (current?.creci ?? null),
+      );
+    }
+
     return this.prisma.user.update({
       where: { id },
       data: {
@@ -315,9 +353,8 @@ export class UsersService {
         ...(dto.whatsapp !== undefined ? { whatsapp: dto.whatsapp } : {}),
         ...(dataNascimento !== undefined ? { dataNascimento } : {}),
         ...(dto.cargo !== undefined ? { cargo: dto.cargo } : {}),
-        ...(dto.creci !== undefined
-          ? { creci: dto.creci?.trim() ? dto.creci.trim() : null }
-          : {}),
+        ...(creci !== undefined ? { creci } : {}),
+        ...(creciStatus !== undefined ? { creciStatus } : {}),
         ...(dto.cor !== undefined ? { cor: normalizeCor(dto.cor) } : {}),
         ...(dto.role !== undefined ? { role: dto.role } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),

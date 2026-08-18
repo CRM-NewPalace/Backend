@@ -11,6 +11,7 @@ export const publicUserSelect = {
   dataNascimento: true,
   cargo: true,
   creci: true,
+  creciStatus: true,
   cor: true,
   corAside: true,
   corPrincipal: true,

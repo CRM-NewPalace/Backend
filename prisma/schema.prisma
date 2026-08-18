@@ -28,6 +28,15 @@ enum UserStatus {
   inativo
 }
 
+/// Andamento da obtenção do CRECI do usuário.
+enum CreciProcessoStatus {
+  nao_iniciado
+  envio_documentacao
+  pagamento_boleto
+  aguardando_creci
+  creci_recebido
+}
+
 /// Plano comercial do tenant (define módulos base e cota de usuários).
 enum TenantPlano {
   bronze
@@ -209,6 +218,8 @@ model User {
   cargo     String?
   /// CRECI do corretor/usuário, quando informado no cadastro.
   creci     String?
+  /// Etapa atual do processo de obtenção do CRECI.
+  creciStatus CreciProcessoStatus @default(nao_iniciado)
   /// Cor de destaque em hex (#RRGGBB) para badges (ex.: Documentação).
   cor       String?
   /// Preferências visuais pessoais em hex (#RRGGBB).
