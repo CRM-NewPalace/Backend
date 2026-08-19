@@ -379,6 +379,10 @@ export class MetasService {
     };
   }
 
+  /**
+   * IDs cujas vendas contam na meta.
+   * `null` = imobiliária: todas as vendas do tenant (alinhado à tela Vendas).
+   */
   private async resolveCorretorIdsForMeta(meta: {
     escopo: MetaEscopo;
     corretorId: string | null;
@@ -402,18 +406,12 @@ export class MetasService {
           },
         },
       });
-      return equipe?.membros.map((m) => m.id) ?? [];
+      const memberIds = equipe?.membros.map((m) => m.id) ?? [];
+      // Inclui o próprio gerente (vendas creditadas a ele)
+      return Array.from(new Set([meta.gerenteId, ...memberIds]));
     }
-    // imobiliaria → todos os corretores ativos do tenant
-    const corretores = await this.prisma.user.findMany({
-      where: {
-        tenantId,
-        role: { in: [Role.corretor, Role.treinee] },
-        status: UserStatus.ativo,
-      },
-      select: { id: true },
-    });
-    return corretores.map((c) => c.id);
+    // imobiliaria → todo o tenant (admin/gerente/corretor/treinee)
+    return null;
   }
 
   private async withProgress<
@@ -427,10 +425,11 @@ export class MetasService {
       valor: number;
     },
   >(meta: T, tenantId: string) {
+    // null = escopo imobiliária: todas as vendas do tenant
     const corretorIds = await this.resolveCorretorIdsForMeta(meta, tenantId);
     let atual = 0;
 
-    if (!corretorIds || corretorIds.length === 0) {
+    if (corretorIds !== null && corretorIds.length === 0) {
       return {
         ...meta,
         atual: 0,
@@ -438,12 +437,24 @@ export class MetasService {
       };
     }
 
+    const creditedTo =
+      corretorIds === null
+        ? {}
+        : {
+            OR: [
+              { corretorId: { in: corretorIds } },
+              { lead: { corretorId: { in: corretorIds } } },
+            ],
+          };
+
     if (meta.tipo === MetaTipo.documentacoes) {
       atual = await this.prisma.documentacao.count({
         where: {
           tenantId,
-          corretorId: { in: corretorIds },
           createdAt: { gte: meta.inicio, lt: meta.fim },
+          ...(corretorIds === null
+            ? {}
+            : { corretorId: { in: corretorIds } }),
         },
       });
     } else if (meta.tipo === MetaTipo.vendas) {
@@ -451,12 +462,7 @@ export class MetasService {
         where: {
           tenantId,
           AND: [
-            {
-              OR: [
-                { corretorId: { in: corretorIds } },
-                { lead: { corretorId: { in: corretorIds } } },
-              ],
-            },
+            ...(corretorIds === null ? [] : [creditedTo]),
             documentacaoVendaNoPeriodoWhere({
               inicio: meta.inicio,
               fim: meta.fim,
@@ -477,12 +483,7 @@ export class MetasService {
         where: {
           tenantId,
           AND: [
-            {
-              OR: [
-                { corretorId: { in: corretorIds } },
-                { lead: { corretorId: { in: corretorIds } } },
-              ],
-            },
+            ...(corretorIds === null ? [] : [creditedTo]),
             documentacaoVendaNoPeriodoWhere({
               inicio: meta.inicio,
               fim: meta.fim,
