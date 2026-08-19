@@ -494,7 +494,7 @@ export class DocumentacaoService {
     } else if (
       dto.status1 !== undefined &&
       isStatusAnalise(dto.status1) &&
-      !existing.dataAnalise
+      (!existing.dataAnalise || !isStatusAnalise(existing.status1))
     ) {
       data.dataAnalise = todayDateOnly();
     }
