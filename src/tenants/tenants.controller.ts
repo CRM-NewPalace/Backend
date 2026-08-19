@@ -23,6 +23,7 @@ import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
 import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
 import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
+import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
 
 /**
  * Administração de tenants (imobiliárias) da plataforma.
@@ -50,6 +51,15 @@ export class TenantsController {
     @Body() dto: DuplicateTenantDto = {},
   ) {
     return this.tenantsService.duplicate(id, dto ?? {});
+  }
+
+  /** Popula o tenant com dados fictícios variados (demonstração). */
+  @Post(':id/demo-data')
+  populateDemoData(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PopulateDemoDataDto = {},
+  ) {
+    return this.tenantsService.populateDemoData(id, dto ?? {});
   }
 
   @Get(':id')

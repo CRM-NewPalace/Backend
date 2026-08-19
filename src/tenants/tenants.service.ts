@@ -36,6 +36,8 @@ import {
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { TenantLogoColorService } from './tenant-logo-color.service';
 import { TenantCloneService } from './tenant-clone.service';
+import { TenantDemoDataService } from './tenant-demo-data.service';
+import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
 import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
 import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
 
@@ -98,7 +100,18 @@ export class TenantsService {
     private readonly prisma: PrismaService,
     private readonly tenantLogoColor: TenantLogoColorService,
     private readonly cloneService: TenantCloneService,
+    private readonly demoDataService: TenantDemoDataService,
   ) {}
+
+  /**
+   * Gera dados fictícios (usuários, leads, imóveis, agenda, financeiro…)
+   * no tenant informado. Uso exclusivo de demonstração/treinamento.
+   */
+  async populateDemoData(id: string, dto: PopulateDemoDataDto = {}) {
+    const result = await this.demoDataService.populate(id, dto);
+    const tenant = await this.findOne(id);
+    return { ...result, tenant };
+  }
 
   findAll() {
     return this.prisma.tenant
