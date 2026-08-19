@@ -872,6 +872,8 @@ model Proposta {
   enviadaEm DateTime?
   observacao String?
 
+  notificacoes Notificacao[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -882,6 +884,7 @@ model Proposta {
   @@index([autorId])
   @@index([status])
   @@index([createdAt])
+  @@index([validade])
   @@map("propostas")
 }
 
@@ -1074,8 +1077,10 @@ enum NotificacaoTipo {
   agenda_lembrete_1h
   lead_prazo_proximo
   lead_prazo_ultrapassado
+  lead_sem_atendimento
   tarefa_atrasada
   imovel_compativel
+  proposta_vencimento_proximo
 }
 
 /// Aviso in-app para o usuário (ex.: resultado da análise para o corretor).
@@ -1096,6 +1101,8 @@ model Notificacao {
   agendamentoId  String?
   empreendimentoId String?
   empreendimento   Empreendimento? @relation(fields: [empreendimentoId], references: [id], onDelete: SetNull)
+  propostaId     String?
+  proposta       Proposta? @relation(fields: [propostaId], references: [id], onDelete: SetNull)
   /// Fingerprint do evento (ex.: stageEnteredAt|prazoDueAt) para impedir duplicatas.
   eventoChave    String?
 
@@ -1105,6 +1112,7 @@ model Notificacao {
   @@index([userId, lida])
   @@index([userId, leadId, tipo, eventoChave])
   @@index([userId, empreendimentoId, tipo, eventoChave])
+  @@index([userId, propostaId, tipo, eventoChave])
   @@index([createdAt])
   @@map("notificacoes")
 }

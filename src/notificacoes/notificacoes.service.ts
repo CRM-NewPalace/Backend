@@ -13,6 +13,7 @@ const notifSelect = {
   analiseId: true,
   agendamentoId: true,
   empreendimentoId: true,
+  propostaId: true,
   createdAt: true,
 } satisfies Prisma.NotificacaoSelect;
 
@@ -359,6 +360,82 @@ export class NotificacoesService {
         titulo: `Novos matches — ${params.empreendimentoNome}`,
         corpo: `Imóvel "${params.empreendimentoNome}": ${partes.join('; ')}.`,
         empreendimentoId: params.empreendimentoId,
+        eventoChave: params.eventoChave,
+      },
+      select: notifSelect,
+    });
+  }
+
+  /**
+   * Lead parado sem atendimento (inatividade do funil).
+   * Idempotente por usuário + lead + lastMovementAt.
+   */
+  async createLeadSemAtendimento(params: {
+    userId: string;
+    leadId: string;
+    leadNome: string;
+    eventoChave: string;
+    detalhe: string;
+  }) {
+    const existing = await this.prisma.notificacao.findFirst({
+      where: {
+        userId: params.userId,
+        leadId: params.leadId,
+        tipo: NotificacaoTipo.lead_sem_atendimento,
+        eventoChave: params.eventoChave,
+      },
+      select: { id: true },
+    });
+    if (existing) return null;
+
+    const tenantId = await this.resolveTenantId(params.userId);
+    return this.prisma.notificacao.create({
+      data: {
+        tenantId,
+        userId: params.userId,
+        tipo: NotificacaoTipo.lead_sem_atendimento,
+        titulo: `Lead sem atendimento — ${params.leadNome}`,
+        corpo: params.detalhe,
+        leadId: params.leadId,
+        eventoChave: params.eventoChave,
+      },
+      select: notifSelect,
+    });
+  }
+
+  /**
+   * Proposta com validade próxima. Idempotente por usuário + proposta + validade.
+   */
+  async createPropostaVencimentoProximo(params: {
+    userId: string;
+    propostaId: string;
+    codigo: string;
+    clienteNome: string;
+    validadeLabel: string;
+    leadId?: string | null;
+    eventoChave: string;
+  }) {
+    const existing = await this.prisma.notificacao.findFirst({
+      where: {
+        userId: params.userId,
+        propostaId: params.propostaId,
+        tipo: NotificacaoTipo.proposta_vencimento_proximo,
+        eventoChave: params.eventoChave,
+      },
+      select: { id: true },
+    });
+    if (existing) return null;
+
+    const tenantId = await this.resolveTenantId(params.userId);
+    return this.prisma.notificacao.create({
+      data: {
+        tenantId,
+        userId: params.userId,
+        tipo: NotificacaoTipo.proposta_vencimento_proximo,
+        titulo: `Proposta próxima do vencimento — ${params.codigo}`,
+        corpo: `A proposta ${params.codigo} de ${params.clienteNome} vence em ${params.validadeLabel}.`,
+        propostaId: params.propostaId,
+        leadId: params.leadId ?? null,
         eventoChave: params.eventoChave,
       },
       select: notifSelect,

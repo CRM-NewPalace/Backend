@@ -8,6 +8,7 @@ import {
   FunilEtapaPapel,
   NotificacaoTipo,
   Prisma,
+  PropostaStatus,
   Role,
   TriagemOrigem,
   UserStatus,
@@ -49,6 +50,9 @@ const MOTIVO_LABEL: Record<MotivoSemMovimentacao, string> = {
   sem_atividade: 'Sem atividade',
   sem_tarefa: 'Sem tarefa',
 };
+
+/** Janela de alerta antes do vencimento da proposta (3 dias). */
+const PROPOSTA_ALERTA_ANTECEDENCIA_MS = 3 * 86_400_000;
 
 function overdueTarefaWhere(now: Date): Prisma.AgendamentoWhereInput {
   return {
@@ -730,8 +734,165 @@ export class LeadMonitoramentoService {
     }
 
     created += await this.syncTarefasAtrasadas(tenantId, ctx, requester, now);
+    created += await this.syncLeadsSemAtendimento(
+      tenantId,
+      ctx,
+      requester,
+      now,
+    );
+    created += await this.syncPropostasVencimento(tenantId, requester, now);
 
     return { ok: true, created };
+  }
+
+  /** Leads sem movimentação além do limiar de inatividade do funil. */
+  private async syncLeadsSemAtendimento(
+    tenantId: string,
+    ctx: FunilCtx,
+    requester: AuthenticatedUser,
+    now: Date,
+  ): Promise<number> {
+    const leadScope = await this.teamScope.leadScope(requester, {
+      includeAdminPool: false,
+    });
+    const idleSince = new Date(now.getTime() - ctx.inatividadeMs);
+
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        ...leadScope,
+        perdidoAt: null,
+        lastMovementAt: { lte: idleSince },
+        ...(ctx.terminalSlugs.length > 0
+          ? { stage: { notIn: ctx.terminalSlugs } }
+          : {}),
+      },
+      select: {
+        id: true,
+        nome: true,
+        stage: true,
+        corretorId: true,
+        equipeId: true,
+        createdAt: true,
+        ...leadTimingSelect,
+        corretor: { select: { id: true, name: true } },
+      },
+      take: 200,
+    });
+
+    let created = 0;
+    for (const lead of leads) {
+      const mon = this.compute(lead, ctx, requester, now);
+      const idle = mon.problemas.find((p) => p.tipo === 'sem_movimentacao');
+      if (!idle) continue;
+
+      const lastMovement = lead.lastMovementAt ?? lead.createdAt;
+      const chave = lastMovement.toISOString();
+      const motivos =
+        idle.motivos?.map((m) => MOTIVO_LABEL[m]).filter(Boolean) ?? [];
+      const detalhe =
+        motivos.length > 0
+          ? `${idle.detalhe} Motivos: ${motivos.join(', ')}.`
+          : idle.detalhe;
+
+      const recipients = await this.resolveOverdueRecipients(tenantId, lead);
+      for (const userId of recipients) {
+        const n = await this.notificacoes.createLeadSemAtendimento({
+          userId,
+          leadId: lead.id,
+          leadNome: lead.nome,
+          eventoChave: chave,
+          detalhe,
+        });
+        if (n) created += 1;
+      }
+    }
+    return created;
+  }
+
+  /** Propostas enviadas/em negociação com validade nos próximos 3 dias. */
+  private async syncPropostasVencimento(
+    tenantId: string,
+    requester: AuthenticatedUser,
+    now: Date,
+  ): Promise<number> {
+    const horizon = new Date(now.getTime() + PROPOSTA_ALERTA_ANTECEDENCIA_MS);
+
+    const scopeOr: Prisma.PropostaWhereInput[] = [];
+    if (requester.role === Role.admin) {
+      // admin: todas do tenant
+    } else if (requester.role === Role.gerente) {
+      const corretorIds = await this.teamScope.getVisibleCorretorIds(requester);
+      const ids = [...(corretorIds ?? []), requester.id];
+      scopeOr.push(
+        { corretorId: { in: ids } },
+        { autorId: { in: ids } },
+      );
+    } else {
+      scopeOr.push(
+        { corretorId: requester.id },
+        { autorId: requester.id },
+      );
+    }
+
+    const propostas = await this.prisma.proposta.findMany({
+      where: {
+        tenantId,
+        validade: { gte: now, lte: horizon },
+        status: {
+          in: [PropostaStatus.enviada, PropostaStatus.negociacao],
+        },
+        ...(scopeOr.length > 0 ? { OR: scopeOr } : {}),
+      },
+      select: {
+        id: true,
+        codigo: true,
+        clienteNome: true,
+        validade: true,
+        corretorId: true,
+        autorId: true,
+        leadId: true,
+        lead: {
+          select: { corretorId: true, equipeId: true },
+        },
+      },
+      take: 100,
+    });
+
+    let created = 0;
+    for (const proposta of propostas) {
+      if (!proposta.validade) continue;
+      const chave = proposta.validade.toISOString();
+      const validadeLabel = proposta.validade.toLocaleString('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+
+      const recipientIds = new Set<string>();
+      if (proposta.corretorId) recipientIds.add(proposta.corretorId);
+      if (proposta.autorId) recipientIds.add(proposta.autorId);
+
+      const teamLead = {
+        corretorId: proposta.corretorId ?? proposta.lead?.corretorId ?? null,
+        equipeId: proposta.lead?.equipeId ?? null,
+      };
+      for (const id of await this.resolveOverdueRecipients(tenantId, teamLead)) {
+        recipientIds.add(id);
+      }
+
+      for (const userId of recipientIds) {
+        const n = await this.notificacoes.createPropostaVencimentoProximo({
+          userId,
+          propostaId: proposta.id,
+          codigo: proposta.codigo,
+          clienteNome: proposta.clienteNome,
+          validadeLabel,
+          leadId: proposta.leadId,
+          eventoChave: chave,
+        });
+        if (n) created += 1;
+      }
+    }
+    return created;
   }
 
   /** Completa prazoDueAt de leads cuja etapa passou a ter SLA (lote pequeno por polling). */
