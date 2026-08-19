@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -66,7 +66,11 @@ export class ImportLeadItemDto {
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
-  @Type(() => Number)
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return value;
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.round(n) : value;
+  })
   @IsInt({ message: 'Renda inválida.' })
   @Min(0)
   renda?: number | null;

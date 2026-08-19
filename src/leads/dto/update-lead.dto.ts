@@ -68,13 +68,14 @@ export class UpdateLeadDto {
   @IsIn(LEAD_PRIORIDADES, { message: 'Prioridade inválida.' })
   prioridade?: string;
 
-  /** Renda mensal do cliente (opcional). null limpa o valor. */
+  /** Renda mensal do cliente (opcional). null limpa o valor. Aceita centavos e arredonda. */
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
     if (value === null || value === '') return null;
-    return Number(value);
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.round(n) : value;
   })
   @IsInt({ message: 'Renda inválida.' })
   @Min(0, { message: 'Renda não pode ser negativa.' })

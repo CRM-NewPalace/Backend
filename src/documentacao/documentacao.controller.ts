@@ -63,7 +63,7 @@ export class DocumentacaoController {
   }
 
   @Patch(':id')
-  @Roles(Role.admin, Role.analista)
+  @Roles(Role.admin, Role.analista, Role.gerente)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDocumentacaoDto,

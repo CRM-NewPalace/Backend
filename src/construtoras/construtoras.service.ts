@@ -395,7 +395,7 @@ export class ConstrutorasService {
   }
 
   async remove(id: string, requester: AuthenticatedUser) {
-    this.assertAdmin(requester);
+    this.assertCanDelete(requester);
     const tenantId = requireTenantId(requester);
     const row = await this.prisma.construtora.findFirst({
       where: { id, tenantId },
@@ -517,10 +517,10 @@ export class ConstrutorasService {
     return { ...item, viabilizadorContato: null };
   }
 
-  private assertAdmin(requester: AuthenticatedUser) {
-    if (requester.role !== Role.admin) {
+  private assertCanDelete(requester: AuthenticatedUser) {
+    if (requester.role !== Role.admin && requester.role !== Role.treinee) {
       throw new ForbiddenException(
-        "Apenas administradores podem editar ou remover construtoras.",
+        "Apenas administradores e treinees podem remover construtoras.",
       );
     }
   }

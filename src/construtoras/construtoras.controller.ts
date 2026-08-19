@@ -105,7 +105,7 @@ export class ConstrutorasController {
   }
 
   @Delete(":id")
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.treinee)
   remove(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,

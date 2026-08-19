@@ -424,8 +424,6 @@ export class DocumentacaoService {
         corretorId: true,
         gerenteId: true,
         status1: true,
-        autorId: true,
-        autor: { select: { id: true, role: true } },
       },
     });
     if (!existing) {
@@ -433,13 +431,7 @@ export class DocumentacaoService {
     }
 
     await this.assertCanView(id, tenantId, requester);
-    if (
-      !this.canMutateDocumentacao(
-        requester,
-        existing.autor.id,
-        existing.autor.role,
-      )
-    ) {
+    if (!this.canUpdateDocumentacao(requester)) {
       throw new ForbiddenException(
         'Você não tem permissão para editar esta documentação.',
       );
@@ -593,8 +585,6 @@ export class DocumentacaoService {
       select: {
         id: true,
         leadId: true,
-        autorId: true,
-        autor: { select: { id: true, role: true } },
       },
     });
     if (!existing) {
@@ -602,15 +592,9 @@ export class DocumentacaoService {
     }
 
     await this.assertCanView(id, tenantId, requester);
-    if (
-      !this.canMutateDocumentacao(
-        requester,
-        existing.autor.id,
-        existing.autor.role,
-      )
-    ) {
+    if (!this.canDeleteDocumentacao(requester)) {
       throw new ForbiddenException(
-        'Você só pode excluir documentações que criou.',
+        'Você não tem permissão para excluir esta documentação.',
       );
     }
 
@@ -834,11 +818,17 @@ export class DocumentacaoService {
     ]);
   }
 
-  private canMutateDocumentacao(
-    requester: AuthenticatedUser,
-    _autorId: string,
-    _autorRole: Role,
-  ): boolean {
+  /** Admin, analista e gerente podem editar (status e demais campos). */
+  private canUpdateDocumentacao(requester: AuthenticatedUser): boolean {
+    return (
+      requester.role === Role.admin ||
+      requester.role === Role.analista ||
+      requester.role === Role.gerente
+    );
+  }
+
+  /** Exclusão permanece restrita a admin e analista. */
+  private canDeleteDocumentacao(requester: AuthenticatedUser): boolean {
     return requester.role === Role.admin || requester.role === Role.analista;
   }
 
