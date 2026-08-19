@@ -2880,7 +2880,9 @@ export class FinanceiroService {
         natureza: "previsto",
         origem: "titulo",
         id: t.id,
-        descricao: t.descricao,
+        descricao: t.parcela
+          ? `${t.descricao} (${t.parcela})`
+          : t.descricao,
         parceiro: t.parceiroNome,
         categoria: t.categoria,
         centro: t.centro,
