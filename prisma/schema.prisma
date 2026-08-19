@@ -403,6 +403,12 @@ model Lead {
   tipoRenda  String?
   /// Estado civil informado pelo cliente (opcional).
   estadoCivil String?
+  /// Orçamento máximo para imóvel (opcional) — usado no matching.
+  orcamentoMax Int?
+  /// Mínimo de quartos desejado (opcional).
+  quartosMin   Int?
+  /// Mínimo de vagas desejado (opcional).
+  vagasMin     Int?
   tags       String[]    @default([])
 
   // Corretor dono do lead. Fica nulo se o corretor for removido (SetNull),
@@ -678,6 +684,10 @@ model Empreendimento {
   observacao  String?
   quartos     Int?
   banheiros   Int?
+  /// Vagas de garagem (opcional) — usado no matching.
+  vagas       Int?
+  /// Preço de referência do produto (opcional) — usado no matching.
+  valorReferencia Int?
   areaM2      Float?
   externalUrl String?
   /// Capa (primeira da galeria). Mantida para listagens.
@@ -691,6 +701,7 @@ model Empreendimento {
   documentacoes Documentacao[]
   propostas     Proposta[]
   leads         Lead[]
+  notificacoes  Notificacao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1064,6 +1075,7 @@ enum NotificacaoTipo {
   lead_prazo_proximo
   lead_prazo_ultrapassado
   tarefa_atrasada
+  imovel_compativel
 }
 
 /// Aviso in-app para o usuário (ex.: resultado da análise para o corretor).
@@ -1082,6 +1094,8 @@ model Notificacao {
   lead           Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   analiseId      String?
   agendamentoId  String?
+  empreendimentoId String?
+  empreendimento   Empreendimento? @relation(fields: [empreendimentoId], references: [id], onDelete: SetNull)
   /// Fingerprint do evento (ex.: stageEnteredAt|prazoDueAt) para impedir duplicatas.
   eventoChave    String?
 
@@ -1090,6 +1104,7 @@ model Notificacao {
   @@index([tenantId])
   @@index([userId, lida])
   @@index([userId, leadId, tipo, eventoChave])
+  @@index([userId, empreendimentoId, tipo, eventoChave])
   @@index([createdAt])
   @@map("notificacoes")
 }

@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -94,6 +94,35 @@ export class CreateLeadDto {
   @IsString()
   @MaxLength(40)
   estadoCivil?: string | null;
+
+  /** Orçamento máximo para imóvel (opcional). */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.round(n) : value;
+  })
+  @IsInt({ message: 'Orçamento inválido.' })
+  @Min(0, { message: 'Orçamento não pode ser negativo.' })
+  orcamentoMax?: number | null;
+
+  /** Mínimo de quartos desejado (opcional). */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Type(() => Number)
+  @IsInt({ message: 'Quartos mínimos inválidos.' })
+  @Min(0)
+  quartosMin?: number | null;
+
+  /** Mínimo de vagas desejado (opcional). */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Type(() => Number)
+  @IsInt({ message: 'Vagas mínimas inválidas.' })
+  @Min(0)
+  vagasMin?: number | null;
 
   @IsOptional()
   @IsArray()

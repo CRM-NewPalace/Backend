@@ -104,6 +104,18 @@ export class CreateEmpreendimentoDto {
   banheiros?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  vagas?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  valorReferencia?: number;
+
+  @IsOptional()
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
     if (value === null || value === '') return null;

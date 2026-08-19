@@ -1,18 +1,3 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from "@nestjs/common";
-import { Prisma, Role } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
-import { AuthenticatedUser } from "../common/types/authenticated-user";
-import { requireTenantId } from "../common/utils/tenant";
-import { CreateEmpreendimentoDto } from "./dto/create-empreendimento.dto";
-import { UpdateEmpreendimentoDto } from "./dto/update-empreendimento.dto";
-import { QueryEmpreendimentosDto } from "./dto/query-empreendimentos.dto";
-import { normalizeCor } from "../common/utils/cor";
-import { prismaTableOrderBy } from "../common/utils/table-sort";
 import { MediaService } from "../media/media.service";
 import {
   EMPREENDIMENTO_MAX_IMAGES,
@@ -20,7 +5,33 @@ import {
   serializeStoredImages,
   type StoredImage,
 } from "../media/stored-image";
+import { MatchingService } from "../matching/matching.service";
+import { CreateEmpreendimentoDto } from "./dto/create-empreendimento.dto";
+import { UpdateEmpreendimentoDto } from "./dto/update-empreendimento.dto";
+import { QueryEmpreendimentosDto } from "./dto/query-empreendimentos.dto";
+import { normalizeCor } from "../common/utils/cor";
+import { prismaTableOrderBy } from "../common/utils/table-sort";
+import { AuthenticatedUser } from "../common/types/authenticated-user";
+import { requireTenantId } from "../common/utils/tenant";
+import { PrismaService } from "../prisma/prisma.service";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { Prisma, Role } from "@prisma/client";
 
+const MATCHING_FIELDS = [
+  "cidade",
+  "localidadeId",
+  "construtoraId",
+  "quartos",
+  "vagas",
+  "valorReferencia",
+  "tags",
+  "ativo",
+] as const;
 const empreendimentoSelect = {
   id: true,
   tenantId: true,
@@ -37,6 +48,8 @@ const empreendimentoSelect = {
   observacao: true,
   quartos: true,
   banheiros: true,
+  vagas: true,
+  valorReferencia: true,
   areaM2: true,
   externalUrl: true,
   imagemUrl: true,
@@ -58,7 +71,12 @@ export class EmpreendimentosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
+    private readonly matching: MatchingService,
   ) {}
+
+  async listMatches(id: string, requester: AuthenticatedUser) {
+    return this.matching.matchForEmpreendimento(id, requester);
+  }
 
   async list(query: QueryEmpreendimentosDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
@@ -111,7 +129,7 @@ export class EmpreendimentosService {
       dto.localidadeId,
     );
     const key = this.slugify(dto.nome);
-    return this.prisma.empreendimento.create({
+    const created = await this.prisma.empreendimento.create({
       data: {
         tenantId,
         nome: dto.nome.trim(),
@@ -127,6 +145,8 @@ export class EmpreendimentosService {
         observacao: dto.observacao?.trim() || null,
         quartos: dto.quartos ?? null,
         banheiros: dto.banheiros ?? null,
+        vagas: dto.vagas ?? null,
+        valorReferencia: dto.valorReferencia ?? null,
         areaM2: dto.areaM2 ?? null,
         externalUrl: dto.externalUrl?.trim() || null,
         imagemUrl: null,
@@ -135,7 +155,11 @@ export class EmpreendimentosService {
         ativo: dto.ativo ?? true,
       },
       select: empreendimentoSelect,
-    }).then((item) => this.present(item));
+    });
+    void this.matching
+      .runAfterEmpreendimentoChange(created.id, tenantId)
+      .catch(() => undefined);
+    return this.present(created);
   }
 
   async update(
@@ -149,7 +173,10 @@ export class EmpreendimentosService {
       dto.localidadeId !== undefined
         ? await this.resolveLocalidade(row.tenantId, dto.localidadeId)
         : undefined;
-    return this.prisma.empreendimento.update({
+    const shouldRematch = MATCHING_FIELDS.some(
+      (field) => dto[field] !== undefined,
+    );
+    const updated = await this.prisma.empreendimento.update({
       where: { id },
       data: {
         ...(dto.nome !== undefined ? { nome: dto.nome.trim() } : {}),
@@ -183,6 +210,10 @@ export class EmpreendimentosService {
           : {}),
         ...(dto.quartos !== undefined ? { quartos: dto.quartos } : {}),
         ...(dto.banheiros !== undefined ? { banheiros: dto.banheiros } : {}),
+        ...(dto.vagas !== undefined ? { vagas: dto.vagas } : {}),
+        ...(dto.valorReferencia !== undefined
+          ? { valorReferencia: dto.valorReferencia }
+          : {}),
         ...(dto.areaM2 !== undefined ? { areaM2: dto.areaM2 } : {}),
         ...(dto.externalUrl !== undefined
           ? { externalUrl: dto.externalUrl?.trim() || null }
@@ -190,7 +221,13 @@ export class EmpreendimentosService {
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },
       select: empreendimentoSelect,
-    }).then((item) => this.present(item));
+    });
+    if (shouldRematch && updated.ativo) {
+      void this.matching
+        .runAfterEmpreendimentoChange(updated.id, row.tenantId)
+        .catch(() => undefined);
+    }
+    return this.present(updated);
   }
 
   async uploadImagem(

@@ -42,6 +42,15 @@ export class EmpreendimentosController {
     return this.empreendimentosService.list(query, requester);
   }
 
+  @Get(":id/matches")
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  listMatches(
+    @Param("id", ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.empreendimentosService.listMatches(id, requester);
+  }
+
   @Get(":id")
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
   findOne(

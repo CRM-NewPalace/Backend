@@ -12,6 +12,7 @@ const notifSelect = {
   leadId: true,
   analiseId: true,
   agendamentoId: true,
+  empreendimentoId: true,
   createdAt: true,
 } satisfies Prisma.NotificacaoSelect;
 
@@ -310,6 +311,55 @@ export class NotificacoesService {
         leadId: params.leadId,
         agendamentoId: params.agendamentoId,
         eventoChave: params.agendamentoId,
+      },
+      select: notifSelect,
+    });
+  }
+
+  /**
+   * Match de imóvel compatível com a carteira do corretor.
+   * Idempotente por usuário + empreendimento + eventoChave.
+   */
+  async createImovelCompativel(params: {
+    userId: string;
+    empreendimentoId: string;
+    empreendimentoNome: string;
+    total: number;
+    muitoCompativeis: number;
+    comInteressePrevio: number;
+    eventoChave: string;
+  }) {
+    const existing = await this.prisma.notificacao.findFirst({
+      where: {
+        userId: params.userId,
+        empreendimentoId: params.empreendimentoId,
+        tipo: NotificacaoTipo.imovel_compativel,
+        eventoChave: params.eventoChave,
+      },
+      select: { id: true },
+    });
+    if (existing) return null;
+
+    const tenantId = await this.resolveTenantId(params.userId);
+    const partes = [
+      `${params.total} cliente${params.total === 1 ? '' : 's'} compatível${params.total === 1 ? '' : 'eis'}`,
+      `${params.muitoCompativeis} muito compatível${params.muitoCompativeis === 1 ? '' : 'eis'}`,
+    ];
+    if (params.comInteressePrevio > 0) {
+      partes.push(
+        `${params.comInteressePrevio} com interesse prévio em imóveis semelhantes`,
+      );
+    }
+
+    return this.prisma.notificacao.create({
+      data: {
+        tenantId,
+        userId: params.userId,
+        tipo: NotificacaoTipo.imovel_compativel,
+        titulo: `Novos matches — ${params.empreendimentoNome}`,
+        corpo: `Imóvel "${params.empreendimentoNome}": ${partes.join('; ')}.`,
+        empreendimentoId: params.empreendimentoId,
+        eventoChave: params.eventoChave,
       },
       select: notifSelect,
     });

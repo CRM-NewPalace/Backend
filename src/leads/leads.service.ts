@@ -122,6 +122,9 @@ export class LeadsService {
         renda: dto.renda ?? null,
         tipoRenda: dto.tipoRenda?.trim() || null,
         estadoCivil: dto.estadoCivil?.trim() || null,
+        orcamentoMax: dto.orcamentoMax ?? null,
+        quartosMin: dto.quartosMin ?? null,
+        vagasMin: dto.vagasMin ?? null,
         tags: dto.tags ?? [],
         corretorId: assignment.corretorId,
         equipeId: assignment.equipeId,
@@ -946,6 +949,11 @@ export class LeadsService {
                   : dto.estadoCivil.trim() || null,
             }
           : {}),
+        ...(dto.orcamentoMax !== undefined
+          ? { orcamentoMax: dto.orcamentoMax }
+          : {}),
+        ...(dto.quartosMin !== undefined ? { quartosMin: dto.quartosMin } : {}),
+        ...(dto.vagasMin !== undefined ? { vagasMin: dto.vagasMin } : {}),
         ...(dto.tags !== undefined ? { tags: dto.tags } : {}),
         ...(assignment
           ? {

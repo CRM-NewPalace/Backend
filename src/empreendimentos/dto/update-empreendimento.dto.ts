@@ -97,6 +97,18 @@ export class UpdateEmpreendimentoDto {
   banheiros?: number | null;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  vagas?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  valorReferencia?: number | null;
+
+  @IsOptional()
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
     if (value === null || value === '') return null;
