@@ -25,7 +25,7 @@ import { SALT_ROUNDS } from '../config/security.constants';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUsersDto } from './dto/query-users.dto';
-import { isAnalistaAllowed } from '../tenants/tenant-plan';
+import { assertRoleAllowedForPlano } from '../tenants/tenant-plan';
 
 export interface PaginatedUsers {
   data: PublicUser[];
@@ -176,7 +176,7 @@ export class UsersService {
   }
 
   private async assertRoleAllowed(tenantId: string, role: Role) {
-    if (role !== Role.analista) return;
+    if (role !== Role.analista && role !== Role.gerente) return;
 
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -186,17 +186,13 @@ export class UsersService {
       throw new NotFoundException('Tenant não encontrado.');
     }
 
-    if (
-      !isAnalistaAllowed(
-        tenant.plano,
-        tenant.modules as Record<string, boolean> | null,
-      )
-    ) {
-      throw new ForbiddenException(
-        tenant.plano === 'bronze'
-          ? 'O plano Bronze não inclui o perfil Analista.'
-          : 'O perfil Analista exige o pacote Administrativo ativo no plano.',
-      );
+    const message = assertRoleAllowedForPlano(
+      tenant.plano,
+      role,
+      tenant.modules as Record<string, boolean> | null,
+    );
+    if (message) {
+      throw new ForbiddenException(message);
     }
   }
 

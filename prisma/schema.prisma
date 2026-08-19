@@ -39,6 +39,7 @@ enum CreciProcessoStatus {
 
 /// Plano comercial do tenant (define módulos base e cota de usuários).
 enum TenantPlano {
+  solo
   bronze
   prata
   ouro
@@ -123,9 +124,9 @@ model Tenant {
   /// Módulos ligados/desligados: { "metas": true, "financeiro": false, ... }
   modules      Json?
 
-  /// Plano: bronze (CRM), prata (CRM+admin), ouro (tudo).
+  /// Plano: solo (corretor), bronze (CRM), prata (CRM+admin), ouro (tudo).
   plano TenantPlano @default(bronze)
-  /// Cota base de usuários do plano (5 / 15 / 30).
+  /// Cota base de usuários do plano (1 / 5 / 15 / 30).
   maxUsuarios Int @default(5)
   /// Usuários extras liberados pelo super_admin além da cota base.
   usuariosExtras Int @default(0)

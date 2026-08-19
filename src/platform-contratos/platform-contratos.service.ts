@@ -95,7 +95,7 @@ export class PlatformContratosService {
     await this.ensureTenant(dto.tenantId);
     if (dto.tipo === 'assinatura' && !dto.plano) {
       throw new BadRequestException(
-        'Informe o plano da assinatura (bronze, prata ou ouro).',
+        'Informe o plano da assinatura (solo, bronze, prata ou ouro).',
       );
     }
 
@@ -145,7 +145,7 @@ export class PlatformContratosService {
     await this.ensureTenant(dto.tenantId);
     if (dto.tipo === 'assinatura' && !dto.plano) {
       throw new BadRequestException(
-        'Informe o plano da assinatura (bronze, prata ou ouro).',
+        'Informe o plano da assinatura (solo, bronze, prata ou ouro).',
       );
     }
 
@@ -273,7 +273,7 @@ export class PlatformContratosService {
           : null;
     if (tipo === 'assinatura' && !plano) {
       throw new BadRequestException(
-        'Informe o plano da assinatura (bronze, prata ou ouro).',
+        'Informe o plano da assinatura (solo, bronze, prata ou ouro).',
       );
     }
 

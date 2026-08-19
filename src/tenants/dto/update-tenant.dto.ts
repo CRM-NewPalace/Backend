@@ -1,6 +1,7 @@
 import {
   Allow,
   IsBoolean,
+  IsEnum,
   IsIn,
   IsInt,
   IsOptional,
@@ -39,8 +40,8 @@ export class UpdateTenantDto {
   status?: 'ativo' | 'inativo';
 
   @IsOptional()
-  @IsIn([TenantPlano.bronze, TenantPlano.prata, TenantPlano.ouro], {
-    message: 'Plano inválido. Use bronze, prata ou ouro.',
+  @IsEnum(TenantPlano, {
+    message: 'Plano inválido. Use solo, bronze, prata ou ouro.',
   })
   plano?: TenantPlano;
 
