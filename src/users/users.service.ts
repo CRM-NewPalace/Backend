@@ -369,7 +369,16 @@ export class UsersService {
     if (id === requester.id) {
       throw new ForbiddenException('Você não pode excluir a própria conta.');
     }
-    await this.ensureExists(id, tenantId);
+
+    const target = await this.prisma.user.findFirst({
+      where: { id, tenantId },
+      select: { ...publicUserSelect },
+    });
+    if (!target) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
+    await this.ensureCanDeleteUser(requester, target);
 
     const equipeGerenciada = await this.prisma.equipe.findFirst({
       where: { tenantId, gerenteId: id },
@@ -569,6 +578,34 @@ export class UsersService {
     if (!allowed) {
       throw new ForbiddenException(
         'Você só pode redefinir senha de corretores da sua equipe.',
+      );
+    }
+  }
+
+  /** Admin: qualquer usuário do tenant. Gerente: só corretor/treinee da equipe. */
+  private async ensureCanDeleteUser(
+    requester: AuthenticatedUser,
+    user: PublicUser,
+  ): Promise<void> {
+    if (requester.role === Role.admin) return;
+
+    if (requester.role !== Role.gerente) {
+      throw new ForbiddenException('Acesso negado.');
+    }
+
+    if (!isCorretorLike(user.role)) {
+      throw new ForbiddenException(
+        'Você só pode excluir corretores e treinees da sua equipe.',
+      );
+    }
+
+    const allowed = await this.teamScope.canAccessCorretor(
+      requester,
+      user.id,
+    );
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Você só pode excluir corretores da sua equipe.',
       );
     }
   }

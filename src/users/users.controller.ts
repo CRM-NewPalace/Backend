@@ -123,7 +123,7 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.gerente)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
