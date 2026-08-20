@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -23,6 +24,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
+import { GoogleCalendarService } from '../google-calendar/google-calendar.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { resolveFinanceiroTenantId as requireTenantId } from '../common/utils/tenant';
 import { isCorretorLike } from '../common/utils/roles';
@@ -96,11 +98,14 @@ function isAniversarioId(id: string) {
 
 @Injectable()
 export class AgendaService {
+  private readonly logger = new Logger(AgendaService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly teamScope: TeamScopeService,
     private readonly notificacoes: NotificacoesService,
     private readonly monitoramento: LeadMonitoramentoService,
+    private readonly googleCalendar: GoogleCalendarService,
   ) {}
 
   /** Compromissos no calendário/tabela.
@@ -795,6 +800,16 @@ export class AgendaService {
       });
     }
 
+    if (seriesId && occurrences.length > 1) {
+      const seriesItems = await this.prisma.agendamento.findMany({
+        where: { tenantId, seriesId },
+        select: agendamentoSelect,
+      });
+      for (const item of seriesItems) this.queueGoogleSync(item);
+    } else {
+      this.queueGoogleSync(created);
+    }
+
     return created;
   }
 
@@ -934,11 +949,13 @@ export class AgendaService {
         : { disconnect: true };
     }
 
-    return this.prisma.agendamento.update({
+    const updated = await this.prisma.agendamento.update({
       where: { id },
       data,
       select: agendamentoSelect,
     });
+    this.queueGoogleSync(updated);
+    return updated;
   }
 
   async aprovar(id: string, requester: AuthenticatedUser) {
@@ -1004,6 +1021,7 @@ export class AgendaService {
       );
     }
 
+    this.queueGoogleSync(updated);
     return updated;
   }
 
@@ -1112,14 +1130,38 @@ export class AgendaService {
         requester.role === Role.gerente ||
         existing.autorId === requester.id)
     ) {
+      const series = await this.prisma.agendamento.findMany({
+        where: { tenantId, seriesId: existing.seriesId },
+        select: { id: true },
+      });
+      await this.googleCalendar
+        .removeMany(series.map((item) => item.id))
+        .catch((err) =>
+          this.logger.warn(
+            `Falha ao remover série no Google Calendar: ${err instanceof Error ? err.message : err}`,
+          ),
+        );
       await this.prisma.agendamento.deleteMany({
         where: { tenantId, seriesId: existing.seriesId },
       });
       return { ok: true, deletedSeries: true };
     }
 
+    await this.googleCalendar.removeAgendamento(id).catch((err) =>
+      this.logger.warn(
+        `Falha ao remover evento no Google Calendar: ${err instanceof Error ? err.message : err}`,
+      ),
+    );
     await this.prisma.agendamento.delete({ where: { id } });
     return { ok: true };
+  }
+
+  private queueGoogleSync(item: AgendamentoListItem) {
+    void this.googleCalendar.syncAgendamento(item).catch((err) =>
+      this.logger.warn(
+        `Falha ao sincronizar com Google Calendar: ${err instanceof Error ? err.message : err}`,
+      ),
+    );
   }
 
   private assertSomenteGerente(requester: AuthenticatedUser) {

@@ -15,6 +15,7 @@ import { EquipesModule } from './equipes/equipes.module';
 import { AnaliseModule } from './analise/analise.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { AgendaModule } from './agenda/agenda.module';
+import { GoogleCalendarModule } from './google-calendar/google-calendar.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { ConstrutorasModule } from './construtoras/construtoras.module';
 import { ContratosModule } from './contratos/contratos.module';
@@ -65,6 +66,7 @@ import { THROTTLE } from './config/security.constants';
     AnaliseModule,
     NotificacoesModule,
     AgendaModule,
+    GoogleCalendarModule,
     TenantsModule,
   ],
   controllers: [AppController],

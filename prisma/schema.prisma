@@ -314,6 +314,9 @@ model User {
   /// Segmentos de presença (tempo logado) do usuário.
   sessionSegments UserSessionSegment[]
 
+  /// Conta Google Calendar do usuário (refresh token por pessoa).
+  googleCalendar UserGoogleCalendar?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1051,6 +1054,8 @@ model Agendamento {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  googleCalendarEvents UserGoogleCalendarEvent[]
+
   @@index([tenantId])
   @@index([leadId])
   @@index([autorId])
@@ -1065,6 +1070,38 @@ model Agendamento {
   @@index([alvoEquipeId])
   @@index([alvoGerenteId])
   @@map("agendamentos")
+}
+
+/// Conexão OAuth do Google Calendar — um refresh token por usuário CRM.
+model UserGoogleCalendar {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleEmail     String
+  refreshTokenEnc String
+  calendarId      String   @default("primary")
+  connectedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  events          UserGoogleCalendarEvent[]
+
+  @@map("user_google_calendars")
+}
+
+/// Mapeia um agendamento do CRM para o evento correspondente no Google.
+model UserGoogleCalendarEvent {
+  id            String @id @default(uuid())
+  connectionId  String
+  connection    UserGoogleCalendar @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  agendamentoId String
+  agendamento   Agendamento        @relation(fields: [agendamentoId], references: [id], onDelete: Cascade)
+  googleEventId String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([agendamentoId, connectionId])
+  @@index([connectionId])
+  @@index([agendamentoId])
+  @@map("user_google_calendar_events")
 }
 
 /// Tipo de notificação in-app.
