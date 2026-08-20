@@ -218,7 +218,7 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
     @Query("tipo") tipo?: FinanceiroTituloTipo,
     @Query("grupoParcelasId") grupoParcelasId?: string,
-    @Query("origem") origem?: "normal" | "contrato" | "comissao",
+    @Query("origem") origem?: "normal" | "contrato" | "comissao" | "sem_comissao",
   ) {
     return this.financeiroService.listTitulos(
       requester,
