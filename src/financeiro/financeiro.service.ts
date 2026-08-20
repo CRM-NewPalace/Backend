@@ -174,7 +174,7 @@ function mesParcelaLabel(iso: string) {
   return `${MESES_PARCELA[month - 1]}/${String(year).slice(2)}`;
 }
 
-const RECORRENCIA_HORIZONTE_MESES = 12;
+const RECORRENCIA_HORIZONTE_MESES = 120;
 
 function todayIsoBrasil(): string {
   return isoDateOnly(new Date());
@@ -1036,7 +1036,7 @@ export class FinanceiroService {
     return rows.map((r) => this.mapTitulo(r));
   }
 
-  /** Mantém ~12 meses à frente nas contas mensais sem data de término. */
+  /** Mantém anos à frente nas contas mensais sem data de término. */
   private async extendIndeterminateRecurrences(tenantId: string) {
     const grupos = await this.prisma.financeiroTitulo.findMany({
       where: {
@@ -1757,7 +1757,7 @@ export class FinanceiroService {
     const inicioProx = new Date(Date.UTC(y, m + 1, 1) + BRASIL_UTC_OFFSET_MS);
     const inicioAnt = new Date(Date.UTC(y, m - 1, 1) + BRASIL_UTC_OFFSET_MS);
 
-    const [movMes, movAnt, aReceber, aPagar, movAbertosParceiro] =
+    const [movMes, movAnt, aReceber, aPagar, movAbertosParceiro, comissaoPagarMes, comissaoPagarAnt] =
       await Promise.all([
         this.prisma.financeiroMovimento.findMany({
           where: {
@@ -1814,6 +1814,19 @@ export class FinanceiroService {
           },
           select: { tipo: true, valor: true },
         }),
+        this.prisma.financeiroTitulo.aggregate({
+          where: this.comissaoPagarAbertoWhere(
+            tenantId,
+            inicioMes,
+            inicioProx,
+            true,
+          ),
+          _sum: { valor: true },
+        }),
+        this.prisma.financeiroTitulo.aggregate({
+          where: this.comissaoPagarAbertoWhere(tenantId, inicioAnt, inicioMes),
+          _sum: { valor: true },
+        }),
       ]);
 
     const sumTipo = (
@@ -1822,9 +1835,13 @@ export class FinanceiroService {
     ) => rows.filter((r) => r.tipo === tipo).reduce((s, r) => s + r.valor, 0);
 
     const receitasMes = sumTipo(movMes, FinanceiroMovimentoTipo.entrada);
-    const despesasMes = sumTipo(movMes, FinanceiroMovimentoTipo.saida);
+    const despesasMes =
+      sumTipo(movMes, FinanceiroMovimentoTipo.saida) +
+      (comissaoPagarMes._sum.valor ?? 0);
     const receitasAnt = sumTipo(movAnt, FinanceiroMovimentoTipo.entrada);
-    const despesasAnt = sumTipo(movAnt, FinanceiroMovimentoTipo.saida);
+    const despesasAnt =
+      sumTipo(movAnt, FinanceiroMovimentoTipo.saida) +
+      (comissaoPagarAnt._sum.valor ?? 0);
     const resultadoMes = receitasMes - despesasMes;
     const resultadoAnt = receitasAnt - despesasAnt;
 
@@ -2649,30 +2666,107 @@ export class FinanceiroService {
       const m = ref.getUTCMonth();
       const inicio = new Date(Date.UTC(y, m, 1) + BRASIL_UTC_OFFSET_MS);
       const fim = new Date(Date.UTC(y, m + 1, 1) + BRASIL_UTC_OFFSET_MS);
-      const rows = await this.prisma.financeiroMovimento.findMany({
-        where: {
-          tenantId,
-          data: { gte: inicio, lt: fim },
-          status: { not: FinanceiroTituloStatus.cancelado },
-        },
-      });
+      const [rows, comissaoPagar] = await Promise.all([
+        this.prisma.financeiroMovimento.findMany({
+          where: {
+            tenantId,
+            data: { gte: inicio, lt: fim },
+            status: { not: FinanceiroTituloStatus.cancelado },
+          },
+        }),
+        this.prisma.financeiroTitulo.aggregate({
+          where: this.comissaoPagarAbertoWhere(tenantId, inicio, fim),
+          _sum: { valor: true },
+        }),
+      ]);
       result.push({
         mes: MESES_CURTOS[m],
         receitas: rows
           .filter((r) => r.tipo === FinanceiroMovimentoTipo.entrada)
           .reduce((s, r) => s + r.valor, 0),
-        despesas: rows
-          .filter((r) => r.tipo === FinanceiroMovimentoTipo.saida)
-          .reduce((s, r) => s + r.valor, 0),
+        despesas:
+          rows
+            .filter((r) => r.tipo === FinanceiroMovimentoTipo.saida)
+            .reduce((s, r) => s + r.valor, 0) + (comissaoPagar._sum.valor ?? 0),
       });
     }
     return result;
+  }
+
+  private comissaoPagarAbertoWhere(
+    tenantId: string,
+    gte: Date,
+    lt: Date,
+    incluirAnterioresEmAberto = false,
+  ) {
+    const noPeriodo = {
+      status: {
+        in: [
+          FinanceiroTituloStatus.aberto,
+          FinanceiroTituloStatus.atrasado,
+        ],
+      },
+      vencimento: { gte, lt },
+    };
+    if (!incluirAnterioresEmAberto) {
+      return {
+        tenantId,
+        tipo: FinanceiroTituloTipo.pagar,
+        comissaoId: { not: null },
+        ...noPeriodo,
+      };
+    }
+    return {
+      tenantId,
+      tipo: FinanceiroTituloTipo.pagar,
+      comissaoId: { not: null },
+      OR: [
+        noPeriodo,
+        {
+          status: {
+            in: [
+              FinanceiroTituloStatus.aberto,
+              FinanceiroTituloStatus.atrasado,
+            ],
+          },
+          vencimento: { lt: gte },
+        },
+      ],
+    };
+  }
+
+  private async loadComissaoPagarCentros(
+    tenantId: string,
+    gte: Date,
+    lt: Date,
+  ) {
+    const [abertos, pagos] = await Promise.all([
+      this.prisma.financeiroTitulo.findMany({
+        where: this.comissaoPagarAbertoWhere(tenantId, gte, lt, true),
+        select: { centro: true, categoria: true, valor: true },
+      }),
+      this.prisma.financeiroMovimento.findMany({
+        where: {
+          tenantId,
+          tipo: FinanceiroMovimentoTipo.saida,
+          status: { not: FinanceiroTituloStatus.cancelado },
+          data: { gte, lt },
+          titulo: { comissaoId: { not: null } },
+        },
+        select: { centro: true, categoria: true, valor: true },
+      }),
+    ]);
+    return { abertos, pagos };
   }
 
   private async buildCentros(tenantId: string) {
     await this.ensureDefaultDespesaCategorias(tenantId);
     const competencia = competenciaAtualBrasil();
     const { gte, lt } = this.competenciaDateBounds(competencia);
+    const { abertos: comissaoAberta, pagos: comissaoPaga } =
+      await this.loadComissaoPagarCentros(tenantId, gte, lt);
+    const centroNome = (row: { centro: string; categoria: string }) =>
+      row.centro.trim() || row.categoria.trim() || "Comissão";
     const tipos = await this.prisma.financeiroDespesaTipo.findMany({
       where: { tenantId, ativo: true },
       include: {
@@ -2714,6 +2808,20 @@ export class FinanceiroService {
           });
         }
       }
+      for (const row of [...comissaoAberta, ...comissaoPaga]) {
+        const nome = centroNome(row);
+        const cur = byName.get(nome);
+        if (cur) {
+          cur.realizado += row.valor;
+        } else {
+          byName.set(nome, {
+            centro: nome,
+            natureza: FinanceiroDespesaNatureza.variavel,
+            orcado: 0,
+            realizado: row.valor,
+          });
+        }
+      }
       return [...byName.values()]
         .map((c) => ({
           ...c,
@@ -2739,6 +2847,10 @@ export class FinanceiroService {
     for (const r of rows) {
       const key = r.centro || "Sem centro";
       map.set(key, (map.get(key) ?? 0) + r.valor);
+    }
+    for (const row of comissaoAberta) {
+      const key = centroNome(row);
+      map.set(key, (map.get(key) ?? 0) + row.valor);
     }
     return [...map.entries()]
       .map(([centro, realizado]) => ({
