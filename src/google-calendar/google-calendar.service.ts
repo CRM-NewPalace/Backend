@@ -177,6 +177,11 @@ export class GoogleCalendarService {
         token: tokens.access_token,
         exp: Date.now() + (tokens.expires_in ?? 3500) * 1000,
       });
+      await this.backfillUpcoming(payload.sub).catch((err) =>
+        this.logger.warn(
+          `Backfill Google Calendar falhou: ${err instanceof Error ? err.message : err}`,
+        ),
+      );
       return frontendAgendaUrl(redirectUri, 'connected');
     } catch (err) {
       this.logger.warn(
@@ -275,7 +280,6 @@ export class GoogleCalendarService {
 
   private shouldPush(item: GoogleSyncAgendamento) {
     if (item.tipo === AgendamentoTipo.bloqueio) return false;
-    if (item.alvoTipo !== AgendamentoAlvo.nenhum) return false;
     if (item.solicitacaoStatus === AgendamentoSolicitacaoStatus.pendente) {
       return false;
     }
@@ -284,6 +288,45 @@ export class GoogleCalendarService {
     }
     if (item.status === AgendamentoStatus.cancelado) return false;
     return true;
+  }
+
+  private async backfillUpcoming(userId: string) {
+    const from = new Date();
+    from.setHours(0, 0, 0, 0);
+    const items = await this.prisma.agendamento.findMany({
+      where: {
+        OR: [{ autorId: userId }, { atribuidoParaId: userId }],
+        startsAt: { gte: from },
+        status: { not: AgendamentoStatus.cancelado },
+        tipo: { not: AgendamentoTipo.bloqueio },
+        solicitacaoStatus: {
+          notIn: [
+            AgendamentoSolicitacaoStatus.pendente,
+            AgendamentoSolicitacaoStatus.recusada,
+          ],
+        },
+      },
+      select: {
+        id: true,
+        autorId: true,
+        atribuidoParaId: true,
+        titulo: true,
+        tipo: true,
+        status: true,
+        solicitacaoStatus: true,
+        alvoTipo: true,
+        startsAt: true,
+        endsAt: true,
+        local: true,
+        observacoes: true,
+        lead: { select: { nome: true } },
+      },
+      orderBy: { startsAt: 'asc' },
+      take: 50,
+    });
+    for (const item of items) {
+      await this.syncAgendamento(item);
+    }
   }
 
   private eventBody(item: GoogleSyncAgendamento) {

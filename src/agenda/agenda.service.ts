@@ -1336,7 +1336,7 @@ export class AgendaService {
     const tipo = (dto.alvoTipo as AgendamentoAlvo | undefined) ?? AgendamentoAlvo.todos;
     if (tipo === AgendamentoAlvo.nenhum) {
       return {
-        alvoTipo: AgendamentoAlvo.todos,
+        alvoTipo: AgendamentoAlvo.nenhum,
         alvoEquipeId: null,
         alvoGerenteId: null,
       };
@@ -1372,9 +1372,11 @@ export class AgendaService {
     const tipo =
       (dto.alvoTipo as AgendamentoAlvo | undefined) ?? existing.alvoTipo;
     if (tipo === AgendamentoAlvo.nenhum) {
-      throw new BadRequestException(
-        'Eventos do admin devem ter público: todos, equipe, gerente ou gerentes.',
-      );
+      return {
+        alvoTipo: AgendamentoAlvo.nenhum,
+        alvoEquipeId: null,
+        alvoGerenteId: null,
+      };
     }
 
     const equipeId =
