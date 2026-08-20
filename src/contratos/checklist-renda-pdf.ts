@@ -237,9 +237,9 @@ export function buildChecklistRendaPdf(input: {
       .roundedRect(left, y, width, notesH, 4)
       .stroke();
     doc
-      .font('Helvetica')
+      .font('Helvetica-Bold')
       .fontSize(9)
-      .fillColor('#222')
+      .fillColor('#000000')
       .text(notes, left + 8, y + 8, { width: width - 16 });
     doc.restore();
     y += notesH + 18;
@@ -247,9 +247,9 @@ export function buildChecklistRendaPdf(input: {
     const cidade = v(values, 'cidade');
     const data = formatDateBr(v(values, 'data'));
     doc
-      .font('Helvetica')
+      .font('Helvetica-Bold')
       .fontSize(10)
-      .fillColor('#222')
+      .fillColor('#000000')
       .text(
         [cidade, data].filter(Boolean).join(', ') || data,
         left,
@@ -273,6 +273,7 @@ export function buildChecklistRendaPdf(input: {
       doc
         .font('Helvetica-Bold')
         .fontSize(9)
+        .fillColor('#000000')
         .text(signer, left, y + 20, { width, align: 'center' });
     }
 
@@ -338,7 +339,7 @@ function fieldLine(
     .fillColor(color)
     .text(label.toUpperCase(), left, y);
   y += 11;
-  doc.font('Helvetica').fontSize(10).fillColor('#222').text(value, left, y, {
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#000000').text(value, left, y, {
     width,
   });
   y += 13;
