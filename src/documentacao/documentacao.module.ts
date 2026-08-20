@@ -10,5 +10,6 @@ import { DocumentacaoService } from './documentacao.service';
   imports: [EquipesModule, FunisModule, AnaliseModule, LeadMonitoramentoModule],
   controllers: [DocumentacaoController],
   providers: [DocumentacaoService],
+  exports: [DocumentacaoService],
 })
 export class DocumentacaoModule {}

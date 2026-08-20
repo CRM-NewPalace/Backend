@@ -22,6 +22,7 @@ import { RolesGuard } from "../common/guards/roles.guard";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { CreateCategoriaDto } from "./dto/create-categoria.dto";
 import { CreateComissaoDto } from "./dto/create-comissao.dto";
+import { CreateComissaoVendaAvulsaDto } from "./dto/create-comissao-venda-avulsa.dto";
 import { CreateDespesaDto } from "./dto/create-despesa.dto";
 import { CreateDespesaTipoDto } from "./dto/create-despesa-tipo.dto";
 import { CreateMovimentoDto } from "./dto/create-movimento.dto";
@@ -260,6 +261,15 @@ export class FinanceiroController {
     return this.financeiroService.createTituloComissao(dto, requester);
   }
 
+  @Post("titulos/comissao-avulsa")
+  @Roles(Role.admin, Role.super_admin)
+  createTituloComissaoAvulsa(
+    @Body() dto: CreateComissaoVendaAvulsaDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.createTituloComissaoAvulsa(dto, requester);
+  }
+
   @Patch("titulos/grupo/:grupoParcelasId")
   @Roles(Role.admin, Role.gerente, Role.super_admin)
   updateTitulosGrupo(
@@ -336,6 +346,15 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.createComissao(dto, requester);
+  }
+
+  @Post("comissoes/com-venda-avulsa")
+  @Roles(Role.admin, Role.super_admin)
+  createComissaoComVendaAvulsa(
+    @Body() dto: CreateComissaoVendaAvulsaDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.createComissaoComVendaAvulsa(dto, requester);
   }
 
   @Patch("comissoes/:id")

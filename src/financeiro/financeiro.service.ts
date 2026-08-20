@@ -21,10 +21,13 @@ import {
 } from "../common/utils/documentacao-status";
 import { resolveFinanceiroTenantId } from "../common/utils/tenant";
 import { isCorretorLike } from "../common/utils/roles";
+import { DocumentacaoService } from "../documentacao/documentacao.service";
+import { LeadsService } from "../leads/leads.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { BaixarTituloDto } from "./dto/baixar-titulo.dto";
 import { CreateCategoriaDto } from "./dto/create-categoria.dto";
 import { CreateComissaoDto } from "./dto/create-comissao.dto";
+import { CreateComissaoVendaAvulsaDto } from "./dto/create-comissao-venda-avulsa.dto";
 import { CreateDespesaDto } from "./dto/create-despesa.dto";
 import { CreateDespesaTipoDto } from "./dto/create-despesa-tipo.dto";
 import { CreateMovimentoDto } from "./dto/create-movimento.dto";
@@ -67,6 +70,14 @@ const MESES_CURTOS = [
 ] as const;
 
 const BRASIL_UTC_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+function placeholderClientPhone(seed: string): string {
+  const base = `${Date.now()}${seed}`
+    .replace(/\D/g, "")
+    .slice(-8)
+    .padStart(8, "0");
+  return `(81) 9${base.slice(0, 4)}-${base.slice(4)}`;
+}
 
 function competenciaFromIsoDate(iso: string): string {
   return iso.slice(0, 7);
@@ -252,7 +263,11 @@ type FluxoEvento = {
 
 @Injectable()
 export class FinanceiroService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly leadsService: LeadsService,
+    private readonly documentacaoService: DocumentacaoService,
+  ) {}
 
   // ─── Parceiros ───────────────────────────────────────────────
 
@@ -1586,6 +1601,68 @@ export class FinanceiroService {
   ) {
     this.assertWrite(requester);
     const comissao = await this.createComissao(dto, requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const titulos = await this.listTitulosDaComissao(comissao.id, tenantId);
+    return { comissao, titulos };
+  }
+
+  async createComissaoComVendaAvulsa(
+    dto: CreateComissaoVendaAvulsaDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertComissaoWrite(requester);
+    const clienteNome = dto.clienteNome.trim();
+    const lead = await this.leadsService.create(
+      {
+        tipo: "cliente",
+        nome: clienteNome,
+        telefone: placeholderClientPhone(clienteNome),
+        email: `cliente.${Date.now().toString(36)}@pendente.local`,
+        origem: "Comissão",
+        interesse: "Comprar",
+        cidade: "",
+        bairro: "",
+        corretorId: dto.corretorId,
+      },
+      requester,
+    );
+    const doc = await this.documentacaoService.create(
+      {
+        leadId: lead.id,
+        nome: clienteNome,
+        fonte: "Comissão",
+        status1: "Aprovado",
+        status2: "Vendido",
+        corretorId: dto.corretorId,
+        construtoraId: dto.construtoraId || null,
+        empreendimentoId: dto.empreendimentoId || null,
+        dataVenda: dto.dataVenda,
+        vgv: dto.vgv,
+      },
+      requester,
+    );
+    return this.createComissao(
+      {
+        documentacaoId: doc.id,
+        dataPrevistaRecebimento: dto.dataPrevistaRecebimento,
+        percentualImobiliaria: dto.percentualImobiliaria,
+        percentualTributos: dto.percentualTributos,
+        percentualCorretor: dto.percentualCorretor,
+        percentualGerente: dto.percentualGerente,
+        percentualCaixa: dto.percentualCaixa,
+        percentualSocios: dto.percentualSocios,
+        status: dto.status,
+      },
+      requester,
+    );
+  }
+
+  async createTituloComissaoAvulsa(
+    dto: CreateComissaoVendaAvulsaDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const comissao = await this.createComissaoComVendaAvulsa(dto, requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const titulos = await this.listTitulosDaComissao(comissao.id, tenantId);
     return { comissao, titulos };
