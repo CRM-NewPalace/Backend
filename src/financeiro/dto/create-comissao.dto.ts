@@ -1,8 +1,9 @@
 import { FinanceiroComissaoStatus } from '@prisma/client';
 import { IsDateString, IsEnum, IsNumber, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { PremiacaoComissaoDto } from './premiacao-comissao.dto';
 
-export class CreateComissaoDto {
+export class CreateComissaoDto extends PremiacaoComissaoDto {
   @IsUUID()
   documentacaoId!: string;
 

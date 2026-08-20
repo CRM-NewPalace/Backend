@@ -1,8 +1,9 @@
 import { FinanceiroComissaoStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { PremiacaoComissaoDto } from './premiacao-comissao.dto';
 
-export class UpdateComissaoDto {
+export class UpdateComissaoDto extends PremiacaoComissaoDto {
   @IsOptional()
   @IsDateString({}, { message: 'Data prevista de recebimento inválida.' })
   dataPrevistaRecebimento?: string;

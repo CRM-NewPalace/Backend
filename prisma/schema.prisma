@@ -1553,6 +1553,13 @@ model FinanceiroComissao {
   valorCaixa            Decimal                  @db.Decimal(18, 2)
   percentualSocios      Decimal                  @db.Decimal(7, 4)
   valorSocios           Decimal                  @db.Decimal(18, 2)
+  valorPremiacao                  Decimal @default(0) @db.Decimal(18, 2)
+  percentualPremiacaoCorretor     Decimal @default(0) @db.Decimal(7, 4)
+  valorPremiacaoCorretor          Decimal @default(0) @db.Decimal(18, 2)
+  percentualPremiacaoImobiliaria  Decimal @default(0) @db.Decimal(7, 4)
+  valorPremiacaoImobiliaria       Decimal @default(0) @db.Decimal(18, 2)
+  percentualPremiacaoGerente      Decimal @default(0) @db.Decimal(7, 4)
+  valorPremiacaoGerente           Decimal @default(0) @db.Decimal(18, 2)
   status          FinanceiroComissaoStatus @default(pendente)
   titulos         FinanceiroTitulo[]
 

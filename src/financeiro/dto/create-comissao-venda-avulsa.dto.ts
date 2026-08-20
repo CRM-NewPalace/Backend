@@ -14,6 +14,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
+import { PremiacaoComissaoDto } from './premiacao-comissao.dto';
 
 function toRequiredInt({ value }: { value: unknown }) {
   if (value === undefined || value === null || value === '') return value;
@@ -22,7 +23,7 @@ function toRequiredInt({ value }: { value: unknown }) {
   return Math.round(n);
 }
 
-export class CreateComissaoVendaAvulsaDto {
+export class CreateComissaoVendaAvulsaDto extends PremiacaoComissaoDto {
   @IsString()
   @MinLength(2, { message: 'O nome do cliente deve ter ao menos 2 caracteres.' })
   @MaxLength(120)

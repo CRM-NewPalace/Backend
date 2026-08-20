@@ -1573,6 +1573,7 @@ export class FinanceiroService {
     const gerenteNome =
       doc.gerente?.name ?? corretor.equipe?.gerente.name ?? "";
     const values = this.calculateComissao(doc.vgv, dto);
+    const premiacao = this.calculatePremiacao(dto);
     const row = await this.prisma.financeiroComissao.create({
       data: {
         tenantId,
@@ -1589,6 +1590,7 @@ export class FinanceiroService {
         dataPrevistaRecebimento: parseDayStart(dto.dataPrevistaRecebimento),
         status: dto.status ?? FinanceiroComissaoStatus.pendente,
         ...values,
+        ...premiacao,
       },
     });
     await this.syncTitulosDaComissao(row);
@@ -1652,6 +1654,10 @@ export class FinanceiroService {
         percentualCaixa: dto.percentualCaixa,
         percentualSocios: dto.percentualSocios,
         status: dto.status,
+        valorPremiacao: dto.valorPremiacao,
+        percentualPremiacaoCorretor: dto.percentualPremiacaoCorretor,
+        percentualPremiacaoImobiliaria: dto.percentualPremiacaoImobiliaria,
+        percentualPremiacaoGerente: dto.percentualPremiacaoGerente,
       },
       requester,
     );
@@ -1689,10 +1695,23 @@ export class FinanceiroService {
         dto.percentualSocios ?? Number(existing.percentualSocios),
     };
     const values = this.calculateComissao(Number(existing.vgv), percentages);
+    const premiacao = this.calculatePremiacao({
+      valorPremiacao: dto.valorPremiacao ?? Number(existing.valorPremiacao),
+      percentualPremiacaoCorretor:
+        dto.percentualPremiacaoCorretor ??
+        Number(existing.percentualPremiacaoCorretor),
+      percentualPremiacaoImobiliaria:
+        dto.percentualPremiacaoImobiliaria ??
+        Number(existing.percentualPremiacaoImobiliaria),
+      percentualPremiacaoGerente:
+        dto.percentualPremiacaoGerente ??
+        Number(existing.percentualPremiacaoGerente),
+    });
     const row = await this.prisma.financeiroComissao.update({
       where: { id },
       data: {
         ...values,
+        ...premiacao,
         ...(dto.dataPrevistaRecebimento
           ? {
               dataPrevistaRecebimento: parseDayStart(
@@ -3566,6 +3585,15 @@ export class FinanceiroService {
       valorCaixa: Number(row.valorCaixa),
       percentualSocios: Number(row.percentualSocios),
       valorSocios: Number(row.valorSocios),
+      valorPremiacao: Number(row.valorPremiacao),
+      percentualPremiacaoCorretor: Number(row.percentualPremiacaoCorretor),
+      valorPremiacaoCorretor: Number(row.valorPremiacaoCorretor),
+      percentualPremiacaoImobiliaria: Number(
+        row.percentualPremiacaoImobiliaria,
+      ),
+      valorPremiacaoImobiliaria: Number(row.valorPremiacaoImobiliaria),
+      percentualPremiacaoGerente: Number(row.percentualPremiacaoGerente),
+      valorPremiacaoGerente: Number(row.valorPremiacaoGerente),
     };
     if (isCorretorLike(requester.role)) {
       const {
@@ -3578,6 +3606,10 @@ export class FinanceiroService {
         valorCaixa: _valorCaixa,
         percentualSocios: _percentualSocios,
         valorSocios: _valorSocios,
+        percentualPremiacaoImobiliaria: _percentualPremiacaoImobiliaria,
+        valorPremiacaoImobiliaria: _valorPremiacaoImobiliaria,
+        percentualPremiacaoGerente: _percentualPremiacaoGerente,
+        valorPremiacaoGerente: _valorPremiacaoGerente,
         ...corretorResult
       } = result;
       return corretorResult;
@@ -3588,6 +3620,8 @@ export class FinanceiroService {
         valorCaixa: _valorCaixa,
         percentualSocios: _percentualSocios,
         valorSocios: _valorSocios,
+        percentualPremiacaoImobiliaria: _percentualPremiacaoImobiliaria,
+        valorPremiacaoImobiliaria: _valorPremiacaoImobiliaria,
         ...publicResult
       } = result;
       return publicResult;
@@ -3661,6 +3695,30 @@ export class FinanceiroService {
     };
   }
 
+  private calculatePremiacao(input: {
+    valorPremiacao?: number;
+    percentualPremiacaoCorretor?: number;
+    percentualPremiacaoImobiliaria?: number;
+    percentualPremiacaoGerente?: number;
+  }) {
+    const decimal = (value: number) => new Prisma.Decimal(value.toString());
+    const percent = (value: number) => decimal(value).div(100);
+    const money = (value: Prisma.Decimal) => value.toDecimalPlaces(2);
+    const total = money(decimal(Math.max(0, Number(input.valorPremiacao) || 0)));
+    const percCorretor = Number(input.percentualPremiacaoCorretor) || 0;
+    const percImobiliaria = Number(input.percentualPremiacaoImobiliaria) || 0;
+    const percGerente = Number(input.percentualPremiacaoGerente) || 0;
+    return {
+      valorPremiacao: total,
+      percentualPremiacaoCorretor: percCorretor,
+      valorPremiacaoCorretor: money(total.mul(percent(percCorretor))),
+      percentualPremiacaoImobiliaria: percImobiliaria,
+      valorPremiacaoImobiliaria: money(total.mul(percent(percImobiliaria))),
+      percentualPremiacaoGerente: percGerente,
+      valorPremiacaoGerente: money(total.mul(percent(percGerente))),
+    };
+  }
+
   private comissaoTituloDescricao(
     row: { cliente: string; empreendimento: string },
     papelLabel: string,
@@ -3681,8 +3739,11 @@ export class FinanceiroService {
     valorCorretor: Prisma.Decimal | number;
     valorGerente: Prisma.Decimal | number;
     valorTributos: Prisma.Decimal | number;
+    valorPremiacaoCorretor?: Prisma.Decimal | number;
+    valorPremiacaoImobiliaria?: Prisma.Decimal | number;
+    valorPremiacaoGerente?: Prisma.Decimal | number;
   }) {
-    const money = (value: Prisma.Decimal | number) => {
+    const money = (value: Prisma.Decimal | number | undefined) => {
       const n = Number(value);
       return Number.isFinite(n) ? n : 0;
     };
@@ -3739,6 +3800,33 @@ export class FinanceiroService {
         categoria: "Impostos",
         centro: "Impostos",
         parceiroNome: "Tributos",
+      },
+      {
+        papel: "premiacao_corretor",
+        label: "Premiação corretor",
+        tipo: FinanceiroTituloTipo.pagar,
+        valor: money(row.valorPremiacaoCorretor),
+        categoria: "Premiação corretor",
+        centro: "Premiação corretor",
+        parceiroNome: row.corretor.trim() || "Corretor",
+      },
+      {
+        papel: "premiacao_imobiliaria",
+        label: "Premiação imobiliária",
+        tipo: FinanceiroTituloTipo.receber,
+        valor: money(row.valorPremiacaoImobiliaria),
+        categoria: "Premiação — Imobiliária",
+        centro: "",
+        parceiroNome: "Imobiliária",
+      },
+      {
+        papel: "premiacao_gerente",
+        label: "Premiação gerente",
+        tipo: FinanceiroTituloTipo.pagar,
+        valor: money(row.valorPremiacaoGerente),
+        categoria: "Premiação gerente",
+        centro: "Premiação gerente",
+        parceiroNome: row.gerente.trim() || "Gerente",
       },
     ];
     return pecas.filter((p) => p.valor >= 0.01);
@@ -3804,6 +3892,9 @@ export class FinanceiroService {
     valorCorretor: Prisma.Decimal | number;
     valorGerente: Prisma.Decimal | number;
     valorTributos: Prisma.Decimal | number;
+    valorPremiacaoCorretor?: Prisma.Decimal | number;
+    valorPremiacaoImobiliaria?: Prisma.Decimal | number;
+    valorPremiacaoGerente?: Prisma.Decimal | number;
     status: FinanceiroComissaoStatus;
   }) {
     const pecas = this.pecasFinanceirasDaComissao(row);
