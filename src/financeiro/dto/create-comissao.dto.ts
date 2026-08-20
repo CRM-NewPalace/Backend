@@ -1,4 +1,5 @@
-import { IsDateString, IsNumber, IsUUID, Max, Min } from 'class-validator';
+import { FinanceiroComissaoStatus } from '@prisma/client';
+import { IsDateString, IsEnum, IsNumber, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateComissaoDto {
@@ -43,4 +44,8 @@ export class CreateComissaoDto {
   @Min(0)
   @Max(100)
   percentualSocios!: number;
+
+  @IsOptional()
+  @IsEnum(FinanceiroComissaoStatus)
+  status?: FinanceiroComissaoStatus;
 }

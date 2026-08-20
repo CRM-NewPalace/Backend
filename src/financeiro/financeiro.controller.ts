@@ -30,6 +30,7 @@ import { CreateRecebimentoDto } from "./dto/create-recebimento.dto";
 import { CreateRecebimentoTipoDto } from "./dto/create-recebimento-tipo.dto";
 import { BaixarTituloDto } from "./dto/baixar-titulo.dto";
 import { CreateTituloDto } from "./dto/create-titulo.dto";
+import { CreateTituloComissaoDto } from "./dto/create-titulo-comissao.dto";
 import { CreateTitulosParceladoDto } from "./dto/create-titulos-parcelado.dto";
 import { QueryFluxoCaixaDto } from "./dto/query-fluxo-caixa.dto";
 import { UpdateCategoriaDto } from "./dto/update-categoria.dto";
@@ -242,6 +243,21 @@ export class FinanceiroController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.financeiroService.createTitulosParcelado(dto, requester);
+  }
+
+  @Get("titulos/vendas-elegiveis")
+  @Roles(Role.admin, Role.super_admin)
+  listVendasElegiveisTitulo(@CurrentUser() requester: AuthenticatedUser) {
+    return this.financeiroService.listVendasElegiveis(requester);
+  }
+
+  @Post("titulos/comissao")
+  @Roles(Role.admin, Role.super_admin)
+  createTituloComissao(
+    @Body() dto: CreateTituloComissaoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.financeiroService.createTituloComissao(dto, requester);
   }
 
   @Patch("titulos/grupo/:grupoParcelasId")

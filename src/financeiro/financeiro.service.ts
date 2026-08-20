@@ -853,7 +853,7 @@ export class FinanceiroService {
   ) {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
-    await this.syncComissoesPagasParaTitulos(tenantId);
+    await this.syncComissoesParaTitulos(tenantId);
     try {
       await this.extendIndeterminateRecurrences(tenantId);
     } catch {
@@ -1183,6 +1183,13 @@ export class FinanceiroService {
       await this.recalcSaldoParceiro(tenantId, pid);
     }
 
+    if (estornar && existing.comissaoId) {
+      await this.sincronizarStatusComissaoPelosTitulos(
+        existing.comissaoId,
+        tenantId,
+      );
+    }
+
     return this.mapTitulo(row);
   }
 
@@ -1430,6 +1437,12 @@ export class FinanceiroService {
     ]);
 
     await this.recalcSaldoParceiro(tenantId, existing.parceiroId);
+    if (existing.comissaoId) {
+      await this.sincronizarStatusComissaoPelosTitulos(
+        existing.comissaoId,
+        tenantId,
+      );
+    }
     return this.mapTitulo(titulo);
   }
 
@@ -1501,7 +1514,7 @@ export class FinanceiroService {
       ];
     }
     if (requester.role === Role.admin || requester.role === Role.super_admin) {
-      await this.syncComissoesPagasParaTitulos(tenantId);
+      await this.syncComissoesParaTitulos(tenantId);
     }
     const rows = await this.prisma.financeiroComissao.findMany({
       where,
@@ -1559,11 +1572,23 @@ export class FinanceiroService {
         cliente: doc.nome,
         dataVenda: doc.dataVenda ?? doc.createdAt,
         dataPrevistaRecebimento: parseDayStart(dto.dataPrevistaRecebimento),
-        status: FinanceiroComissaoStatus.pendente,
+        status: dto.status ?? FinanceiroComissaoStatus.pendente,
         ...values,
       },
     });
+    await this.syncTitulosDaComissao(row);
     return this.mapComissao(row, requester);
+  }
+
+  async createTituloComissao(
+    dto: CreateComissaoDto,
+    requester: AuthenticatedUser,
+  ) {
+    this.assertWrite(requester);
+    const comissao = await this.createComissao(dto, requester);
+    const tenantId = resolveFinanceiroTenantId(requester);
+    const titulos = await this.listTitulosDaComissao(comissao.id, tenantId);
+    return { comissao, titulos };
   }
 
   async updateComissao(
@@ -1601,11 +1626,13 @@ export class FinanceiroService {
         ...(dto.status ? { status: dto.status } : {}),
       },
     });
-    if (row.status === FinanceiroComissaoStatus.paga) {
-      await this.syncTitulosDaComissao(row);
-    } else if (existing.status === FinanceiroComissaoStatus.paga) {
-      await this.removeTitulosDaComissao(row.id, row.tenantId);
+    if (
+      existing.status === FinanceiroComissaoStatus.paga &&
+      row.status !== FinanceiroComissaoStatus.paga
+    ) {
+      await this.reabrirTitulosDaComissao(row.id, row.tenantId);
     }
+    await this.syncTitulosDaComissao(row);
     return this.mapComissao(row, requester);
   }
 
@@ -2919,10 +2946,11 @@ export class FinanceiroService {
     to: string,
   ): Promise<FluxoEvento[]> {
     await this.extendIndeterminateRecurrences(tenantId).catch(() => undefined);
+    await this.syncComissoesParaTitulos(tenantId).catch(() => undefined);
     const fromDate = parseDayStart(from);
     const toExclusive = parseDayEnd(to);
 
-    const [movimentos, titulos, comissoesPrevistas] = await Promise.all([
+    const [movimentos, titulos] = await Promise.all([
       this.prisma.financeiroMovimento.findMany({
         where: {
           tenantId,
@@ -2940,13 +2968,6 @@ export class FinanceiroService {
             ],
           },
           vencimento: { gte: fromDate, lt: toExclusive },
-        },
-      }),
-      this.prisma.financeiroComissao.findMany({
-        where: {
-          tenantId,
-          status: { not: FinanceiroComissaoStatus.paga },
-          dataPrevistaRecebimento: { gte: fromDate, lt: toExclusive },
         },
       }),
     ]);
@@ -2987,24 +3008,6 @@ export class FinanceiroService {
         centro: t.centro,
         status: t.status,
         contrato: Boolean(t.platformContratoId || t.platformFornecedorContratoId),
-      });
-    }
-
-    for (const c of comissoesPrevistas) {
-      const valor = Number(c.comissaoBruta);
-      if (valor < 0.01) continue;
-      eventos.push({
-        data: isoDateOnly(c.dataPrevistaRecebimento),
-        tipo: "entrada",
-        valor,
-        natureza: "previsto",
-        origem: "comissao",
-        id: c.id,
-        descricao: this.comissaoTituloDescricao(c, "Bruta"),
-        parceiro: c.cliente.trim() || "Cliente",
-        categoria: "Comissão de venda",
-        centro: "",
-        status: c.status,
       });
     }
 
@@ -3455,6 +3458,15 @@ export class FinanceiroService {
     };
   }
 
+  private async listTitulosDaComissao(comissaoId: string, tenantId: string) {
+    const rows = await this.prisma.financeiroTitulo.findMany({
+      where: { tenantId, comissaoId },
+      include: { movimento: { select: { formaPagamento: true } } },
+      orderBy: { vencimento: "asc" },
+    });
+    return rows.map((row) => this.mapTitulo(row));
+  }
+
   private mapComissao(
     row: Prisma.FinanceiroComissaoGetPayload<Record<string, never>>,
     requester: AuthenticatedUser,
@@ -3655,13 +3667,50 @@ export class FinanceiroService {
     return pecas.filter((p) => p.valor >= 0.01);
   }
 
-  private async syncComissoesPagasParaTitulos(tenantId: string) {
-    const pagas = await this.prisma.financeiroComissao.findMany({
-      where: { tenantId, status: FinanceiroComissaoStatus.paga },
+  private async syncComissoesParaTitulos(tenantId: string) {
+    const rows = await this.prisma.financeiroComissao.findMany({
+      where: {
+        tenantId,
+        OR: [
+          { status: FinanceiroComissaoStatus.paga },
+          { titulos: { none: {} } },
+        ],
+      },
     });
-    for (const row of pagas) {
+    for (const row of rows) {
       await this.syncTitulosDaComissao(row);
     }
+  }
+
+  private movimentoDaPecaComissao(
+    peca: {
+      tipo: FinanceiroTituloTipo;
+      valor: number;
+      categoria: string;
+      centro: string;
+      parceiroNome: string;
+    },
+    descricao: string,
+    tenantId: string,
+    tituloId: string,
+    data: Date,
+  ) {
+    return {
+      tenantId,
+      data,
+      descricao,
+      parceiroNome: peca.parceiroNome,
+      categoria: peca.categoria,
+      centro: peca.centro,
+      tipo:
+        peca.tipo === FinanceiroTituloTipo.receber
+          ? FinanceiroMovimentoTipo.entrada
+          : FinanceiroMovimentoTipo.saida,
+      valor: peca.valor,
+      status: FinanceiroTituloStatus.pago,
+      formaPagamento: "",
+      tituloId,
+    };
   }
 
   private async syncTitulosDaComissao(row: {
@@ -3680,11 +3729,6 @@ export class FinanceiroService {
     valorTributos: Prisma.Decimal | number;
     status: FinanceiroComissaoStatus;
   }) {
-    if (row.status !== FinanceiroComissaoStatus.paga) {
-      await this.removeTitulosDaComissao(row.id, row.tenantId);
-      return;
-    }
-
     const pecas = this.pecasFinanceirasDaComissao(row);
     const keep = new Set(pecas.map((p) => p.papel));
     const existing = await this.prisma.financeiroTitulo.findMany({
@@ -3703,7 +3747,9 @@ export class FinanceiroService {
       }
     }
 
-    const dataPagamento = parseDayStart(todayIsoBrasil());
+    const comissaoPaga = row.status === FinanceiroComissaoStatus.paga;
+    const dataPagamentoDefault = parseDayStart(todayIsoBrasil());
+    const vencimento = row.dataPrevistaRecebimento ?? row.dataVenda;
     const restantes = await this.prisma.financeiroTitulo.findMany({
       where: { tenantId: row.tenantId, comissaoId: row.id },
       include: { movimento: true },
@@ -3713,33 +3759,47 @@ export class FinanceiroService {
     for (const peca of pecas) {
       const descricao = this.comissaoTituloDescricao(row, peca.label);
       const atual = byPapel.get(peca.papel);
-      if (atual) {
-        const tipoMudou = atual.tipo !== peca.tipo;
-        if (tipoMudou) {
-          await this.prisma.$transaction(async (tx) => {
-            await tx.financeiroMovimento.deleteMany({
-              where: { tituloId: atual.id },
-            });
-            await tx.financeiroTitulo.delete({ where: { id: atual.id } });
+      if (atual && atual.tipo !== peca.tipo) {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.financeiroMovimento.deleteMany({
+            where: { tituloId: atual.id },
           });
-          byPapel.delete(peca.papel);
-        } else {
-          await this.prisma.financeiroTitulo.update({
-            where: { id: atual.id },
-            data: {
-              descricao,
-              parceiroNome: peca.parceiroNome,
-              categoria: peca.categoria,
-              centro: peca.centro,
-              valor: peca.valor,
-              status: FinanceiroTituloStatus.pago,
-              dataPagamento: atual.dataPagamento ?? dataPagamento,
-              comissaoPapel: peca.papel,
-            },
-          });
-          if (atual.movimento) {
+          await tx.financeiroTitulo.delete({ where: { id: atual.id } });
+        });
+        byPapel.delete(peca.papel);
+      }
+
+      const current = byPapel.get(peca.papel);
+      const jaPago = current?.status === FinanceiroTituloStatus.pago;
+      const deveEstarPago = comissaoPaga || jaPago;
+      const dataPagamento = deveEstarPago
+        ? (current?.dataPagamento ?? dataPagamentoDefault)
+        : null;
+
+      if (current) {
+        await this.prisma.financeiroTitulo.update({
+          where: { id: current.id },
+          data: {
+            descricao,
+            parceiroNome: peca.parceiroNome,
+            categoria: peca.categoria,
+            centro: peca.centro,
+            valor: peca.valor,
+            vencimento,
+            status: deveEstarPago
+              ? FinanceiroTituloStatus.pago
+              : current.status === FinanceiroTituloStatus.cancelado ||
+                  current.status === FinanceiroTituloStatus.atrasado
+                ? current.status
+                : FinanceiroTituloStatus.aberto,
+            dataPagamento,
+            comissaoPapel: peca.papel,
+          },
+        });
+        if (deveEstarPago) {
+          if (current.movimento) {
             await this.prisma.financeiroMovimento.update({
-              where: { id: atual.movimento.id },
+              where: { id: current.movimento.id },
               data: {
                 descricao,
                 valor: peca.valor,
@@ -3752,9 +3812,23 @@ export class FinanceiroService {
                     : FinanceiroMovimentoTipo.saida,
               },
             });
+          } else {
+            await this.prisma.financeiroMovimento.create({
+              data: this.movimentoDaPecaComissao(
+                peca,
+                descricao,
+                row.tenantId,
+                current.id,
+                dataPagamento ?? dataPagamentoDefault,
+              ),
+            });
           }
-          continue;
+        } else if (current.movimento) {
+          await this.prisma.financeiroMovimento.delete({
+            where: { id: current.movimento.id },
+          });
         }
+        continue;
       }
 
       await this.prisma.$transaction(async (tx) => {
@@ -3766,33 +3840,88 @@ export class FinanceiroService {
             parceiroNome: peca.parceiroNome,
             categoria: peca.categoria,
             centro: peca.centro,
-            vencimento: row.dataPrevistaRecebimento ?? row.dataVenda,
-            dataPagamento,
+            vencimento,
+            dataPagamento: comissaoPaga ? dataPagamentoDefault : null,
             valor: peca.valor,
-            status: FinanceiroTituloStatus.pago,
+            status: comissaoPaga
+              ? FinanceiroTituloStatus.pago
+              : FinanceiroTituloStatus.aberto,
             parcela: "",
             comissaoId: row.id,
             comissaoPapel: peca.papel,
           },
         });
-        await tx.financeiroMovimento.create({
-          data: {
-            tenantId: row.tenantId,
-            data: dataPagamento,
-            descricao,
-            parceiroNome: peca.parceiroNome,
-            categoria: peca.categoria,
-            centro: peca.centro,
-            tipo:
-              peca.tipo === FinanceiroTituloTipo.receber
-                ? FinanceiroMovimentoTipo.entrada
-                : FinanceiroMovimentoTipo.saida,
-            valor: peca.valor,
-            status: FinanceiroTituloStatus.pago,
-            formaPagamento: "",
-            tituloId: titulo.id,
-          },
-        });
+        if (comissaoPaga) {
+          await tx.financeiroMovimento.create({
+            data: this.movimentoDaPecaComissao(
+              peca,
+              descricao,
+              row.tenantId,
+              titulo.id,
+              dataPagamentoDefault,
+            ),
+          });
+        }
+      });
+    }
+  }
+
+  private async reabrirTitulosDaComissao(
+    comissaoId: string,
+    tenantId: string,
+  ) {
+    const titulos = await this.prisma.financeiroTitulo.findMany({
+      where: { tenantId, comissaoId },
+      select: { id: true },
+    });
+    if (titulos.length === 0) return;
+    const ids = titulos.map((t) => t.id);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.financeiroMovimento.deleteMany({
+        where: { tituloId: { in: ids } },
+      });
+      await tx.financeiroTitulo.updateMany({
+        where: { id: { in: ids } },
+        data: {
+          status: FinanceiroTituloStatus.aberto,
+          dataPagamento: null,
+        },
+      });
+    });
+  }
+
+  private async sincronizarStatusComissaoPelosTitulos(
+    comissaoId: string,
+    tenantId: string,
+  ) {
+    const comissao = await this.prisma.financeiroComissao.findFirst({
+      where: { id: comissaoId, tenantId },
+    });
+    if (!comissao) return;
+    const titulos = await this.prisma.financeiroTitulo.findMany({
+      where: { tenantId, comissaoId },
+      select: { status: true, tipo: true },
+    });
+    const receber = titulos.filter(
+      (t) => t.tipo === FinanceiroTituloTipo.receber,
+    );
+    const receberTodosPagos =
+      receber.length > 0 &&
+      receber.every((t) => t.status === FinanceiroTituloStatus.pago);
+
+    if (receberTodosPagos && comissao.status !== FinanceiroComissaoStatus.paga) {
+      const row = await this.prisma.financeiroComissao.update({
+        where: { id: comissaoId },
+        data: { status: FinanceiroComissaoStatus.paga },
+      });
+      await this.syncTitulosDaComissao(row);
+      return;
+    }
+
+    if (!receberTodosPagos && comissao.status === FinanceiroComissaoStatus.paga) {
+      await this.prisma.financeiroComissao.update({
+        where: { id: comissaoId },
+        data: { status: FinanceiroComissaoStatus.pendente },
       });
     }
   }
