@@ -1368,6 +1368,8 @@ model FinanceiroTitulo {
   parcela         String                 @default("")
   /// Liga parcelas do mesmo contrato (N títulos com o mesmo UUID).
   grupoParcelasId String?
+  /// Recorrência mensal sem data de término: o sistema segue gerando os próximos meses.
+  recorrenciaIndeterminada Boolean @default(false)
   /// Contrato da plataforma que originou este título (adesão/mensalidade).
   platformContratoId String?
   platformContrato   PlatformContrato?   @relation(fields: [platformContratoId], references: [id], onDelete: SetNull)

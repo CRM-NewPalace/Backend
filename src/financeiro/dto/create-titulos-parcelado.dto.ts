@@ -1,6 +1,7 @@
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsNumber,
@@ -62,4 +63,8 @@ export class CreateTitulosParceladoDto {
   @IsOptional()
   @IsUUID('4')
   platformContratoId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  indeterminado?: boolean;
 }

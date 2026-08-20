@@ -133,6 +133,38 @@ function addDaysIso(iso: string, days: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
+function addMonthsIso(iso: string, months: number): string {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + months, d));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+const MESES_PARCELA = [
+  "jan",
+  "fev",
+  "mar",
+  "abr",
+  "mai",
+  "jun",
+  "jul",
+  "ago",
+  "set",
+  "out",
+  "nov",
+  "dez",
+] as const;
+
+function mesParcelaLabel(iso: string) {
+  const [year, month] = iso.slice(0, 7).split("-").map(Number);
+  if (!year || !month) return iso.slice(0, 7);
+  return `${MESES_PARCELA[month - 1]}/${String(year).slice(2)}`;
+}
+
+const RECORRENCIA_HORIZONTE_MESES = 12;
+
 function todayIsoBrasil(): string {
   return isoDateOnly(new Date());
 }
@@ -822,6 +854,11 @@ export class FinanceiroService {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     await this.syncComissoesPagasParaTitulos(tenantId);
+    try {
+      await this.extendIndeterminateRecurrences(tenantId);
+    } catch {
+      // Não bloqueia a listagem se a renovação falhar.
+    }
     return this.prisma.financeiroTitulo
       .findMany({
         where: {
@@ -968,8 +1005,11 @@ export class FinanceiroService {
             vencimento: parseDayStart(p.vencimento),
             valor: p.valor,
             status: FinanceiroTituloStatus.aberto,
-            parcela: `${i + 1}/${n}`,
+            parcela: dto.indeterminado
+              ? mesParcelaLabel(isoDateOnly(parseDayStart(p.vencimento)))
+              : `${i + 1}/${n}`,
             grupoParcelasId,
+            recorrenciaIndeterminada: Boolean(dto.indeterminado),
             ...(dto.platformContratoId
               ? { platformContratoId: dto.platformContratoId }
               : {}),
@@ -979,6 +1019,64 @@ export class FinanceiroService {
     );
 
     return rows.map((r) => this.mapTitulo(r));
+  }
+
+  /** Mantém ~12 meses à frente nas contas mensais sem data de término. */
+  private async extendIndeterminateRecurrences(tenantId: string) {
+    const grupos = await this.prisma.financeiroTitulo.findMany({
+      where: {
+        tenantId,
+        recorrenciaIndeterminada: true,
+        grupoParcelasId: { not: null },
+      },
+      distinct: ["grupoParcelasId"],
+      select: { grupoParcelasId: true },
+    });
+    if (grupos.length === 0) return;
+
+    const horizonte = addMonthsIso(
+      todayIsoBrasil(),
+      RECORRENCIA_HORIZONTE_MESES,
+    );
+
+    for (const { grupoParcelasId } of grupos) {
+      if (!grupoParcelasId) continue;
+      const titulos = await this.prisma.financeiroTitulo.findMany({
+        where: { tenantId, grupoParcelasId },
+        orderBy: { vencimento: "desc" },
+      });
+      const ultimo = titulos[0];
+      if (!ultimo) continue;
+      const existentes = new Set(
+        titulos.map((titulo) => isoDateOnly(titulo.vencimento)),
+      );
+      let cursor = isoDateOnly(ultimo.vencimento);
+      const novos: Prisma.FinanceiroTituloCreateManyInput[] = [];
+      while (cursor < horizonte) {
+        cursor = addMonthsIso(cursor, 1);
+        if (existentes.has(cursor) || cursor > horizonte) continue;
+        novos.push({
+          tenantId,
+          tipo: ultimo.tipo,
+          descricao: ultimo.descricao,
+          parceiroId: ultimo.parceiroId,
+          parceiroNome: ultimo.parceiroNome,
+          categoria: ultimo.categoria,
+          centro: ultimo.centro,
+          vencimento: parseDayStart(cursor),
+          valor: ultimo.valor,
+          status: FinanceiroTituloStatus.aberto,
+          parcela: mesParcelaLabel(cursor),
+          grupoParcelasId,
+          recorrenciaIndeterminada: true,
+          platformContratoId: ultimo.platformContratoId,
+          platformFornecedorContratoId: ultimo.platformFornecedorContratoId,
+        });
+      }
+      if (novos.length > 0) {
+        await this.prisma.financeiroTitulo.createMany({ data: novos });
+      }
+    }
   }
 
   async updateTitulo(
@@ -2820,6 +2918,7 @@ export class FinanceiroService {
     from: string,
     to: string,
   ): Promise<FluxoEvento[]> {
+    await this.extendIndeterminateRecurrences(tenantId).catch(() => undefined);
     const fromDate = parseDayStart(from);
     const toExclusive = parseDayEnd(to);
 
@@ -3326,6 +3425,7 @@ export class FinanceiroService {
     status: string;
     parcela: string;
     grupoParcelasId?: string | null;
+    recorrenciaIndeterminada?: boolean;
     platformContratoId?: string | null;
     platformFornecedorContratoId?: string | null;
     comissaoId?: string | null;
@@ -3346,6 +3446,7 @@ export class FinanceiroService {
       status: row.status,
       parcela: row.parcela,
       grupoParcelasId: row.grupoParcelasId ?? null,
+      recorrenciaIndeterminada: row.recorrenciaIndeterminada ?? false,
       platformContratoId:
         row.platformContratoId ?? row.platformFornecedorContratoId ?? null,
       comissaoId: row.comissaoId ?? null,

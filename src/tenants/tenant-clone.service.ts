@@ -943,6 +943,7 @@ export class TenantCloneService {
         status: t.status,
         parcela: t.parcela,
         grupoParcelasId: remapOpaque(t.grupoParcelasId, gruposParcelas),
+        recorrenciaIndeterminada: t.recorrenciaIndeterminada,
         platformContratoId: null,
         platformFornecedorContratoId: null,
         comissaoId: mappedOpt(comissoes, t.comissaoId),
