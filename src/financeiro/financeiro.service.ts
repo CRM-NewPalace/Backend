@@ -1656,6 +1656,7 @@ export class FinanceiroService {
         status: dto.status,
         valorPremiacao: dto.valorPremiacao,
         percentualPremiacaoCorretor: dto.percentualPremiacaoCorretor,
+        percentualPremiacaoImposto: dto.percentualPremiacaoImposto,
         percentualPremiacaoImobiliaria: dto.percentualPremiacaoImobiliaria,
         percentualPremiacaoGerente: dto.percentualPremiacaoGerente,
       },
@@ -1700,6 +1701,9 @@ export class FinanceiroService {
       percentualPremiacaoCorretor:
         dto.percentualPremiacaoCorretor ??
         Number(existing.percentualPremiacaoCorretor),
+      percentualPremiacaoImposto:
+        dto.percentualPremiacaoImposto ??
+        Number(existing.percentualPremiacaoImposto),
       percentualPremiacaoImobiliaria:
         dto.percentualPremiacaoImobiliaria ??
         Number(existing.percentualPremiacaoImobiliaria),
@@ -3588,12 +3592,15 @@ export class FinanceiroService {
       valorPremiacao: Number(row.valorPremiacao),
       percentualPremiacaoCorretor: Number(row.percentualPremiacaoCorretor),
       valorPremiacaoCorretor: Number(row.valorPremiacaoCorretor),
+      percentualPremiacaoImposto: Number(row.percentualPremiacaoImposto),
+      valorPremiacaoImposto: Number(row.valorPremiacaoImposto),
       percentualPremiacaoImobiliaria: Number(
         row.percentualPremiacaoImobiliaria,
       ),
       valorPremiacaoImobiliaria: Number(row.valorPremiacaoImobiliaria),
       percentualPremiacaoGerente: Number(row.percentualPremiacaoGerente),
       valorPremiacaoGerente: Number(row.valorPremiacaoGerente),
+      valorPremiacaoRestante: Number(row.valorPremiacaoRestante),
     };
     if (isCorretorLike(requester.role)) {
       const {
@@ -3610,6 +3617,9 @@ export class FinanceiroService {
         valorPremiacaoImobiliaria: _valorPremiacaoImobiliaria,
         percentualPremiacaoGerente: _percentualPremiacaoGerente,
         valorPremiacaoGerente: _valorPremiacaoGerente,
+        percentualPremiacaoImposto: _percentualPremiacaoImposto,
+        valorPremiacaoImposto: _valorPremiacaoImposto,
+        valorPremiacaoRestante: _valorPremiacaoRestante,
         ...corretorResult
       } = result;
       return corretorResult;
@@ -3698,24 +3708,47 @@ export class FinanceiroService {
   private calculatePremiacao(input: {
     valorPremiacao?: number;
     percentualPremiacaoCorretor?: number;
+    percentualPremiacaoImposto?: number;
     percentualPremiacaoImobiliaria?: number;
     percentualPremiacaoGerente?: number;
   }) {
     const decimal = (value: number) => new Prisma.Decimal(value.toString());
     const percent = (value: number) => decimal(value).div(100);
     const money = (value: Prisma.Decimal) => value.toDecimalPlaces(2);
-    const total = money(decimal(Math.max(0, Number(input.valorPremiacao) || 0)));
+    let restante = money(
+      decimal(Math.max(0, Number(input.valorPremiacao) || 0)),
+    );
+    const total = restante;
     const percCorretor = Number(input.percentualPremiacaoCorretor) || 0;
+    const percImposto = Number(input.percentualPremiacaoImposto) || 0;
     const percImobiliaria = Number(input.percentualPremiacaoImobiliaria) || 0;
     const percGerente = Number(input.percentualPremiacaoGerente) || 0;
+
+    const valorPremiacaoCorretor = money(restante.mul(percent(percCorretor)));
+    restante = money(restante.minus(valorPremiacaoCorretor));
+
+    const valorPremiacaoImposto = money(restante.mul(percent(percImposto)));
+    restante = money(restante.minus(valorPremiacaoImposto));
+
+    const valorPremiacaoImobiliaria = money(
+      restante.mul(percent(percImobiliaria)),
+    );
+    restante = money(restante.minus(valorPremiacaoImobiliaria));
+
+    const valorPremiacaoGerente = money(restante.mul(percent(percGerente)));
+    restante = money(restante.minus(valorPremiacaoGerente));
+
     return {
       valorPremiacao: total,
       percentualPremiacaoCorretor: percCorretor,
-      valorPremiacaoCorretor: money(total.mul(percent(percCorretor))),
+      valorPremiacaoCorretor,
+      percentualPremiacaoImposto: percImposto,
+      valorPremiacaoImposto,
       percentualPremiacaoImobiliaria: percImobiliaria,
-      valorPremiacaoImobiliaria: money(total.mul(percent(percImobiliaria))),
+      valorPremiacaoImobiliaria,
       percentualPremiacaoGerente: percGerente,
-      valorPremiacaoGerente: money(total.mul(percent(percGerente))),
+      valorPremiacaoGerente,
+      valorPremiacaoRestante: restante,
     };
   }
 
@@ -3740,6 +3773,7 @@ export class FinanceiroService {
     valorGerente: Prisma.Decimal | number;
     valorTributos: Prisma.Decimal | number;
     valorPremiacaoCorretor?: Prisma.Decimal | number;
+    valorPremiacaoImposto?: Prisma.Decimal | number;
     valorPremiacaoImobiliaria?: Prisma.Decimal | number;
     valorPremiacaoGerente?: Prisma.Decimal | number;
   }) {
@@ -3809,6 +3843,15 @@ export class FinanceiroService {
         categoria: "Premiação corretor",
         centro: "Premiação corretor",
         parceiroNome: row.corretor.trim() || "Corretor",
+      },
+      {
+        papel: "premiacao_imposto",
+        label: "Premiação imposto",
+        tipo: FinanceiroTituloTipo.pagar,
+        valor: money(row.valorPremiacaoImposto),
+        categoria: "Premiação — Imposto",
+        centro: "Impostos",
+        parceiroNome: "Imposto",
       },
       {
         papel: "premiacao_imobiliaria",
@@ -3893,6 +3936,7 @@ export class FinanceiroService {
     valorGerente: Prisma.Decimal | number;
     valorTributos: Prisma.Decimal | number;
     valorPremiacaoCorretor?: Prisma.Decimal | number;
+    valorPremiacaoImposto?: Prisma.Decimal | number;
     valorPremiacaoImobiliaria?: Prisma.Decimal | number;
     valorPremiacaoGerente?: Prisma.Decimal | number;
     status: FinanceiroComissaoStatus;

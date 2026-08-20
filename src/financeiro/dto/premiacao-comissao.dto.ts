@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, Max, Min } from 'class-validator';
 
-/** Premiação avulsa: percentuais sobre o valor total, independentes do rateio da comissão. */
+/** Premiação avulsa: cada percentual incide sobre o saldo da etapa anterior. */
 export class PremiacaoComissaoDto {
   @IsOptional()
   @Type(() => Number)
@@ -15,6 +15,13 @@ export class PremiacaoComissaoDto {
   @Min(0)
   @Max(100)
   percentualPremiacaoCorretor?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  percentualPremiacaoImposto?: number;
 
   @IsOptional()
   @Type(() => Number)
