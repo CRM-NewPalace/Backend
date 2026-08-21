@@ -70,6 +70,7 @@ type AccessCache = { token: string; exp: number };
 export class GoogleCalendarService {
   private readonly logger = new Logger(GoogleCalendarService.name);
   private readonly accessCache = new Map<string, AccessCache>();
+  private readonly inflight = new Map<string, Promise<void>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -200,9 +201,41 @@ export class GoogleCalendarService {
   }
 
   async syncAgendamento(item: GoogleSyncAgendamento) {
+    return this.enqueue(item.id, () => this.syncAgendamentoNow(item));
+  }
+
+  async removeAgendamento(agendamentoId: string) {
+    return this.enqueue(agendamentoId, () =>
+      this.removeAgendamentoNow(agendamentoId),
+    );
+  }
+
+  async removeMany(agendamentoIds: string[]) {
+    if (agendamentoIds.length === 0) return;
+    for (const id of agendamentoIds) {
+      await this.removeAgendamento(id);
+    }
+  }
+
+  private enqueue(agendamentoId: string, work: () => Promise<void>) {
+    const previous = this.inflight.get(agendamentoId) ?? Promise.resolve();
+    const next = previous.then(work, work);
+    this.inflight.set(agendamentoId, next);
+    void next.finally(() => {
+      if (this.inflight.get(agendamentoId) === next) {
+        this.inflight.delete(agendamentoId);
+      }
+    });
+    return next;
+  }
+
+  private async syncAgendamentoNow(item: GoogleSyncAgendamento) {
     if (!this.shouldPush(item)) {
-      if (item.status === AgendamentoStatus.cancelado) {
-        await this.removeAgendamento(item.id);
+      if (
+        item.status === AgendamentoStatus.cancelado ||
+        item.solicitacaoStatus === AgendamentoSolicitacaoStatus.recusada
+      ) {
+        await this.removeAgendamentoNow(item.id);
       }
       return;
     }
@@ -252,7 +285,7 @@ export class GoogleCalendarService {
     );
   }
 
-  async removeAgendamento(agendamentoId: string) {
+  private async removeAgendamentoNow(agendamentoId: string) {
     const mappings = await this.prisma.userGoogleCalendarEvent.findMany({
       where: { agendamentoId },
       include: { connection: true },
@@ -268,13 +301,6 @@ export class GoogleCalendarService {
       await this.prisma.userGoogleCalendarEvent.delete({
         where: { id: mapping.id },
       }).catch(() => undefined);
-    }
-  }
-
-  async removeMany(agendamentoIds: string[]) {
-    if (agendamentoIds.length === 0) return;
-    for (const id of agendamentoIds) {
-      await this.removeAgendamento(id);
     }
   }
 
@@ -472,8 +498,11 @@ export class GoogleCalendarService {
     } catch {
       json = null;
     }
-    if (!response.ok && response.status !== 404) {
+    if (!response.ok && response.status !== 404 && response.status !== 410) {
       this.logger.warn(`Google Calendar ${opts.method} ${response.status}`);
+    }
+    if (response.status === 410) {
+      return { ok: true, status: 410, json };
     }
     return { ok: response.ok, status: response.status, json };
   }

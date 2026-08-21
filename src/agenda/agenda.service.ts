@@ -805,9 +805,9 @@ export class AgendaService {
         where: { tenantId, seriesId },
         select: agendamentoSelect,
       });
-      for (const item of seriesItems) this.queueGoogleSync(item);
+      for (const item of seriesItems) await this.queueGoogleSync(item);
     } else {
-      this.queueGoogleSync(created);
+      await this.queueGoogleSync(created);
     }
 
     return created;
@@ -954,7 +954,7 @@ export class AgendaService {
       data,
       select: agendamentoSelect,
     });
-    this.queueGoogleSync(updated);
+    await this.queueGoogleSync(updated);
     return updated;
   }
 
@@ -1021,7 +1021,7 @@ export class AgendaService {
       );
     }
 
-    this.queueGoogleSync(updated);
+    await this.queueGoogleSync(updated);
     return updated;
   }
 
@@ -1077,6 +1077,7 @@ export class AgendaService {
       motivo: motivo?.trim(),
     });
 
+    await this.queueGoogleSync(updated);
     return updated;
   }
 
@@ -1156,12 +1157,14 @@ export class AgendaService {
     return { ok: true };
   }
 
-  private queueGoogleSync(item: AgendamentoListItem) {
-    void this.googleCalendar.syncAgendamento(item).catch((err) =>
+  private async queueGoogleSync(item: AgendamentoListItem) {
+    try {
+      await this.googleCalendar.syncAgendamento(item);
+    } catch (err) {
       this.logger.warn(
         `Falha ao sincronizar com Google Calendar: ${err instanceof Error ? err.message : err}`,
-      ),
-    );
+      );
+    }
   }
 
   private assertSomenteGerente(requester: AuthenticatedUser) {
