@@ -126,7 +126,7 @@ export class GoogleCalendarService {
       response_type: 'code',
       scope: SCOPES,
       access_type: 'offline',
-      prompt: 'consent',
+      prompt: 'select_account consent',
       include_granted_scopes: 'true',
       state,
     });
