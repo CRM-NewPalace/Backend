@@ -23,7 +23,7 @@ import {
   googleTokenKey,
 } from './google-token.crypto';
 import {
-  frontendAgendaUrl,
+  frontendOAuthReturnUrl,
   googleOAuthConfigured,
   parseAllowedRedirectUris,
   pickRedirectUri,
@@ -141,20 +141,20 @@ export class GoogleCalendarService {
     let redirectUri = parseAllowedRedirectUris(this.config)[0];
     try {
       if (!query.state) {
-        return frontendAgendaUrl(redirectUri, 'error');
+        return frontendOAuthReturnUrl(redirectUri, 'error');
       }
       const payload = this.jwt.verify<OAuthState>(query.state, {
         secret: this.config.get<string>('JWT_ACCESS_SECRET'),
       });
       if (payload.typ !== STATE_TYP || !payload.sub || !payload.redirectUri) {
-        return frontendAgendaUrl(redirectUri, 'error');
+        return frontendOAuthReturnUrl(redirectUri, 'error');
       }
       redirectUri = payload.redirectUri;
       if (query.error === 'access_denied') {
-        return frontendAgendaUrl(redirectUri, 'denied');
+        return frontendOAuthReturnUrl(redirectUri, 'denied');
       }
       if (!query.code) {
-        return frontendAgendaUrl(redirectUri, 'error');
+        return frontendOAuthReturnUrl(redirectUri, 'error');
       }
 
       const tokens = await this.exchangeCode(query.code, payload.redirectUri);
@@ -162,14 +162,14 @@ export class GoogleCalendarService {
         this.logger.warn(
           `OAuth Google sem access_token: ${tokens.error_description ?? tokens.error}`,
         );
-        return frontendAgendaUrl(redirectUri, 'error');
+        return frontendOAuthReturnUrl(redirectUri, 'error');
       }
       const refreshToken =
         tokens.refresh_token ??
         (await this.existingRefreshToken(payload.sub));
       if (!refreshToken) {
         this.logger.warn('OAuth Google não devolveu refresh_token.');
-        return frontendAgendaUrl(redirectUri, 'error');
+        return frontendOAuthReturnUrl(redirectUri, 'error');
       }
 
       const googleEmail = await this.fetchGoogleEmail(tokens.access_token);
@@ -195,12 +195,12 @@ export class GoogleCalendarService {
           `Backfill Google Calendar falhou: ${err instanceof Error ? err.message : err}`,
         ),
       );
-      return frontendAgendaUrl(redirectUri, 'connected');
+      return frontendOAuthReturnUrl(redirectUri, 'connected');
     } catch (err) {
       this.logger.warn(
         `Callback Google falhou: ${err instanceof Error ? err.message : err}`,
       );
-      return frontendAgendaUrl(redirectUri, 'error');
+      return frontendOAuthReturnUrl(redirectUri, 'error');
     }
   }
 

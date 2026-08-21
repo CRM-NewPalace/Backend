@@ -62,10 +62,10 @@ export function pickRedirectUri(
   return production ?? allowed[0];
 }
 
-export function frontendAgendaUrl(
+export function frontendOAuthReturnUrl(
   redirectUri: string,
   result: 'connected' | 'error' | 'denied',
 ): string {
   const origin = new URL(redirectUri).origin;
-  return `${origin}/agenda?google=${result}`;
+  return `${origin}/configuracoes?google=${result}`;
 }
