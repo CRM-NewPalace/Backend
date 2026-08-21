@@ -19,6 +19,7 @@ import { AnaliseService } from '../analise/analise.service';
 import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
+  documentacaoOperacionalWhere,
   isStatusAnalise,
   isStatusAprovado,
   isStatusParecerFinal,
@@ -122,6 +123,9 @@ export class DocumentacaoService {
     const andFilters: Prisma.DocumentacaoWhereInput[] = [
       { lead: { perdidoAt: null } },
     ];
+    if (!query.incluirComissoes) {
+      andFilters.push(documentacaoOperacionalWhere());
+    }
     if (Object.keys(visibility).length > 0) {
       andFilters.push(visibility);
     }
