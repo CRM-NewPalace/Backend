@@ -111,7 +111,7 @@ export class AuthController {
   }
 
   @Patch('me')
-  updateAppearance(
+  updateMe(
     @CurrentUser('id') userId: string,
     @Body() dto: UpdateAppearanceDto,
   ) {

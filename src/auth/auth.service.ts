@@ -7,7 +7,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { LoginFailureReason, Role, User, UserStatus } from '@prisma/client';
+import {
+  CreciProcessoStatus,
+  LoginFailureReason,
+  Role,
+  User,
+  UserStatus,
+} from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -253,11 +259,18 @@ export class AuthService {
     return { ...rest, tenant };
   }
 
-  /** Atualiza exclusivamente as preferências visuais do próprio usuário. */
+  /** Atualiza preferências visuais e o CRECI do próprio usuário. */
   async updateAppearance(
     userId: string,
     dto: UpdateAppearanceDto,
   ): Promise<AuthUserPayload> {
+    const creci =
+      dto.creci !== undefined
+        ? dto.creci?.trim()
+          ? dto.creci.trim()
+          : null
+        : undefined;
+
     await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -270,6 +283,12 @@ export class AuthService {
         ...(dto.corModulo !== undefined && {
           corModulo: normalizeCor(dto.corModulo),
         }),
+        ...(creci !== undefined
+          ? {
+              creci,
+              ...(creci ? { creciStatus: CreciProcessoStatus.creci_recebido } : {}),
+            }
+          : {}),
       },
     });
 
