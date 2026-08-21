@@ -13,7 +13,10 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { FinanceiroTituloStatus } from '@prisma/client';
+import {
+  FinanceiroDespesaNatureza,
+  FinanceiroTituloStatus,
+} from '@prisma/client';
 
 export class UpdateParcelaGrupoItemDto {
   @IsUUID()
@@ -66,4 +69,10 @@ export class UpdateTitulosGrupoDto {
   @ValidateNested({ each: true })
   @Type(() => UpdateParcelaGrupoItemDto)
   parcelas?: UpdateParcelaGrupoItemDto[];
+
+  @IsOptional()
+  @IsEnum(FinanceiroDespesaNatureza, {
+    message: 'Natureza inválida. Use fixa ou variavel.',
+  })
+  natureza?: FinanceiroDespesaNatureza | null;
 }

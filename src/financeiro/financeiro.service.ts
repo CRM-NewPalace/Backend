@@ -764,6 +764,10 @@ export class FinanceiroService {
     const categoria =
       dto.tipo === FinanceiroMovimentoTipo.entrada ? label : label;
     const centro = dto.tipo === FinanceiroMovimentoTipo.saida ? label : "";
+    const natureza = this.resolveDespesaNatureza(
+      dto.tipo === FinanceiroMovimentoTipo.saida,
+      dto.natureza,
+    );
     const row = await this.prisma.financeiroMovimento.create({
       data: {
         tenantId,
@@ -773,6 +777,7 @@ export class FinanceiroService {
         parceiroNome,
         categoria,
         centro,
+        natureza,
         tipo: dto.tipo,
         valor: dto.valor,
         status: dto.status ?? FinanceiroTituloStatus.aberto,
@@ -835,6 +840,14 @@ export class FinanceiroService {
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(dto.formaPagamento !== undefined
           ? { formaPagamento: dto.formaPagamento?.trim() || "" }
+          : {}),
+        ...(dto.natureza !== undefined
+          ? {
+              natureza: this.resolveDespesaNatureza(
+                (dto.tipo ?? existing.tipo) === FinanceiroMovimentoTipo.saida,
+                dto.natureza,
+              ),
+            }
           : {}),
       },
     });
@@ -922,6 +935,10 @@ export class FinanceiroService {
       dto.categoria,
       dto.centro,
     );
+    const natureza = this.resolveDespesaNatureza(
+      dto.tipo === FinanceiroTituloTipo.pagar,
+      dto.natureza,
+    );
     const parceiroId = dto.parceiroId || null;
 
     const row = await this.prisma.$transaction(async (tx) => {
@@ -934,6 +951,7 @@ export class FinanceiroService {
           parceiroNome,
           categoria,
           centro,
+          natureza,
           vencimento,
           valor: dto.valor,
           status,
@@ -959,6 +977,7 @@ export class FinanceiroService {
             parceiroNome,
             categoria: categoria || "Título",
             centro,
+            natureza,
             tipo: tipoMov,
             valor: dto.valor,
             status: FinanceiroTituloStatus.pago,
@@ -1007,6 +1026,10 @@ export class FinanceiroService {
       dto.categoria,
       dto.centro,
     );
+    const natureza = this.resolveDespesaNatureza(
+      dto.tipo === FinanceiroTituloTipo.pagar,
+      dto.natureza,
+    );
 
     const rows = await this.prisma.$transaction(
       dto.parcelas.map((p, i) =>
@@ -1019,6 +1042,7 @@ export class FinanceiroService {
             parceiroNome,
             categoria,
             centro,
+            natureza,
             vencimento: parseDayStart(p.vencimento),
             valor: p.valor,
             status: FinanceiroTituloStatus.aberto,
@@ -1080,6 +1104,7 @@ export class FinanceiroService {
           parceiroNome: ultimo.parceiroNome,
           categoria: ultimo.categoria,
           centro: ultimo.centro,
+          natureza: ultimo.natureza,
           vencimento: parseDayStart(cursor),
           valor: ultimo.valor,
           status: FinanceiroTituloStatus.aberto,
@@ -1164,6 +1189,14 @@ export class FinanceiroService {
           ...(dto.parcela !== undefined
             ? { parcela: dto.parcela?.trim() || "" }
             : {}),
+          ...(dto.natureza !== undefined
+            ? {
+                natureza: this.resolveDespesaNatureza(
+                  (dto.tipo ?? existing.tipo) === FinanceiroTituloTipo.pagar,
+                  dto.natureza,
+                ),
+              }
+            : {}),
           ...(estornar ? { dataPagamento: null } : {}),
         },
       });
@@ -1184,6 +1217,7 @@ export class FinanceiroService {
               updated.tipo === FinanceiroTituloTipo.pagar
                 ? updated.centro || updated.categoria || "Título"
                 : "",
+            natureza: updated.natureza,
             tipo: tipoMov,
             valor: updated.valor,
           },
@@ -1275,6 +1309,15 @@ export class FinanceiroService {
             dto.centro,
           )
         : {}),
+      ...(dto.natureza !== undefined
+        ? {
+            natureza: this.resolveDespesaNatureza(
+              (rows[0]?.tipo ?? FinanceiroTituloTipo.receber) ===
+                FinanceiroTituloTipo.pagar,
+              dto.natureza,
+            ),
+          }
+        : {}),
     };
 
     const hasShared = Object.keys(sharedData).length > 0;
@@ -1331,6 +1374,7 @@ export class FinanceiroService {
               parceiroNome: updated.parceiroNome,
               categoria: updated.categoria || "Título",
               centro: updated.categoria || "Título",
+              natureza: updated.natureza,
               tipo: tipoMov,
               valor: updated.valor,
             },
@@ -1444,6 +1488,7 @@ export class FinanceiroService {
           parceiroNome: existing.parceiroNome,
           categoria: existing.categoria || "Título",
           centro: existing.centro,
+          natureza: existing.natureza,
           tipo: tipoMov,
           valor: existing.valor,
           status: FinanceiroTituloStatus.pago,
@@ -1829,6 +1874,57 @@ export class FinanceiroService {
     const despesasAnt = sumTipo(movAnt, FinanceiroMovimentoTipo.saida);
     const resultadoMes = receitasMes - despesasMes;
     const resultadoAnt = receitasAnt - despesasAnt;
+    const tiposNatureza = await this.prisma.financeiroDespesaTipo.findMany({
+      where: { tenantId, ativo: true },
+      select: { nome: true, natureza: true },
+    });
+    const naturezaByCentro = new Map<string, FinanceiroDespesaNatureza | "ambiguous">();
+    for (const tipo of tiposNatureza) {
+      const key = tipo.nome.trim().toLowerCase();
+      const atual = naturezaByCentro.get(key);
+      if (!atual) {
+        naturezaByCentro.set(key, tipo.natureza);
+      } else if (atual !== tipo.natureza) {
+        naturezaByCentro.set(key, "ambiguous");
+      }
+    }
+    const resolvedNatureza = (row: {
+      centro: string;
+      categoria: string;
+      natureza: FinanceiroDespesaNatureza | null;
+    }) => {
+      if (row.natureza) return row.natureza;
+      const key = (row.centro || row.categoria).trim().toLowerCase();
+      const found = naturezaByCentro.get(key);
+      return found && found !== "ambiguous" ? found : null;
+    };
+    const sumNatureza = (
+      rows: {
+        tipo: FinanceiroMovimentoTipo;
+        valor: number;
+        centro: string;
+        categoria: string;
+        natureza: FinanceiroDespesaNatureza | null;
+      }[],
+      natureza: "fixa" | "variavel" | "outros",
+    ) =>
+      rows
+        .filter((r) => r.tipo === FinanceiroMovimentoTipo.saida)
+        .filter((r) => {
+          const resolved = resolvedNatureza(r);
+          if (natureza === "fixa")
+            return resolved === FinanceiroDespesaNatureza.fixa;
+          if (natureza === "variavel")
+            return (
+              resolved === FinanceiroDespesaNatureza.variavel ||
+              resolved === FinanceiroDespesaNatureza.fixa_variavel
+            );
+          return resolved == null;
+        })
+        .reduce((s, r) => s + r.valor, 0);
+    const despesasFixaMes = sumNatureza(movMes, "fixa");
+    const despesasVariavelMes = sumNatureza(movMes, "variavel");
+    const despesasOutrosMes = sumNatureza(movMes, "outros");
 
     const evolucao = (atual: number, anterior: number): number | null => {
       if (anterior === 0) return atual === 0 ? 0 : null;
@@ -1852,6 +1948,9 @@ export class FinanceiroService {
         saldoAtual,
         receitasMes,
         despesasMes,
+        despesasFixaMes,
+        despesasVariavelMes,
+        despesasOutrosMes,
         aReceber: aReceber._sum.valor ?? 0,
         aPagar: aPagar._sum.valor ?? 0,
         resultadoMes,
@@ -2636,6 +2735,18 @@ export class FinanceiroService {
     }
     const label = cat || cen;
     return { categoria: label, centro: "" };
+  }
+
+  /** Títulos a pagar e saídas: só fixa ou variável. Receitas ficam sem natureza. */
+  private resolveDespesaNatureza(
+    isDespesa: boolean,
+    natureza?: FinanceiroDespesaNatureza | null,
+  ): FinanceiroDespesaNatureza | null {
+    if (!isDespesa) return null;
+    if (natureza === FinanceiroDespesaNatureza.fixa) {
+      return FinanceiroDespesaNatureza.fixa;
+    }
+    return FinanceiroDespesaNatureza.variavel;
   }
 
   private async buildMesesResumo(tenantId: string, qtd: number) {
@@ -3499,6 +3610,7 @@ export class FinanceiroService {
     status: string;
     formaPagamento: string;
     tituloId?: string | null;
+    natureza?: FinanceiroDespesaNatureza | null;
   }) {
     return {
       id: row.id,
@@ -3513,6 +3625,7 @@ export class FinanceiroService {
       status: row.status,
       formaPagamento: row.formaPagamento,
       tituloId: row.tituloId ?? null,
+      natureza: row.natureza ?? null,
     };
   }
 
@@ -3535,6 +3648,7 @@ export class FinanceiroService {
     platformFornecedorContratoId?: string | null;
     comissaoId?: string | null;
     comissaoPapel?: string | null;
+    natureza?: FinanceiroDespesaNatureza | null;
     movimento?: { formaPagamento: string } | null;
   }) {
     return {
@@ -3556,6 +3670,7 @@ export class FinanceiroService {
         row.platformContratoId ?? row.platformFornecedorContratoId ?? null,
       comissaoId: row.comissaoId ?? null,
       comissaoPapel: row.comissaoPapel ?? null,
+      natureza: row.natureza ?? null,
       formaPagamento: row.movimento?.formaPagamento || "",
     };
   }
@@ -3918,6 +4033,10 @@ export class FinanceiroService {
           : FinanceiroMovimentoTipo.saida,
       valor: peca.valor,
       status: FinanceiroTituloStatus.pago,
+      natureza:
+        peca.tipo === FinanceiroTituloTipo.pagar
+          ? FinanceiroDespesaNatureza.variavel
+          : null,
       formaPagamento: "",
       tituloId,
     };
@@ -4008,6 +4127,10 @@ export class FinanceiroService {
                 : FinanceiroTituloStatus.aberto,
             dataPagamento,
             comissaoPapel: peca.papel,
+            natureza:
+              peca.tipo === FinanceiroTituloTipo.pagar
+                ? FinanceiroDespesaNatureza.variavel
+                : null,
           },
         });
         if (deveEstarPago) {
@@ -4020,6 +4143,10 @@ export class FinanceiroService {
                 categoria: peca.categoria,
                 centro: peca.centro,
                 parceiroNome: peca.parceiroNome,
+                natureza:
+                  peca.tipo === FinanceiroTituloTipo.pagar
+                    ? FinanceiroDespesaNatureza.variavel
+                    : null,
                 tipo:
                   peca.tipo === FinanceiroTituloTipo.receber
                     ? FinanceiroMovimentoTipo.entrada
@@ -4063,6 +4190,10 @@ export class FinanceiroService {
             parcela: "",
             comissaoId: row.id,
             comissaoPapel: peca.papel,
+            natureza:
+              peca.tipo === FinanceiroTituloTipo.pagar
+                ? FinanceiroDespesaNatureza.variavel
+                : null,
           },
         });
         if (comissaoPaga) {
