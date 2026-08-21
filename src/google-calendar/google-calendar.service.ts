@@ -11,6 +11,8 @@ import {
   AgendamentoSolicitacaoStatus,
   AgendamentoStatus,
   AgendamentoTipo,
+  Role,
+  UserStatus,
 } from '@prisma/client';
 import type { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
@@ -41,6 +43,7 @@ type OAuthState = {
 
 export type GoogleSyncAgendamento = {
   id: string;
+  tenantId?: string | null;
   autorId: string;
   atribuidoParaId: string | null;
   titulo: string;
@@ -48,11 +51,20 @@ export type GoogleSyncAgendamento = {
   status: AgendamentoStatus;
   solicitacaoStatus: AgendamentoSolicitacaoStatus;
   alvoTipo: AgendamentoAlvo;
+  alvoEquipeId?: string | null;
+  alvoGerenteId?: string | null;
   startsAt: Date;
   endsAt: Date | null;
   local: string | null;
   observacoes: string | null;
   lead?: { nome: string } | null;
+};
+
+type GoogleConnection = {
+  id: string;
+  userId: string;
+  calendarId: string;
+  refreshTokenEnc: string;
 };
 
 type TokenSet = {
@@ -200,8 +212,11 @@ export class GoogleCalendarService {
     return { ok: true };
   }
 
-  async syncAgendamento(item: GoogleSyncAgendamento) {
-    return this.enqueue(item.id, () => this.syncAgendamentoNow(item));
+  async syncAgendamento(
+    item: GoogleSyncAgendamento,
+    opts?: { onlyUserId?: string },
+  ) {
+    return this.enqueue(item.id, () => this.syncAgendamentoNow(item, opts));
   }
 
   async removeAgendamento(agendamentoId: string) {
@@ -229,7 +244,10 @@ export class GoogleCalendarService {
     return next;
   }
 
-  private async syncAgendamentoNow(item: GoogleSyncAgendamento) {
+  private async syncAgendamentoNow(
+    item: GoogleSyncAgendamento,
+    opts?: { onlyUserId?: string },
+  ) {
     if (!this.shouldPush(item)) {
       if (
         item.status === AgendamentoStatus.cancelado ||
@@ -239,12 +257,37 @@ export class GoogleCalendarService {
       }
       return;
     }
-    const userId = item.atribuidoParaId ?? item.autorId;
-    const connection = await this.prisma.userGoogleCalendar.findUnique({
-      where: { userId },
-    });
-    if (!connection) return;
 
+    const recipientIds = await this.resolveRecipientUserIds(item);
+    const targetIds = opts?.onlyUserId
+      ? recipientIds.filter((id) => id === opts.onlyUserId)
+      : recipientIds;
+    if (targetIds.length === 0) return;
+
+    const connections = await this.prisma.userGoogleCalendar.findMany({
+      where: { userId: { in: targetIds } },
+    });
+    const body = this.eventBody(item);
+    for (const connection of connections) {
+      try {
+        await this.upsertGoogleEvent(connection, item, body);
+      } catch (err) {
+        this.logger.warn(
+          `Falha ao replicar no Google de ${connection.userId}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    if (!opts?.onlyUserId) {
+      await this.removeStaleCopies(item.id, recipientIds);
+    }
+  }
+
+  private async upsertGoogleEvent(
+    connection: GoogleConnection,
+    item: GoogleSyncAgendamento,
+    body: ReturnType<GoogleCalendarService['eventBody']>,
+  ) {
     const accessToken = await this.accessTokenFor(connection);
     if (!accessToken) return;
 
@@ -257,7 +300,6 @@ export class GoogleCalendarService {
       },
     });
 
-    const body = this.eventBody(item);
     if (mapping) {
       const updated = await this.calendarFetch(
         `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(connection.calendarId)}/events/${encodeURIComponent(mapping.googleEventId)}`,
@@ -271,7 +313,13 @@ export class GoogleCalendarService {
         await this.prisma.userGoogleCalendarEvent.delete({
           where: { id: mapping.id },
         });
-        await this.createGoogleEvent(connection.id, connection.calendarId, item, accessToken, body);
+        await this.createGoogleEvent(
+          connection.id,
+          connection.calendarId,
+          item,
+          accessToken,
+          body,
+        );
       }
       return;
     }
@@ -285,23 +333,124 @@ export class GoogleCalendarService {
     );
   }
 
+  private async removeStaleCopies(
+    agendamentoId: string,
+    recipientIds: string[],
+  ) {
+    const keep = new Set(recipientIds);
+    const mappings = await this.prisma.userGoogleCalendarEvent.findMany({
+      where: { agendamentoId },
+      include: { connection: true },
+    });
+    for (const mapping of mappings) {
+      if (keep.has(mapping.connection.userId)) continue;
+      await this.deleteMappedEvent(mapping);
+    }
+  }
+
   private async removeAgendamentoNow(agendamentoId: string) {
     const mappings = await this.prisma.userGoogleCalendarEvent.findMany({
       where: { agendamentoId },
       include: { connection: true },
     });
     for (const mapping of mappings) {
-      const accessToken = await this.accessTokenFor(mapping.connection);
-      if (accessToken) {
-        await this.calendarFetch(
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(mapping.connection.calendarId)}/events/${encodeURIComponent(mapping.googleEventId)}`,
-          { method: 'DELETE', accessToken },
-        );
-      }
-      await this.prisma.userGoogleCalendarEvent.delete({
-        where: { id: mapping.id },
-      }).catch(() => undefined);
+      await this.deleteMappedEvent(mapping);
     }
+  }
+
+  private async deleteMappedEvent(mapping: {
+    id: string;
+    googleEventId: string;
+    connection: GoogleConnection;
+  }) {
+    const accessToken = await this.accessTokenFor(mapping.connection);
+    if (accessToken) {
+      await this.calendarFetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(mapping.connection.calendarId)}/events/${encodeURIComponent(mapping.googleEventId)}`,
+        { method: 'DELETE', accessToken },
+      );
+    }
+    await this.prisma.userGoogleCalendarEvent
+      .delete({ where: { id: mapping.id } })
+      .catch(() => undefined);
+  }
+
+  /** Quem deve receber a cópia no Google, alinhado à visibilidade no CRM. */
+  private async resolveRecipientUserIds(
+    item: GoogleSyncAgendamento,
+  ): Promise<string[]> {
+    const tenantId =
+      item.tenantId ??
+      (
+        await this.prisma.agendamento.findUnique({
+          where: { id: item.id },
+          select: { tenantId: true },
+        })
+      )?.tenantId;
+    if (!tenantId) {
+      return [item.atribuidoParaId ?? item.autorId];
+    }
+
+    const ids = new Set<string>();
+    const addActive = async (where: {
+      id?: string | { in: string[] };
+      role?: Role;
+      equipeId?: string;
+    }) => {
+      const users = await this.prisma.user.findMany({
+        where: {
+          tenantId,
+          status: UserStatus.ativo,
+          role: { not: Role.super_admin },
+          ...where,
+        },
+        select: { id: true },
+      });
+      for (const user of users) ids.add(user.id);
+    };
+
+    switch (item.alvoTipo) {
+      case AgendamentoAlvo.todos:
+        await addActive({});
+        break;
+      case AgendamentoAlvo.gerentes:
+        ids.add(item.autorId);
+        await addActive({ role: Role.gerente });
+        break;
+      case AgendamentoAlvo.gerente:
+        ids.add(item.autorId);
+        if (item.alvoGerenteId) ids.add(item.alvoGerenteId);
+        break;
+      case AgendamentoAlvo.equipe: {
+        ids.add(item.autorId);
+        const equipeId = item.alvoEquipeId;
+        if (equipeId) {
+          const equipe = await this.prisma.equipe.findFirst({
+            where: { id: equipeId, tenantId },
+            select: { gerenteId: true },
+          });
+          if (equipe?.gerenteId) ids.add(equipe.gerenteId);
+          await addActive({ equipeId });
+        }
+        break;
+      }
+      default:
+        ids.add(item.atribuidoParaId ?? item.autorId);
+        break;
+    }
+
+    if (ids.size === 0) ids.add(item.atribuidoParaId ?? item.autorId);
+
+    const active = await this.prisma.user.findMany({
+      where: {
+        id: { in: [...ids] },
+        tenantId,
+        status: UserStatus.ativo,
+        role: { not: Role.super_admin },
+      },
+      select: { id: true },
+    });
+    return active.map((user) => user.id);
   }
 
   private shouldPush(item: GoogleSyncAgendamento) {
@@ -317,11 +466,52 @@ export class GoogleCalendarService {
   }
 
   private async backfillUpcoming(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        tenantId: true,
+        role: true,
+        equipeId: true,
+        equipeGerenciada: { select: { id: true } },
+      },
+    });
+    if (!user?.tenantId) return;
+
     const from = new Date();
     from.setHours(0, 0, 0, 0);
+    const adminAudience: Array<{
+      alvoTipo: AgendamentoAlvo;
+      alvoEquipeId?: string;
+      alvoGerenteId?: string;
+    }> = [{ alvoTipo: AgendamentoAlvo.todos }];
+    if (user.role === Role.admin) {
+      adminAudience.push(
+        { alvoTipo: AgendamentoAlvo.equipe },
+        { alvoTipo: AgendamentoAlvo.gerente },
+        { alvoTipo: AgendamentoAlvo.gerentes },
+      );
+    } else if (user.role === Role.gerente) {
+      adminAudience.push({ alvoTipo: AgendamentoAlvo.gerentes });
+      adminAudience.push({
+        alvoTipo: AgendamentoAlvo.gerente,
+        alvoGerenteId: userId,
+      });
+      if (user.equipeGerenciada?.id) {
+        adminAudience.push({
+          alvoTipo: AgendamentoAlvo.equipe,
+          alvoEquipeId: user.equipeGerenciada.id,
+        });
+      }
+    } else if (user.equipeId) {
+      adminAudience.push({
+        alvoTipo: AgendamentoAlvo.equipe,
+        alvoEquipeId: user.equipeId,
+      });
+    }
+
     const items = await this.prisma.agendamento.findMany({
       where: {
-        OR: [{ autorId: userId }, { atribuidoParaId: userId }],
+        tenantId: user.tenantId,
         startsAt: { gte: from },
         status: { not: AgendamentoStatus.cancelado },
         tipo: { not: AgendamentoTipo.bloqueio },
@@ -331,9 +521,23 @@ export class GoogleCalendarService {
             AgendamentoSolicitacaoStatus.recusada,
           ],
         },
+        OR: [
+          { autorId: userId, alvoTipo: AgendamentoAlvo.nenhum },
+          { atribuidoParaId: userId, alvoTipo: AgendamentoAlvo.nenhum },
+          ...adminAudience.map((audience) => ({
+            alvoTipo: audience.alvoTipo,
+            ...(audience.alvoEquipeId
+              ? { alvoEquipeId: audience.alvoEquipeId }
+              : {}),
+            ...(audience.alvoGerenteId
+              ? { alvoGerenteId: audience.alvoGerenteId }
+              : {}),
+          })),
+        ],
       },
       select: {
         id: true,
+        tenantId: true,
         autorId: true,
         atribuidoParaId: true,
         titulo: true,
@@ -341,6 +545,8 @@ export class GoogleCalendarService {
         status: true,
         solicitacaoStatus: true,
         alvoTipo: true,
+        alvoEquipeId: true,
+        alvoGerenteId: true,
         startsAt: true,
         endsAt: true,
         local: true,
@@ -348,10 +554,10 @@ export class GoogleCalendarService {
         lead: { select: { nome: true } },
       },
       orderBy: { startsAt: 'asc' },
-      take: 50,
+      take: 80,
     });
     for (const item of items) {
-      await this.syncAgendamento(item);
+      await this.syncAgendamento(item, { onlyUserId: userId });
     }
   }
 
@@ -391,13 +597,15 @@ export class GoogleCalendarService {
       { method: 'POST', accessToken, body },
     );
     if (!created.ok || !created.json?.id) return;
-    await this.prisma.userGoogleCalendarEvent.create({
-      data: {
-        connectionId,
-        agendamentoId: item.id,
-        googleEventId: created.json.id,
-      },
-    });
+    await this.prisma.userGoogleCalendarEvent
+      .create({
+        data: {
+          connectionId,
+          agendamentoId: item.id,
+          googleEventId: created.json.id,
+        },
+      })
+      .catch(() => undefined);
   }
 
   private async accessTokenFor(connection: {

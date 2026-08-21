@@ -44,6 +44,7 @@ const STAGES_BEFORE_VISITA = new Set([
 
 const agendamentoSelect = {
   id: true,
+  tenantId: true,
   leadId: true,
   autorId: true,
   atribuidoParaId: true,
@@ -1673,6 +1674,7 @@ export class AgendaService {
         const dayKey = startsAt.toISOString().slice(0, 10);
         items.push({
           id: `${ANIVERSARIO_ID_PREFIX}${usuario.id}:${dayKey}`,
+          tenantId: opts.tenantId,
           leadId: null,
           autorId: usuario.id,
           atribuidoParaId: null,
