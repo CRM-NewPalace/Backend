@@ -1874,30 +1874,7 @@ export class FinanceiroService {
     const despesasAnt = sumTipo(movAnt, FinanceiroMovimentoTipo.saida);
     const resultadoMes = receitasMes - despesasMes;
     const resultadoAnt = receitasAnt - despesasAnt;
-    const tiposNatureza = await this.prisma.financeiroDespesaTipo.findMany({
-      where: { tenantId, ativo: true },
-      select: { nome: true, natureza: true },
-    });
-    const naturezaByCentro = new Map<string, FinanceiroDespesaNatureza | "ambiguous">();
-    for (const tipo of tiposNatureza) {
-      const key = tipo.nome.trim().toLowerCase();
-      const atual = naturezaByCentro.get(key);
-      if (!atual) {
-        naturezaByCentro.set(key, tipo.natureza);
-      } else if (atual !== tipo.natureza) {
-        naturezaByCentro.set(key, "ambiguous");
-      }
-    }
-    const resolvedNatureza = (row: {
-      centro: string;
-      categoria: string;
-      natureza: FinanceiroDespesaNatureza | null;
-    }) => {
-      if (row.natureza) return row.natureza;
-      const key = (row.centro || row.categoria).trim().toLowerCase();
-      const found = naturezaByCentro.get(key);
-      return found && found !== "ambiguous" ? found : null;
-    };
+    const resolvedNatureza = await this.despesaNaturezaResolver(tenantId);
     const sumNatureza = (
       rows: {
         tipo: FinanceiroMovimentoTipo;
@@ -1906,25 +1883,51 @@ export class FinanceiroService {
         categoria: string;
         natureza: FinanceiroDespesaNatureza | null;
       }[],
-      natureza: "fixa" | "variavel" | "outros",
+      bucket: "fixa" | "variavel" | "outros",
     ) =>
       rows
         .filter((r) => r.tipo === FinanceiroMovimentoTipo.saida)
-        .filter((r) => {
-          const resolved = resolvedNatureza(r);
-          if (natureza === "fixa")
-            return resolved === FinanceiroDespesaNatureza.fixa;
-          if (natureza === "variavel")
-            return (
-              resolved === FinanceiroDespesaNatureza.variavel ||
-              resolved === FinanceiroDespesaNatureza.fixa_variavel
-            );
-          return resolved == null;
-        })
+        .filter(
+          (r) => this.classifyDespesaBucket(resolvedNatureza(r)) === bucket,
+        )
         .reduce((s, r) => s + r.valor, 0);
     const despesasFixaMes = sumNatureza(movMes, "fixa");
     const despesasVariavelMes = sumNatureza(movMes, "variavel");
     const despesasOutrosMes = sumNatureza(movMes, "outros");
+
+    const mapPipelineItem = (row: (typeof movMes)[number]) => ({
+      id: row.id,
+      descricao: row.descricao,
+      valor: row.valor,
+      data: isoDateOnly(row.data),
+      centro: row.centro || row.categoria || "",
+      parceiro: row.parceiroNome,
+      status: row.status,
+    });
+    const saidasMes = movMes.filter(
+      (r) => r.tipo === FinanceiroMovimentoTipo.saida,
+    );
+    const despesasPipeline = {
+      fixas: saidasMes
+        .filter((r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "fixa")
+        .sort((a, b) => b.valor - a.valor)
+        .slice(0, 40)
+        .map(mapPipelineItem),
+      variaveis: saidasMes
+        .filter(
+          (r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "variavel",
+        )
+        .sort((a, b) => b.valor - a.valor)
+        .slice(0, 40)
+        .map(mapPipelineItem),
+      outros: saidasMes
+        .filter(
+          (r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "outros",
+        )
+        .sort((a, b) => b.valor - a.valor)
+        .slice(0, 40)
+        .map(mapPipelineItem),
+    };
 
     const evolucao = (atual: number, anterior: number): number | null => {
       if (anterior === 0) return atual === 0 ? 0 : null;
@@ -1960,6 +1963,7 @@ export class FinanceiroService {
       },
       mesesResumo,
       centros,
+      despesasPipeline,
     };
   }
 
@@ -2749,10 +2753,54 @@ export class FinanceiroService {
     return FinanceiroDespesaNatureza.variavel;
   }
 
+  private async despesaNaturezaResolver(tenantId: string) {
+    const tipos = await this.prisma.financeiroDespesaTipo.findMany({
+      where: { tenantId, ativo: true },
+      select: { nome: true, natureza: true },
+    });
+    const byCentro = new Map<string, FinanceiroDespesaNatureza | "ambiguous">();
+    for (const tipo of tipos) {
+      const key = tipo.nome.trim().toLowerCase();
+      const atual = byCentro.get(key);
+      if (!atual) byCentro.set(key, tipo.natureza);
+      else if (atual !== tipo.natureza) byCentro.set(key, "ambiguous");
+    }
+    return (row: {
+      centro: string;
+      categoria: string;
+      natureza: FinanceiroDespesaNatureza | null;
+    }): FinanceiroDespesaNatureza | null => {
+      if (row.natureza) return row.natureza;
+      const key = (row.centro || row.categoria).trim().toLowerCase();
+      const found = byCentro.get(key);
+      return found && found !== "ambiguous" ? found : null;
+    };
+  }
+
+  private classifyDespesaBucket(
+    natureza: FinanceiroDespesaNatureza | null,
+  ): "fixa" | "variavel" | "outros" {
+    if (natureza === FinanceiroDespesaNatureza.fixa) return "fixa";
+    if (
+      natureza === FinanceiroDespesaNatureza.variavel ||
+      natureza === FinanceiroDespesaNatureza.fixa_variavel
+    ) {
+      return "variavel";
+    }
+    return "outros";
+  }
+
   private async buildMesesResumo(tenantId: string, qtd: number) {
     const now = new Date();
     const brasil = new Date(now.getTime() - BRASIL_UTC_OFFSET_MS);
-    const result: { mes: string; receitas: number; despesas: number }[] = [];
+    const resolvedNatureza = await this.despesaNaturezaResolver(tenantId);
+    const result: {
+      mes: string;
+      receitas: number;
+      despesas: number;
+      variaveis: number;
+      fixas: number;
+    }[] = [];
 
     for (let i = qtd - 1; i >= 0; i -= 1) {
       const ref = new Date(
@@ -2769,13 +2817,24 @@ export class FinanceiroService {
           status: { not: FinanceiroTituloStatus.cancelado },
         },
       });
+      const saidas = rows.filter(
+        (r) => r.tipo === FinanceiroMovimentoTipo.saida,
+      );
       result.push({
         mes: MESES_CURTOS[m],
         receitas: rows
           .filter((r) => r.tipo === FinanceiroMovimentoTipo.entrada)
           .reduce((s, r) => s + r.valor, 0),
-        despesas: rows
-          .filter((r) => r.tipo === FinanceiroMovimentoTipo.saida)
+        despesas: saidas.reduce((s, r) => s + r.valor, 0),
+        variaveis: saidas
+          .filter(
+            (r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "variavel",
+          )
+          .reduce((s, r) => s + r.valor, 0),
+        fixas: saidas
+          .filter(
+            (r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "fixa",
+          )
           .reduce((s, r) => s + r.valor, 0),
       });
     }
