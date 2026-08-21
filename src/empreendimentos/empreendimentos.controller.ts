@@ -101,7 +101,7 @@ export class EmpreendimentosController {
   }
 
   @Delete(":id")
-  @Roles(Role.admin, Role.analista)
+  @Roles(Role.admin, Role.analista, Role.treinee)
   remove(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,

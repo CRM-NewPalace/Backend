@@ -345,9 +345,13 @@ export class EmpreendimentosService {
   }
 
   private assertCanRemove(requester: AuthenticatedUser) {
-    if (requester.role !== Role.admin && requester.role !== Role.analista) {
+    if (
+      requester.role !== Role.admin &&
+      requester.role !== Role.analista &&
+      requester.role !== Role.treinee
+    ) {
       throw new ForbiddenException(
-        "Apenas administradores e analistas podem remover empreendimentos.",
+        "Apenas administradores, analistas e treinees podem remover empreendimentos.",
       );
     }
   }
