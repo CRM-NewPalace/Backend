@@ -24,6 +24,7 @@ import { UpdateLeadStageDto } from './dto/update-lead-stage.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { MarkLeadLostDto } from './dto/mark-lead-lost.dto';
 import { ImportLeadsDto } from './dto/import-leads.dto';
+import { AdiarPrazoDto } from './dto/adiar-prazo.dto';
 import {
   DistribuirCorretoresDto,
   DistribuirEquipesDto,
@@ -62,7 +63,7 @@ export class LeadsController {
 
   @Post('distribuir/equipes')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.gerente)
   distribuirEquipes(
     @Body() dto: DistribuirEquipesDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -89,8 +90,9 @@ export class LeadsController {
   }
 
   /**
-   * Corretores ativos para atribuição de lead (admin/gerente veem a equipe;
-   * corretor vê só a si). Precisa ficar antes de GET :id.
+   * Corretores ativos para atribuição de lead / select.
+   * Admin, gerente e analista: todos os corretores do tenant.
+   * Corretor: só a si. Precisa ficar antes de GET :id.
    */
   @Get('assignees')
   listAssignees(@CurrentUser() requester: AuthenticatedUser) {
@@ -106,6 +108,30 @@ export class LeadsController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.leadsService.findLost(query, requester);
+  }
+
+  /** Clientes perdidos — corretor/treinee (própria carteira). Antes de GET :id. */
+  @Get('clientes-perdidos')
+  @UseGuards(RolesGuard)
+  @Roles(Role.corretor, Role.treinee)
+  findLostClientes(
+    @Query() query: QueryLeadsDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.findLostClientes(query, requester);
+  }
+
+  @Get('monitoramento/corretores')
+  @UseGuards(RolesGuard)
+  @Roles(Role.admin, Role.gerente, Role.analista)
+  monitoramentoCorretores(@CurrentUser() requester: AuthenticatedUser) {
+    return this.leadsService.listCorretoresMonitoramento(requester);
+  }
+
+  @Post('monitoramento/sync')
+  @HttpCode(HttpStatus.OK)
+  syncMonitoramento(@CurrentUser() requester: AuthenticatedUser) {
+    return this.leadsService.syncMonitoramentoNotificacoes(requester);
   }
 
   @Get(':id')
@@ -142,6 +168,25 @@ export class LeadsController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.leadsService.markLost(id, dto.motivo, requester);
+  }
+
+  @Post(':id/prazo/adiar')
+  @UseGuards(RolesGuard)
+  @Roles(Role.admin, Role.gerente)
+  adiarPrazo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AdiarPrazoDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.adiarPrazo(id, dto, requester);
+  }
+
+  @Get(':id/prazo/adiamentos')
+  listPrazoAdiamentos(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.listPrazoAdiamentos(id, requester);
   }
 
   /** Exclusão definitiva — só admin, e só de leads já perdidos. */

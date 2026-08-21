@@ -25,7 +25,9 @@ import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
  * Catálogos configuráveis (funil, origens, motivos de perda, tags, documentação).
  * Leitura: qualquer usuário autenticado.
  * Mutação geral: admin e gerente.
- * Analista pode criar itens de documentação (fonte / status 1 / status 2).
+ * Analista: documentação, origens, motivos de perda, tags e CCAs (criar/editar/excluir).
+ * Treinee: origens, tags e CCAs.
+ * Corretor: somente leitura (motivos de perda vêm da gerência).
  */
 @Controller('catalog')
 export class CatalogController {
@@ -45,7 +47,7 @@ export class CatalogController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.corretor)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   create(
     @Body() dto: CreateCatalogItemDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -73,7 +75,7 @@ export class CatalogController {
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.corretor)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCatalogItemDto,
@@ -84,7 +86,7 @@ export class CatalogController {
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,

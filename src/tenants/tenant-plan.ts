@@ -1,6 +1,7 @@
-import { TenantPlano } from '@prisma/client';
+import { Role, TenantPlano } from '@prisma/client';
 
 export const PLANO_MAX_USUARIOS: Record<TenantPlano, number> = {
+  [TenantPlano.solo]: 1,
   [TenantPlano.bronze]: 5,
   [TenantPlano.prata]: 15,
   [TenantPlano.ouro]: 30,
@@ -15,6 +16,7 @@ const OPERACIONAL = [
   'agenda',
   'imoveis',
   'clientes',
+  'clientesPerdidos',
   'construtoras',
   'leadsPerdidos',
 ] as const;
@@ -27,6 +29,7 @@ const ADMINISTRATIVO = [
   'analise',
   'metas',
   'propostas',
+  'contratos',
   'taxaConversao',
   'configuracoes',
 ] as const;
@@ -39,12 +42,34 @@ const ADMINISTRATIVO_TOGGLE = [
   'analise',
   'metas',
   'propostas',
+  'contratos',
   'taxaConversao',
 ] as const;
 
 const FINANCEIRO = ['financeiro'] as const;
 
 const ALL = [...OPERACIONAL, ...ADMINISTRATIVO, ...FINANCEIRO] as const;
+
+/**
+ * Recorte fixo do plano Solo: CRM pessoal, fechamento, metas e financeiro enxuto.
+ * Telas financeiras específicas são filtradas no frontend (comissao, a receber, a pagar, fluxo).
+ */
+const SOLO_ENABLED = new Set<string>([
+  'dashboard',
+  'leads',
+  'funil',
+  'agenda',
+  'imoveis',
+  'clientes',
+  'construtoras',
+  'usuarios',
+  'configuracoes',
+  'documentacao',
+  'propostas',
+  'contratos',
+  'metas',
+  'financeiro',
+]);
 
 export function isAdminGroupEnabled(
   modules: Record<string, boolean> | null | undefined,
@@ -55,18 +80,44 @@ export function isAdminGroupEnabled(
 
 /**
  * Analista exige módulo de análise/administrativo.
- * Bronze: nunca. Prata/Ouro: só com administrativo ativo.
+ * Solo/Bronze: nunca. Prata/Ouro: só com administrativo ativo.
  */
 export function isAnalistaAllowed(
   plano: TenantPlano,
   modules?: Record<string, boolean> | null,
 ): boolean {
-  if (plano === TenantPlano.bronze) return false;
+  if (plano === TenantPlano.bronze || plano === TenantPlano.solo) return false;
   return isAdminGroupEnabled(modules);
+}
+
+/** Gerente é papel de time — não entra no Solo. */
+export function isGerenteAllowed(plano: TenantPlano): boolean {
+  return plano !== TenantPlano.solo;
+}
+
+export function assertRoleAllowedForPlano(
+  plano: TenantPlano,
+  role: Role,
+  modules?: Record<string, boolean> | null,
+): string | null {
+  if (role === Role.gerente && !isGerenteAllowed(plano)) {
+    return 'O plano Solo não inclui o perfil Gerente.';
+  }
+  if (role === Role.analista && !isAnalistaAllowed(plano, modules)) {
+    if (plano === TenantPlano.solo) {
+      return 'O plano Solo não inclui o perfil Analista.';
+    }
+    if (plano === TenantPlano.bronze) {
+      return 'O plano Bronze não inclui o perfil Analista.';
+    }
+    return 'O perfil Analista exige o pacote Administrativo ativo no plano.';
+  }
+  return null;
 }
 
 /**
  * Normaliza módulos conforme regras do plano:
+ * - solo: recorte fixo (CRM + fechamento + metas + financeiro)
  * - bronze: só CRM (+ usuários/config); sem financeiro
  * - prata: administrativo XOR financeiro (se ambos, prioriza administrativo)
  * - ouro: sem restrição extra
@@ -75,6 +126,10 @@ export function normalizeModulesForPlano(
   plano: TenantPlano,
   modules: Record<string, boolean>,
 ): Record<string, boolean> {
+  if (plano === TenantPlano.solo) {
+    return Object.fromEntries(ALL.map((k) => [k, SOLO_ENABLED.has(k)]));
+  }
+
   const next: Record<string, boolean> = { ...modules };
 
   for (const k of OPERACIONAL) {
@@ -104,6 +159,7 @@ export function normalizeModulesForPlano(
 
 /**
  * Preset de módulos por plano.
+ * - solo: recorte do corretor autônomo
  * - bronze: só operacional (+ usuarios/configurações)
  * - prata: operacional + administrativo (sem financeiro por padrão)
  * - ouro: todos os módulos
@@ -111,6 +167,10 @@ export function normalizeModulesForPlano(
 export function modulesPresetForPlano(
   plano: TenantPlano,
 ): Record<string, boolean> {
+  if (plano === TenantPlano.solo) {
+    return normalizeModulesForPlano(plano, {});
+  }
+
   const enabled = new Set<string>();
 
   for (const k of OPERACIONAL) enabled.add(k);

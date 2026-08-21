@@ -22,7 +22,7 @@ import { EquipesService } from './equipes.service';
 /**
  * Equipes.
  * - Admin: CRUD completo.
- * - Gerente: visualiza apenas a equipe que lidera.
+ * - Gerente: visualiza todas (para distribuir leads); só edita a que lidera.
  */
 @Controller('equipes')
 @UseGuards(RolesGuard)

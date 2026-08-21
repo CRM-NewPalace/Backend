@@ -8,6 +8,7 @@ import { CatalogType, FunilEtapaPapel, Prisma } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
+import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import {
   DEFAULT_FUNNEL_STAGES,
   DEFAULT_INITIAL_STAGE_SLUG,
@@ -39,6 +40,9 @@ const etapaSelect = {
   sortOrder: true,
   active: true,
   papel: true,
+  prazoValor: true,
+  prazoUnidade: true,
+  alertaAntecedenciaPercent: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.FunilEtapaSelect;
@@ -48,6 +52,8 @@ const funilSelect = {
   tenantId: true,
   name: true,
   ativo: true,
+  inatividadeValor: true,
+  inatividadeUnidade: true,
   createdAt: true,
   updatedAt: true,
   etapas: {
@@ -65,7 +71,10 @@ type EtapaComPapel = {
 
 @Injectable()
 export class FunisService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly monitoramento: LeadMonitoramentoService,
+  ) {}
 
   async list(requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
@@ -152,6 +161,7 @@ export class FunisService {
     const tenantId = requireTenantId(requester);
     await this.ensureOwned(id, tenantId);
 
+    const data: Prisma.FunilUpdateInput = {};
     if (dto.name !== undefined) {
       const name = dto.name.trim();
       if (!name) throw new BadRequestException('Informe o nome do funil.');
@@ -161,9 +171,19 @@ export class FunisService {
       if (clash) {
         throw new ConflictException('Já existe um funil com este nome.');
       }
+      data.name = name;
+    }
+    if (dto.inatividadeValor !== undefined) {
+      data.inatividadeValor = dto.inatividadeValor;
+    }
+    if (dto.inatividadeUnidade !== undefined) {
+      data.inatividadeUnidade = dto.inatividadeUnidade;
+    }
+
+    if (Object.keys(data).length > 0) {
       await this.prisma.funil.update({
         where: { id },
-        data: { name },
+        data,
       });
     }
 
@@ -204,7 +224,23 @@ export class FunisService {
       );
     }
 
+    const ativo = await this.prisma.funil.findFirst({
+      where: { tenantId, ativo: true, NOT: { id } },
+      select: { id: true },
+    });
+
     await this.prisma.funil.delete({ where: { id } });
+
+    if (ativo) {
+      const remaining = await this.prisma.funil.findFirst({
+        where: { id: ativo.id },
+        select: funilSelect,
+      });
+      if (remaining) {
+        await this.attachOrphanStages(tenantId, remaining);
+      }
+    }
+
     return { ok: true };
   }
 
@@ -243,6 +279,11 @@ export class FunisService {
             sortOrder: dto.sortOrder ?? (last?.sortOrder ?? -1) + 1,
             active: true,
             papel,
+            prazoValor: dto.prazoValor ?? null,
+            ...(dto.prazoUnidade ? { prazoUnidade: dto.prazoUnidade } : {}),
+            ...(dto.alertaAntecedenciaPercent !== undefined
+              ? { alertaAntecedenciaPercent: dto.alertaAntecedenciaPercent }
+              : {}),
           },
         });
       } catch (err) {
@@ -317,6 +358,11 @@ export class FunisService {
     if (dto.color !== undefined) data.color = dto.color.trim();
     if (dto.active !== undefined) data.active = dto.active;
     if (dto.papel !== undefined) data.papel = dto.papel;
+    if (dto.prazoValor !== undefined) data.prazoValor = dto.prazoValor;
+    if (dto.prazoUnidade !== undefined) data.prazoUnidade = dto.prazoUnidade;
+    if (dto.alertaAntecedenciaPercent !== undefined) {
+      data.alertaAntecedenciaPercent = dto.alertaAntecedenciaPercent;
+    }
 
     await this.prisma.$transaction(async (tx) => {
       if (dto.papel) {
@@ -337,6 +383,14 @@ export class FunisService {
         throw err;
       }
     });
+
+    if (
+      dto.prazoValor !== undefined ||
+      dto.prazoUnidade !== undefined ||
+      dto.alertaAntecedenciaPercent !== undefined
+    ) {
+      await this.monitoramento.recalculateStagePrazos(tenantId, etapa.slug);
+    }
 
     return this.findOne(funilId, requester);
   }
@@ -367,9 +421,25 @@ export class FunisService {
       );
     }
 
-    await this.prisma.funilEtapa.update({
+    const siblings = await this.prisma.funilEtapa.findMany({
+      where: { funilId, active: true, id: { not: etapaId } },
+      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+      select: { id: true, slug: true, papel: true, active: true },
+    });
+    const fallbackSlug =
+      siblings.find(
+        (e) => this.resolveEtapaPapel(e) === FunilEtapaPapel.inicial,
+      )?.slug ?? siblings[0]?.slug;
+
+    if (fallbackSlug && fallbackSlug !== etapa.slug) {
+      await this.prisma.lead.updateMany({
+        where: { tenantId, perdidoAt: null, stage: etapa.slug },
+        data: { stage: fallbackSlug },
+      });
+    }
+
+    await this.prisma.funilEtapa.delete({
       where: { id: etapaId },
-      data: { active: false },
     });
 
     return this.findOne(funilId, requester);
@@ -659,6 +729,11 @@ export class FunisService {
         sortOrder: e.sortOrder ?? index,
         active: true,
         papel,
+        prazoValor: e.prazoValor ?? null,
+        ...(e.prazoUnidade ? { prazoUnidade: e.prazoUnidade } : {}),
+        ...(e.alertaAntecedenciaPercent !== undefined
+          ? { alertaAntecedenciaPercent: e.alertaAntecedenciaPercent }
+          : {}),
       };
     });
 
@@ -674,6 +749,7 @@ export class FunisService {
           sortOrder: 0,
           active: true,
           papel: FunilEtapaPapel.inicial,
+          prazoValor: null,
         });
         rows.forEach((r, i) => {
           r.sortOrder = i;
@@ -716,7 +792,7 @@ export class FunisService {
       where: { tenantId, ativo: true },
       select: funilSelect,
     });
-    if (ativo) return ativo;
+    if (ativo) return this.attachOrphanStages(tenantId, ativo);
 
     const qualquer = await this.prisma.funil.findFirst({
       where: { tenantId },
@@ -728,10 +804,13 @@ export class FunisService {
         where: { id: qualquer.id },
         data: { ativo: true },
       });
-      return this.prisma.funil.findFirstOrThrow({
-        where: { id: qualquer.id },
-        select: funilSelect,
-      });
+      return this.attachOrphanStages(
+        tenantId,
+        await this.prisma.funil.findFirstOrThrow({
+          where: { id: qualquer.id },
+          select: funilSelect,
+        }),
+      );
     }
 
     const fromCatalog = await this.prisma.catalogItem.findMany({
@@ -765,14 +844,178 @@ export class FunisService {
       if (etapas[0]) etapas[0].papel = FunilEtapaPapel.inicial;
     }
 
-    return this.prisma.funil.create({
-      data: {
-        tenantId,
-        name: 'Funil padrão',
-        ativo: true,
-        etapas: { create: etapas },
-      },
+    return this.attachOrphanStages(
+      tenantId,
+      await this.prisma.funil.create({
+        data: {
+          tenantId,
+          name: 'Funil padrão',
+          ativo: true,
+          etapas: { create: etapas },
+        },
+        select: funilSelect,
+      }),
+    );
+  }
+
+  async recoverOrphanStages(funilId: string, requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    await this.ensureOwned(funilId, tenantId);
+    const funil = await this.prisma.funil.findFirst({
+      where: { id: funilId },
       select: funilSelect,
     });
+    if (!funil) throw new NotFoundException('Funil não encontrado.');
+    return this.attachOrphanStages(tenantId, funil);
+  }
+
+  /**
+   * Recria/reativa no funil as etapas que os leads ainda usam (Lead.stage)
+   * depois que um funil antigo foi excluído.
+   */
+  private async attachOrphanStages(
+    tenantId: string,
+    funil: Prisma.FunilGetPayload<{ select: typeof funilSelect }>,
+  ) {
+    const grouped = await this.prisma.lead.groupBy({
+      by: ['stage'],
+      where: { tenantId, perdidoAt: null },
+    });
+    if (grouped.length === 0) return funil;
+
+    const etapas = [...funil.etapas];
+
+    const findMatch = (stage: string) => {
+      const trimmed = stage.trim();
+      const normalized = slugify(trimmed);
+      return (
+        etapas.find((e) => e.slug === trimmed) ||
+        etapas.find((e) => e.slug === normalized) ||
+        etapas.find((e) => slugify(e.slug) === normalized) ||
+        etapas.find((e) => slugify(e.label) === normalized) ||
+        null
+      );
+    };
+
+    let changed = false;
+
+    for (const row of grouped) {
+      const raw = row.stage;
+      const stage = raw?.trim();
+      if (!stage) continue;
+
+      const found = findMatch(stage);
+      if (found) {
+        if (!found.active) {
+          await this.prisma.funilEtapa.update({
+            where: { id: found.id },
+            data: { active: true },
+          });
+          found.active = true;
+          changed = true;
+        }
+        if (found.slug !== raw) {
+          await this.prisma.lead.updateMany({
+            where: { tenantId, perdidoAt: null, stage: raw },
+            data: { stage: found.slug },
+          });
+          changed = true;
+        }
+        continue;
+      }
+
+      const def =
+        DEFAULT_FUNNEL_STAGES.find((s) => s.slug === stage) ??
+        DEFAULT_FUNNEL_STAGES.find((s) => s.slug === slugify(stage));
+      const existingLabels = new Set(
+        etapas.map((e) => e.label.toLowerCase()),
+      );
+      let label = def?.label ?? this.labelFromSlug(stage);
+      if (existingLabels.has(label.toLowerCase())) {
+        label = `${label} (${stage})`;
+      }
+
+      const usedPapeis = new Set(
+        etapas
+          .map((e) => this.resolveEtapaPapel(e))
+          .filter((p): p is FunilEtapaPapel => p != null),
+      );
+      let papel: FunilEtapaPapel | null =
+        (def?.papel as FunilEtapaPapel | undefined) ??
+        LEGACY_PAPEL_BY_SLUG[stage] ??
+        LEGACY_PAPEL_BY_SLUG[slugify(stage)] ??
+        null;
+      if (papel && usedPapeis.has(papel)) papel = null;
+
+      const sortOrder =
+        etapas.reduce((max, e) => Math.max(max, e.sortOrder), -1) + 1;
+
+      try {
+        const created = await this.prisma.funilEtapa.create({
+          data: {
+            funilId: funil.id,
+            label,
+            slug: stage,
+            color: def?.color ?? 'bg-slate-200 text-slate-700',
+            sortOrder,
+            active: true,
+            papel,
+          },
+          select: etapaSelect,
+        });
+        etapas.push(created);
+        changed = true;
+      } catch (err) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          const clash = await this.prisma.funilEtapa.findFirst({
+            where: {
+              funilId: funil.id,
+              OR: [{ slug: stage }, { slug: slugify(stage) }, { label }],
+            },
+            select: etapaSelect,
+          });
+          if (clash) {
+            if (!clash.active) {
+              await this.prisma.funilEtapa.update({
+                where: { id: clash.id },
+                data: { active: true },
+              });
+              clash.active = true;
+            }
+            const already = etapas.some((e) => e.id === clash.id);
+            if (!already) etapas.push(clash);
+            else {
+              const idx = etapas.findIndex((e) => e.id === clash.id);
+              if (idx >= 0) etapas[idx] = { ...etapas[idx], active: true };
+            }
+            if (clash.slug !== raw) {
+              await this.prisma.lead.updateMany({
+                where: { tenantId, perdidoAt: null, stage: raw },
+                data: { stage: clash.slug },
+              });
+            }
+            changed = true;
+          }
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!changed) return funil;
+
+    return this.prisma.funil.findFirstOrThrow({
+      where: { id: funil.id },
+      select: funilSelect,
+    });
+  }
+
+  private labelFromSlug(slug: string): string {
+    const cleaned = slug.replace(/[-_]+/g, ' ').trim();
+    if (!cleaned) return 'Etapa';
+    return cleaned.replace(/\b\w/g, (ch) => ch.toUpperCase());
   }
 }

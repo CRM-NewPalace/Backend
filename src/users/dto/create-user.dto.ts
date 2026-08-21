@@ -1,5 +1,6 @@
-import { Role, UserStatus } from '@prisma/client';
+import { CreciProcessoStatus, Role, UserStatus } from '@prisma/client';
 import {
+  IsDateString,
   IsEmail,
   IsEnum,
   IsIn,
@@ -41,9 +42,23 @@ export class CreateUserDto {
   whatsapp?: string;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsDateString({}, { message: 'Data de nascimento inválida.' })
+  dataNascimento?: string | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(80)
   cargo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  creci?: string;
+
+  @IsOptional()
+  @IsEnum(CreciProcessoStatus, { message: 'Andamento do CRECI inválido.' })
+  creciStatus?: CreciProcessoStatus;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== '')
@@ -53,7 +68,7 @@ export class CreateUserDto {
   })
   cor?: string | null;
 
-  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista], {
+  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee], {
     message: 'Perfil inválido.',
   })
   role!: Role;

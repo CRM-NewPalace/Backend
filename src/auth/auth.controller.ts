@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
@@ -18,6 +19,7 @@ import {
   RequestContext,
   type ClientContext,
 } from '../common/decorators/request-context.decorator';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   clearAuthCookies,
   COOKIE,
@@ -29,6 +31,7 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateAppearanceDto } from './dto/update-appearance.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -96,9 +99,23 @@ export class AuthController {
     clearAuthCookies(res, this.config);
   }
 
+  @Post('heartbeat')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async heartbeat(@CurrentUser() user: AuthenticatedUser) {
+    await this.authService.heartbeat(user.id, user.tenantId);
+  }
+
   @Get('me')
   me(@CurrentUser('id') userId: string) {
     return this.authService.me(userId);
+  }
+
+  @Patch('me')
+  updateMe(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateAppearanceDto,
+  ) {
+    return this.authService.updateAppearance(userId, dto);
   }
 
   @Throttle({ default: THROTTLE.changePassword })

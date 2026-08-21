@@ -21,6 +21,9 @@ import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
 import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
+import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
+import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
+import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
 
 /**
  * Administração de tenants (imobiliárias) da plataforma.
@@ -40,6 +43,23 @@ export class TenantsController {
   @Post()
   create(@Body() dto: CreateTenantDto) {
     return this.tenantsService.create(dto);
+  }
+
+  @Post(':id/duplicate')
+  duplicate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DuplicateTenantDto = {},
+  ) {
+    return this.tenantsService.duplicate(id, dto ?? {});
+  }
+
+  /** Popula o tenant com dados fictícios variados (demonstração). */
+  @Post(':id/demo-data')
+  populateDemoData(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PopulateDemoDataDto = {},
+  ) {
+    return this.tenantsService.populateDemoData(id, dto ?? {});
   }
 
   @Get(':id')
@@ -66,6 +86,14 @@ export class TenantsController {
   @Post(':id/admin/reset-password')
   resetAdminPassword(@Param('id', ParseUUIDPipe) id: string) {
     return this.tenantsService.resetAdminPassword(id);
+  }
+
+  @Patch(':id/admin')
+  updateAdmin(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTenantAdminDto,
+  ) {
+    return this.tenantsService.updateAdmin(id, dto);
   }
 
   @Patch(':id')

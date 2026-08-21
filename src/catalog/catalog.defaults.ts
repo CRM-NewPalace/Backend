@@ -103,8 +103,8 @@ export const DEFAULT_DOCUMENTACAO_FONTES: readonly DefaultCatalogLabel[] = [
 ] as const;
 
 export const DEFAULT_DOCUMENTACAO_STATUS1: readonly DefaultCatalogLabel[] = [
+  { label: 'Em análise', color: 'bg-indigo-100 text-indigo-700' },
   { label: 'Aprovado', color: 'bg-green-100 text-green-700' },
-  { label: 'Análise', color: 'bg-violet-100 text-violet-700' },
   { label: 'Aprovado c/ restrição', color: 'bg-amber-100 text-amber-700' },
 ] as const;
 
@@ -123,4 +123,24 @@ export const DEFAULT_MOTIVOS_PERDA: readonly DefaultCatalogLabel[] = [
   { label: 'Contato inválido', color: 'bg-rose-100 text-rose-700' },
   { label: 'Desistiu da compra', color: 'bg-violet-100 text-violet-700' },
   { label: 'Sem interesse', color: 'bg-indigo-100 text-indigo-700' },
+] as const;
+
+export const DEFAULT_EMPREENDIMENTO_TIPOS: readonly DefaultCatalogLabel[] = [
+  { label: 'Vertical', color: 'bg-blue-100 text-blue-700' },
+  { label: 'Casa', color: 'bg-emerald-100 text-emerald-700' },
+  { label: 'Loteamento', color: 'bg-amber-100 text-amber-700' },
+  { label: 'Comercial', color: 'bg-violet-100 text-violet-700' },
+] as const;
+
+export const DEFAULT_EMPREENDIMENTO_STATUS: readonly DefaultCatalogLabel[] = [
+  { label: 'Lançamento', color: 'bg-sky-100 text-sky-700' },
+  { label: 'Em obras', color: 'bg-orange-100 text-orange-700' },
+  { label: 'Pronto', color: 'bg-green-100 text-green-700' },
+] as const;
+
+export const DEFAULT_EMPREENDIMENTO_TAGS: readonly DefaultCatalogLabel[] = [
+  { label: 'Litoral', color: 'bg-cyan-100 text-cyan-700' },
+  { label: 'FGTS', color: 'bg-indigo-100 text-indigo-700' },
+  { label: 'MCMV', color: 'bg-teal-100 text-teal-700' },
+  { label: 'Caixa', color: 'bg-slate-200 text-slate-700' },
 ] as const;

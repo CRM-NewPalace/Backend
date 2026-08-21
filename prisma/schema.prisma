@@ -18,6 +18,8 @@ enum Role {
   gerente
   corretor
   analista
+  /// Cadastro operacional limitado: construtoras, empreendimentos, origens e tags.
+  treinee
 }
 
 /// Situação do usuário no sistema.
@@ -26,8 +28,18 @@ enum UserStatus {
   inativo
 }
 
+/// Andamento da obtenção do CRECI do usuário.
+enum CreciProcessoStatus {
+  nao_iniciado
+  envio_documentacao
+  pagamento_boleto
+  aguardando_creci
+  creci_recebido
+}
+
 /// Plano comercial do tenant (define módulos base e cota de usuários).
 enum TenantPlano {
+  solo
   bronze
   prata
   ouro
@@ -59,6 +71,9 @@ enum MetaPeriodo {
   diaria
   semanal
   mensal
+  trimestral
+  semestral
+  anual
 }
 
 /// Lead de captação vs cliente da carteira pessoal do corretor.
@@ -66,6 +81,13 @@ enum MetaPeriodo {
 enum ContatoTipo {
   lead
   cliente
+}
+
+/// Unidade de prazo de permanência na etapa ou de inatividade do lead.
+enum PrazoUnidade {
+  minutos
+  horas
+  dias
 }
 
 /// Imobiliária / empresa cliente da plataforma (tenant).
@@ -76,6 +98,16 @@ model Tenant {
   status UserStatus @default(ativo)
   /// CPF ou CNPJ do cliente (imobiliária).
   documento String  @default("")
+  /// CRECI da imobiliária (ex.: 18937-J).
+  creci String @default("")
+  /// E-mail institucional da imobiliária.
+  email String @default("")
+  /// Telefone/WhatsApp da imobiliária.
+  telefone String @default("")
+  /// Endereço completo (rua, bairro, cidade/UF).
+  endereco String @default("")
+  /// Cidade do contrato (ex.: Recife/PE).
+  cidade String @default("")
 
   /// Branding visual (nível 1).
   logoUrl      String?
@@ -92,9 +124,9 @@ model Tenant {
   /// Módulos ligados/desligados: { "metas": true, "financeiro": false, ... }
   modules      Json?
 
-  /// Plano: bronze (CRM), prata (CRM+admin), ouro (tudo).
+  /// Plano: solo (corretor), bronze (CRM), prata (CRM+admin), ouro (tudo).
   plano TenantPlano @default(bronze)
-  /// Cota base de usuários do plano (5 / 15 / 30).
+  /// Cota base de usuários do plano (1 / 5 / 15 / 30).
   maxUsuarios Int @default(5)
   /// Usuários extras liberados pelo super_admin além da cota base.
   usuariosExtras Int @default(0)
@@ -106,8 +138,10 @@ model Tenant {
   leads             Lead[]
   construtoras      Construtora[]
   empreendimentos   Empreendimento[]
+  localidades       Localidade[]
   catalogItems      CatalogItem[]
   funis             Funil[]
+  leadPrazoAdiamentos LeadPrazoAdiamento[]
   documentacoes     Documentacao[]
   propostas         Proposta[]
   analises          Analise[]
@@ -120,9 +154,15 @@ model Tenant {
   financeiroMovimentos    FinanceiroMovimento[]
   financeiroTitulos       FinanceiroTitulo[]
   financeiroComissoes     FinanceiroComissao[]
-  financeiroDespesaTipos  FinanceiroDespesaTipo[]
-  financeiroDespesas      FinanceiroDespesa[]
-  platformContratos       PlatformContrato[]
+  financeiroDespesaTipos       FinanceiroDespesaTipo[]
+  financeiroDespesas           FinanceiroDespesa[]
+  financeiroRecebimentoTipos   FinanceiroRecebimentoTipo[]
+  financeiroRecebimentos       FinanceiroRecebimento[]
+  financeiroCategorias         FinanceiroCategoria[]
+  platformContratos            PlatformContrato[]
+  sessionSegments         UserSessionSegment[]
+  treinamentoSecoes       TreinamentoSecao[]
+  treinamentoLinks        TreinamentoLink[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -174,9 +214,19 @@ model User {
   phone     String?
   /// WhatsApp do corretor (admin cadastra; usado para enviar resultado da análise).
   whatsapp  String?
+  /// Data de nascimento (útil no cadastro de corretor e demais usuários).
+  dataNascimento DateTime?
   cargo     String?
+  /// CRECI do corretor/usuário, quando informado no cadastro.
+  creci     String?
+  /// Etapa atual do processo de obtenção do CRECI.
+  creciStatus CreciProcessoStatus @default(nao_iniciado)
   /// Cor de destaque em hex (#RRGGBB) para badges (ex.: Documentação).
   cor       String?
+  /// Preferências visuais pessoais em hex (#RRGGBB).
+  corAside     String?
+  corPrincipal String?
+  corModulo    String?
   role      Role       @default(corretor)
   status    UserStatus @default(ativo)
   avatar    String?
@@ -233,8 +283,14 @@ model User {
   // Eventos de admin direcionados especificamente a este gerente.
   agendamentosAlvoGerente Agendamento[] @relation("AgendamentoAlvoGerente")
 
+  // Tarefas atribuídas a este corretor por gerente/admin.
+  agendamentosAtribuidos Agendamento[] @relation("AgendamentoAtribuido")
+
   // Notificações in-app destinadas a este usuário.
   notificacoes Notificacao[] @relation("NotificacaoDestinatario")
+
+  // Adiamentos de prazo de etapa registrados por este usuário.
+  leadPrazoAdiamentos LeadPrazoAdiamento[] @relation("LeadPrazoAdiamentoAutor")
 
   // Metas em que este usuário é o corretor acompanhado.
   metasComoCorretor Meta[] @relation("MetaCorretor")
@@ -255,6 +311,12 @@ model User {
   equipeId String?
   equipe   Equipe? @relation("EquipeMembros", fields: [equipeId], references: [id], onDelete: SetNull)
 
+  /// Segmentos de presença (tempo logado) do usuário.
+  sessionSegments UserSessionSegment[]
+
+  /// Conta Google Calendar do usuário (refresh token por pessoa).
+  googleCalendar UserGoogleCalendar?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -264,6 +326,31 @@ model User {
   @@index([equipeId])
   @@index([tenantId])
   @@map("users")
+}
+
+/// Trecho contínuo de atividade no sistema (heartbeat).
+/// Usado para calcular quanto tempo o usuário ficou logado no dia.
+model UserSessionSegment {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Dia civil em America/Sao_Paulo (YYYY-MM-DD).
+  dateKey    String
+  startedAt  DateTime
+  lastSeenAt DateTime
+  /// Null enquanto o segmento está aberto (usuário ainda ativo).
+  endedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, dateKey])
+  @@index([userId, dateKey])
+  @@index([userId, endedAt])
+  @@map("user_session_segments")
 }
 
 /// Equipe comercial: um gerente e vários corretores.
@@ -316,8 +403,16 @@ model Lead {
   prioridade String      @default("Média")
   /// Renda mensal informada pelo cliente (opcional).
   renda      Int?
+  /// Tipo de renda (CLT, autônomo, etc.) — opcional.
+  tipoRenda  String?
   /// Estado civil informado pelo cliente (opcional).
   estadoCivil String?
+  /// Orçamento máximo para imóvel (opcional) — usado no matching.
+  orcamentoMax Int?
+  /// Mínimo de quartos desejado (opcional).
+  quartosMin   Int?
+  /// Mínimo de vagas desejado (opcional).
+  vagasMin     Int?
   tags       String[]    @default([])
 
   // Corretor dono do lead. Fica nulo se o corretor for removido (SetNull),
@@ -343,7 +438,23 @@ model Lead {
   perdidoPor   User?     @relation("LeadPerdidoPor", fields: [perdidoPorId], references: [id], onDelete: SetNull)
   perdidoPorId String?
 
+  /// Momento em que o lead entrou na etapa atual (não usa createdAt como movimentação contínua).
+  stageEnteredAt DateTime @default(now())
+  /// Última movimentação relevante (etapa, triagem, tarefa ou atividade).
+  lastMovementAt DateTime @default(now())
+  lastStageChangeAt DateTime?
+  lastTriagemAt     DateTime?
+  lastTarefaAt      DateTime?
+  lastAtividadeAt   DateTime?
+  /// Deadline efetivo da etapa (calculado ou adiado). Null = etapa sem prazo.
+  prazoDueAt DateTime?
+  /// Início da janela "próximo do vencimento".
+  alertaProximoAt DateTime?
+  /// true quando o prazo atual veio de um adiamento (não recalcular pela etapa).
+  prazoAdiado Boolean @default(false)
+
   triagemEvents TriagemEvent[]
+  prazoAdiamentos LeadPrazoAdiamento[]
   documentacoes Documentacao[]
   propostas     Proposta[]
   analise       Analise?
@@ -358,6 +469,9 @@ model Lead {
   @@index([tenantId])
   @@index([tenantId, tipo])
   @@index([tenantId, stage])
+  @@index([tenantId, lastMovementAt])
+  @@index([tenantId, prazoDueAt])
+  @@index([tenantId, alertaProximoAt])
   @@index([tipo])
   @@index([stage])
   @@index([corretorId])
@@ -367,6 +481,32 @@ model Lead {
   @@index([createdAt])
   @@index([perdidoAt])
   @@map("leads")
+}
+
+/// Histórico de adiamentos do prazo de permanência na etapa.
+model LeadPrazoAdiamento {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leadId   String
+  lead     Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  autorId  String
+  autor    User   @relation("LeadPrazoAdiamentoAutor", fields: [autorId], references: [id], onDelete: Cascade)
+
+  prazoAnteriorAt      DateTime?
+  prazoNovoAt          DateTime
+  prazoAnteriorValor   Int?
+  prazoAnteriorUnidade PrazoUnidade?
+  prazoNovoValor       Int
+  prazoNovoUnidade     PrazoUnidade
+  motivo               String?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([tenantId])
+  @@index([autorId])
+  @@map("lead_prazo_adiamentos")
 }
 
 /// Vínculo entre um lead do CRM e o chat correspondente na instância OZap.
@@ -458,10 +598,13 @@ model TriagemEvent {
   autorId       String
   autor         User          @relation("TriagemAutor", fields: [autorId], references: [id], onDelete: Cascade)
   texto         String
+  /// Texto imediatamente anterior à última edição (visível a admin/gerente).
+  textoAnterior String?
   stageAnterior String?
   stageNovo     String?
   origem        TriagemOrigem
   createdAt     DateTime      @default(now())
+  editedAt      DateTime?
 
   @@index([leadId])
   @@index([autorId])
@@ -481,11 +624,19 @@ model Construtora {
   endereco            String?
   viabilizadorNome    String?
   viabilizadorContato String?
+  /// CCA cadastrado em Configurações (label do catálogo).
+  cca                 String?
+  /// Pasta do Google Drive (hub de arquivos por construtora).
+  driveFolderUrl      String?
+  /// Logo única (Cloudinary).
+  logoUrl             String?
+  logoPublicId        String?
 
   empreendimentos Empreendimento[]
   documentacoes   Documentacao[]
   propostas       Proposta[]
   leads           Lead[]
+  localidades     Localidade[] @relation("ConstrutoraLocalidades")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -495,7 +646,26 @@ model Construtora {
   @@map("construtoras")
 }
 
-/// Empreendimento / imóvel (sync do site New Palace + vínculo opcional à construtora).
+/// Região / cidade de atuação. Várias construtoras podem compartilhar a mesma localidade.
+model Localidade {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome     String
+
+  construtoras    Construtora[]     @relation("ConstrutoraLocalidades")
+  empreendimentos Empreendimento[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, nome])
+  @@index([tenantId])
+  @@index([nome])
+  @@map("localidades")
+}
+
+/// Empreendimento / imóvel (cadastro manual + vínculo opcional à construtora).
 model Empreendimento {
   id            String  @id @default(uuid())
   tenantId      String
@@ -506,21 +676,36 @@ model Empreendimento {
   construtoraId String?
   construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
 
+  localidadeId String?
+  localidade   Localidade? @relation(fields: [localidadeId], references: [id], onDelete: SetNull)
+
   cidade      String?
   endereco    String?
+  tipo        String?
+  status      String?
+  previsaoEntrega DateTime? @db.Date
+  tags        String[] @default([])
+  observacao  String?
   quartos     Int?
   banheiros   Int?
+  /// Vagas de garagem (opcional) — usado no matching.
+  vagas       Int?
+  /// Preço de referência do produto (opcional) — usado no matching.
+  valorReferencia Int?
   areaM2      Float?
   externalUrl String?
-  /// Imagem principal extraída da página pública do empreendimento.
+  /// Capa (primeira da galeria). Mantida para listagens.
   imagemUrl   String?
-  /// Chave estável para upsert no sync (slug/URL/nome normalizado).
+  /// Galeria (máx. 2): [{ "url": string, "publicId": string }]
+  imagens     Json    @default("[]")
+  /// Chave estável interna (ex.: manual-slug-timestamp).
   externalKey String
   ativo       Boolean @default(true)
 
   documentacoes Documentacao[]
   propostas     Proposta[]
   leads         Lead[]
+  notificacoes  Notificacao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -528,6 +713,7 @@ model Empreendimento {
   @@unique([tenantId, externalKey])
   @@index([tenantId])
   @@index([construtoraId])
+  @@index([localidadeId])
   @@index([ativo])
   @@index([nome])
   @@map("empreendimentos")
@@ -574,7 +760,13 @@ model Documentacao {
   vgv Int?
   obs String?
 
-  comissao FinanceiroComissao?
+  temEntrada    Boolean @default(false)
+  valorEntrada  Int?
+  temFgts       Boolean @default(false)
+  valorFgts     Int?
+  temDependente Boolean @default(false)
+
+  comissoes FinanceiroComissao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -614,6 +806,36 @@ model Proposta {
 
   clienteNome     String
   clienteTelefone String?
+  clienteCpf                 String?
+  clienteRg                  String?
+  clienteRgOrgaoEmissor      String?
+  clienteDataNascimento      DateTime?
+  clienteNacionalidade       String?
+  clienteEstadoCivil         String?
+  clienteRegimeBens          String?
+  clienteDataCasamento       DateTime?
+  clienteNomePai             String?
+  clienteNomeMae             String?
+  clienteRenda               Float?
+  clienteTelefoneFixo        String?
+  clienteEmail               String?
+  clienteEnderecoResidencial String?
+  clienteBairroResidencial   String?
+  clienteCidadeResidencial   String?
+  clienteUfResidencial       String?
+  clienteCepResidencial      String?
+  clienteCobrancaResidencial Boolean?
+  clienteEmpregador          String?
+  clienteProfissao           String?
+  clienteEnderecoComercial   String?
+  clienteBairroComercial     String?
+  clienteCidadeComercial     String?
+  clienteUfComercial         String?
+  clienteCepComercial        String?
+  clienteCobrancaComercial   Boolean?
+  clienteSite                String?
+  clienteTelefoneComercial1  String?
+  clienteTelefoneComercial2  String?
 
   construtoraId String?
   construtora   Construtora? @relation(fields: [construtoraId], references: [id], onDelete: SetNull)
@@ -630,14 +852,31 @@ model Proposta {
   autor   User   @relation("PropostaAutor", fields: [autorId], references: [id], onDelete: Cascade)
 
   /// Valores em reais (inteiros).
+  /// valor = valor de venda; entrada = sinal.
   valor          Int
   entrada        Int?
+  apartado       Int?
+  /// Parcelas pré-chaves (vários valores).
+  preChaves      Int[] @default([])
+  /// Parcelas pós-chaves (vários valores).
+  posChaves      Int[] @default([])
+  /// Parcelas intercaladas (vários valores).
+  intercaladas   Int[] @default([])
+  fgts           Int?
+  moraBem        Int?
+  mcmv           Int?
+  /// Informativo; pode ter centavos (ex.: 569.99).
+  parcelaCaixa   Float?
   financiamento  Int?
+  /// Desconto do empreendimento (R$), à parte da composição.
+  desconto       Int?
 
   status    PropostaStatus @default(rascunho)
   validade  DateTime?
   enviadaEm DateTime?
   observacao String?
+
+  notificacoes Notificacao[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -649,6 +888,7 @@ model Proposta {
   @@index([autorId])
   @@index([status])
   @@index([createdAt])
+  @@index([validade])
   @@map("propostas")
 }
 
@@ -716,6 +956,15 @@ enum AgendamentoTipo {
   reuniao
   tarefa
   outro
+  /// Horário travado (admin/gerente) — impede novos agendamentos sobrepostos.
+  bloqueio
+}
+
+/// Frequência de materialização de bloqueios recorrentes.
+enum AgendamentoRecurrenceFreq {
+  unica
+  semanal
+  mensal
 }
 
 /// Situação operacional do compromisso.
@@ -743,6 +992,8 @@ enum AgendamentoAlvo {
   equipe
   /// Visível somente para o gerente indicado (+ admin).
   gerente
+  /// Visível para todos os gerentes (+ admin); corretores não veem.
+  gerentes
 }
 
 /// Fluxo de solicitação quando escopo = com_gerente.
@@ -764,6 +1015,10 @@ model Agendamento {
   autorId  String
   autor    User   @relation("AgendamentoAutor", fields: [autorId], references: [id], onDelete: Cascade)
 
+  /// Corretor responsável quando gerente/admin atribui a tarefa.
+  atribuidoParaId String?
+  atribuidoPara   User?   @relation("AgendamentoAtribuido", fields: [atribuidoParaId], references: [id], onDelete: SetNull)
+
   titulo       String
   tipo         AgendamentoTipo              @default(visita)
   status       AgendamentoStatus            @default(agendado)
@@ -777,10 +1032,19 @@ model Agendamento {
   alvoGerenteId String?
   alvoGerente   User?   @relation("AgendamentoAlvoGerente", fields: [alvoGerenteId], references: [id], onDelete: SetNull)
 
+  /// Agrupa ocorrências materializadas de um bloqueio recorrente.
+  seriesId         String?
+  recurrenceFreq   AgendamentoRecurrenceFreq @default(unica)
+  /// Dias da semana 0–6 (Dom–Sáb) quando recurrenceFreq = semanal.
+  recurrenceDays   Int[]                     @default([])
+  recurrenceUntil  DateTime?
+
   startsAt     DateTime
   endsAt       DateTime?
   local        String?
   observacoes  String?
+  /// Etapa do funil no momento da criação (quando originada no quadro).
+  funilStage   String?
 
   aprovadoPorId String?
   aprovadoPor   User?     @relation("AgendamentoAprovador", fields: [aprovadoPorId], references: [id], onDelete: SetNull)
@@ -790,9 +1054,13 @@ model Agendamento {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  googleCalendarEvents UserGoogleCalendarEvent[]
+
   @@index([tenantId])
   @@index([leadId])
   @@index([autorId])
+  @@index([atribuidoParaId])
+  @@index([seriesId])
   @@index([startsAt])
   @@index([status])
   @@index([tipo])
@@ -804,14 +1072,53 @@ model Agendamento {
   @@map("agendamentos")
 }
 
+/// Conexão OAuth do Google Calendar — um refresh token por usuário CRM.
+model UserGoogleCalendar {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleEmail     String
+  refreshTokenEnc String
+  calendarId      String   @default("primary")
+  connectedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  events          UserGoogleCalendarEvent[]
+
+  @@map("user_google_calendars")
+}
+
+/// Mapeia um agendamento do CRM para o evento correspondente no Google.
+model UserGoogleCalendarEvent {
+  id            String @id @default(uuid())
+  connectionId  String
+  connection    UserGoogleCalendar @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  agendamentoId String
+  agendamento   Agendamento        @relation(fields: [agendamentoId], references: [id], onDelete: Cascade)
+  googleEventId String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([agendamentoId, connectionId])
+  @@index([connectionId])
+  @@index([agendamentoId])
+  @@map("user_google_calendar_events")
+}
+
 /// Tipo de notificação in-app.
 enum NotificacaoTipo {
   analise_resultado
   agenda_solicitacao
   agenda_resposta
+  agenda_atribuicao
   agenda_lembrete_1d
   agenda_lembrete_2h
   agenda_lembrete_1h
+  lead_prazo_proximo
+  lead_prazo_ultrapassado
+  lead_sem_atendimento
+  tarefa_atrasada
+  imovel_compativel
+  proposta_vencimento_proximo
 }
 
 /// Aviso in-app para o usuário (ex.: resultado da análise para o corretor).
@@ -830,11 +1137,20 @@ model Notificacao {
   lead           Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   analiseId      String?
   agendamentoId  String?
+  empreendimentoId String?
+  empreendimento   Empreendimento? @relation(fields: [empreendimentoId], references: [id], onDelete: SetNull)
+  propostaId     String?
+  proposta       Proposta? @relation(fields: [propostaId], references: [id], onDelete: SetNull)
+  /// Fingerprint do evento (ex.: stageEnteredAt|prazoDueAt) para impedir duplicatas.
+  eventoChave    String?
 
   createdAt DateTime @default(now())
 
   @@index([tenantId])
   @@index([userId, lida])
+  @@index([userId, leadId, tipo, eventoChave])
+  @@index([userId, empreendimentoId, tipo, eventoChave])
+  @@index([userId, propostaId, tipo, eventoChave])
   @@index([createdAt])
   @@map("notificacoes")
 }
@@ -848,6 +1164,10 @@ enum CatalogType {
   documentacao_fonte
   documentacao_status1
   documentacao_status2
+  cca
+  empreendimento_tipo
+  empreendimento_status
+  empreendimento_tag
 }
 
 /// Papel semântico da etapa no funil — dispara fluxos (análise, venda, perda)
@@ -867,6 +1187,9 @@ model Funil {
   name     String
   /// Funil em uso no kanban, dashboard e novos leads.
   ativo    Boolean @default(false)
+  /// Sem movimentação relevante após este período gera alerta no card.
+  inatividadeValor   Int          @default(48)
+  inatividadeUnidade PrazoUnidade @default(horas)
 
   etapas FunilEtapa[]
 
@@ -890,6 +1213,11 @@ model FunilEtapa {
   active    Boolean          @default(true)
   /// null = etapa intermediária sem fluxo especial.
   papel     FunilEtapaPapel?
+  /// Prazo máximo de permanência. Null = etapa sem SLA.
+  prazoValor Int?
+  prazoUnidade PrazoUnidade @default(horas)
+  /// Percentual restante do prazo para disparar alerta laranja (1–90).
+  alertaAntecedenciaPercent Int @default(20)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -994,6 +1322,8 @@ enum FinanceiroComissaoStatus {
 /// Natureza do tipo de despesa no centro de custos.
 enum FinanceiroDespesaNatureza {
   fixa
+  /// Recorrente todo mês, mas com valor que muda.
+  fixa_variavel
   variavel
 }
 
@@ -1015,6 +1345,7 @@ model FinanceiroParceiro {
 
   movimentos FinanceiroMovimento[]
   titulos    FinanceiroTitulo[]
+  contratosFornecedor PlatformFornecedorContrato[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1045,6 +1376,8 @@ model FinanceiroMovimento {
   /// Baixa de título (evita double-count no fluxo).
   tituloId       String?                 @unique
   titulo         FinanceiroTitulo?       @relation(fields: [tituloId], references: [id], onDelete: SetNull)
+  /// Classificação da despesa (só saídas): fixa ou variável.
+  natureza       FinanceiroDespesaNatureza?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1074,7 +1407,22 @@ model FinanceiroTitulo {
   parcela         String                 @default("")
   /// Liga parcelas do mesmo contrato (N títulos com o mesmo UUID).
   grupoParcelasId String?
+  /// Recorrência mensal sem data de término: o sistema segue gerando os próximos meses.
+  recorrenciaIndeterminada Boolean @default(false)
+  /// Contrato da plataforma que originou este título (adesão/mensalidade).
+  platformContratoId String?
+  platformContrato   PlatformContrato?   @relation(fields: [platformContratoId], references: [id], onDelete: SetNull)
+  /// Contrato de fornecedor da plataforma que originou este título a pagar.
+  platformFornecedorContratoId String?
+  platformFornecedorContrato   PlatformFornecedorContrato? @relation(fields: [platformFornecedorContratoId], references: [id], onDelete: SetNull)
   movimento       FinanceiroMovimento?
+  /// Comissão que originou este título (várias fatias por comissão).
+  comissaoId      String?
+  comissao        FinanceiroComissao?    @relation(fields: [comissaoId], references: [id], onDelete: SetNull)
+  /// Fatia da comissão: caixa | socios | corretor | gerente | tributos.
+  comissaoPapel   String?
+  /// Classificação da despesa (só títulos a pagar): fixa ou variável.
+  natureza        FinanceiroDespesaNatureza?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1084,7 +1432,30 @@ model FinanceiroTitulo {
   @@index([tenantId, vencimento])
   @@index([tenantId, grupoParcelasId])
   @@index([parceiroId])
+  @@index([platformContratoId])
+  @@index([platformFornecedorContratoId])
+  @@index([comissaoId])
+  @@unique([comissaoId, comissaoPapel])
   @@map("financeiro_titulos")
+}
+
+/// Categoria de título / movimento (entrada = a receber, saida = a pagar).
+model FinanceiroCategoria {
+  id       String                   @id @default(uuid())
+  tenantId String
+  tenant   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome     String
+  tipo     FinanceiroMovimentoTipo
+  ativo    Boolean                  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, nome, tipo])
+  @@index([tenantId])
+  @@index([tenantId, tipo])
+  @@index([tenantId, ativo])
+  @@map("financeiro_categorias")
 }
 
 /// Tipo / centro de despesa (fixa ou variável).
@@ -1118,6 +1489,14 @@ model FinanceiroDespesa {
   descricao   String
   valor       Float
   data        DateTime
+  /// Competência contábil (YYYY-MM).
+  competencia String                @default("")
+  /// Se true, entra no botão "Renovar mês".
+  recorrente  Boolean               @default(false)
+  /// Despesa-raiz da série recorrente (null = esta é a raiz).
+  origemId    String?
+  origem      FinanceiroDespesa?    @relation("DespesaSerie", fields: [origemId], references: [id], onDelete: SetNull)
+  renovacoes  FinanceiroDespesa[]   @relation("DespesaSerie")
   observacao  String                @default("")
   ativo       Boolean               @default(true)
 
@@ -1126,8 +1505,59 @@ model FinanceiroDespesa {
 
   @@index([tenantId])
   @@index([tenantId, data])
+  @@index([tenantId, competencia])
   @@index([tipoId])
+  @@index([origemId])
   @@map("financeiro_despesas")
+}
+
+/// Tipo / categoria de recebimento (centro de recebimentos).
+model FinanceiroRecebimentoTipo {
+  id           String                     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome         String
+  natureza     FinanceiroDespesaNatureza
+  orcadoMensal Float                      @default(0)
+  ativo        Boolean                    @default(true)
+  recebimentos FinanceiroRecebimento[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, nome, natureza])
+  @@index([tenantId])
+  @@index([tenantId, natureza])
+  @@map("financeiro_recebimento_tipos")
+}
+
+/// Lançamento de recebimento vinculado a um tipo.
+model FinanceiroRecebimento {
+  id          String                     @id @default(uuid())
+  tenantId    String
+  tenant      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tipoId      String
+  tipo        FinanceiroRecebimentoTipo  @relation(fields: [tipoId], references: [id], onDelete: Cascade)
+  descricao   String
+  valor       Float
+  data        DateTime
+  competencia String                     @default("")
+  recorrente  Boolean                    @default(false)
+  origemId    String?
+  origem      FinanceiroRecebimento?     @relation("RecebimentoSerie", fields: [origemId], references: [id], onDelete: SetNull)
+  renovacoes  FinanceiroRecebimento[]    @relation("RecebimentoSerie")
+  observacao  String                     @default("")
+  ativo       Boolean                    @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, data])
+  @@index([tenantId, competencia])
+  @@index([tipoId])
+  @@index([origemId])
+  @@map("financeiro_recebimentos")
 }
 
 /// Comissão originada de uma documentação vendida.
@@ -1135,7 +1565,7 @@ model FinanceiroComissao {
   id              String                   @id @default(uuid())
   tenantId        String
   tenant          Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  documentacaoId  String                   @unique
+  documentacaoId  String
   documentacao    Documentacao             @relation(fields: [documentacaoId], references: [id], onDelete: Restrict)
   corretorId      String
   corretorUsuario User                     @relation("ComissaoCorretor", fields: [corretorId], references: [id], onDelete: Restrict)
@@ -1148,7 +1578,8 @@ model FinanceiroComissao {
   equipe          String                   @default("")
   empreendimento  String                   @default("")
   cliente         String                   @default("")
-  dataVenda       DateTime
+  dataVenda                 DateTime
+  dataPrevistaRecebimento   DateTime
   vgv                   Decimal                  @db.Decimal(18, 2)
   percentualImobiliaria Decimal                  @db.Decimal(7, 4)
   comissaoBruta         Decimal                  @db.Decimal(18, 2)
@@ -1163,13 +1594,26 @@ model FinanceiroComissao {
   valorCaixa            Decimal                  @db.Decimal(18, 2)
   percentualSocios      Decimal                  @db.Decimal(7, 4)
   valorSocios           Decimal                  @db.Decimal(18, 2)
+  valorPremiacao                  Decimal @default(0) @db.Decimal(18, 2)
+  percentualPremiacaoCorretor     Decimal @default(0) @db.Decimal(7, 4)
+  valorPremiacaoCorretor          Decimal @default(0) @db.Decimal(18, 2)
+  percentualPremiacaoImposto      Decimal @default(0) @db.Decimal(7, 4)
+  valorPremiacaoImposto           Decimal @default(0) @db.Decimal(18, 2)
+  percentualPremiacaoImobiliaria  Decimal @default(0) @db.Decimal(7, 4)
+  valorPremiacaoImobiliaria       Decimal @default(0) @db.Decimal(18, 2)
+  percentualPremiacaoGerente      Decimal @default(0) @db.Decimal(7, 4)
+  valorPremiacaoGerente           Decimal @default(0) @db.Decimal(18, 2)
+  valorPremiacaoRestante          Decimal @default(0) @db.Decimal(18, 2)
   status          FinanceiroComissaoStatus @default(pendente)
+  titulos         FinanceiroTitulo[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([tenantId, dataVenda])
+  @@index([tenantId, dataPrevistaRecebimento])
+  @@index([documentacaoId])
   @@index([corretorId])
   @@index([gerenteId])
   @@index([equipeId])
@@ -1205,13 +1649,18 @@ model PlatformContrato {
   /// Plano da assinatura (quando tipo = assinatura).
   plano TenantPlano?
 
-  valor      Float
+  valor            Float
+  /// Valor fechado da adesão (entrada).
+  valorAdesao      Float                  @default(0)
+  /// Valor fechado da mensalidade.
+  valorMensalidade Float                  @default(0)
   dataInicio DateTime
   vencimento DateTime?
   status     PlatformContratoStatus @default(proposta)
   observacao String                 @default("")
 
   parcelas PlatformContratoParcela[]
+  titulos  FinanceiroTitulo[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1244,6 +1693,55 @@ model PlatformContratoParcela {
   @@map("platform_contrato_parcelas")
 }
 
+/// Contrato recorrente da plataforma com um fornecedor, sem vínculo com imobiliária.
+model PlatformFornecedorContrato {
+  id         String @id @default(uuid())
+  codigo     String @unique
+  titulo     String
+  parceiroId String
+  parceiro   FinanceiroParceiro @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
+  centro     String
+  valorAdesao Float @default(0)
+  valorMensalidade Float
+  qtdMensalidades Int
+  dataInicio DateTime
+  vencimento DateTime
+  status PlatformContratoStatus @default(ativo)
+  observacao String @default("")
+
+  parcelas PlatformFornecedorContratoParcela[]
+  titulos FinanceiroTitulo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parceiroId])
+  @@index([status])
+  @@index([vencimento])
+  @@map("platform_fornecedor_contratos")
+}
+
+/// Parcela programada de um contrato de fornecedor.
+model PlatformFornecedorContratoParcela {
+  id String @id @default(uuid())
+  contratoId String
+  contrato PlatformFornecedorContrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  numero Int
+  descricao String
+  valor Float
+  vencimento DateTime
+  status FinanceiroTituloStatus @default(aberto)
+  dataPagamento DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contratoId, numero])
+  @@index([contratoId])
+  @@index([vencimento])
+  @@map("platform_fornecedor_contrato_parcelas")
+}
+
 /// Motivo de uma tentativa de login recusada (para auditoria).
 enum LoginFailureReason {
   senha_incorreta
@@ -1265,4 +1763,47 @@ model LoginAttempt {
   @@index([email, createdAt])
   @@index([ip, createdAt])
   @@map("login_attempts")
+}
+
+/// Pasta / seção do Treinamento (árvore por tenant).
+model TreinamentoSecao {
+  id       String  @id @default(uuid())
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   TreinamentoSecao?  @relation("TreinamentoArvore", fields: [parentId], references: [id], onDelete: Cascade)
+  children TreinamentoSecao[] @relation("TreinamentoArvore")
+
+  titulo    String
+  sortOrder Int     @default(0)
+  links     TreinamentoLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, parentId])
+  @@index([tenantId, sortOrder])
+  @@map("treinamento_secoes")
+}
+
+/// Link (Drive ou outro material) dentro de uma seção de treinamento.
+model TreinamentoLink {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  secaoId String
+  secao   TreinamentoSecao @relation(fields: [secaoId], references: [id], onDelete: Cascade)
+
+  titulo    String
+  url       String
+  sortOrder Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, secaoId])
+  @@index([secaoId, sortOrder])
+  @@map("treinamento_links")
 }

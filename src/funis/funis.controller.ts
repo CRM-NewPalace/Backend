@@ -29,19 +29,19 @@ export class FunisController {
   constructor(private readonly funisService: FunisService) {}
 
   @Get()
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista)
   list(@CurrentUser() requester: AuthenticatedUser) {
     return this.funisService.list(requester);
   }
 
   @Get('ativo')
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista)
   getAtivo(@CurrentUser() requester: AuthenticatedUser) {
     return this.funisService.getAtivo(requester);
   }
 
   @Get(':id')
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista)
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -134,5 +134,14 @@ export class FunisController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.funisService.installDefaults(id, requester);
+  }
+
+  @Post(':id/recuperar-etapas')
+  @Roles(Role.admin, Role.gerente)
+  recoverOrphanStages(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.funisService.recoverOrphanStages(id, requester);
   }
 }

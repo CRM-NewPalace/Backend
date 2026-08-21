@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,11 +12,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { CreateTenantAdminDto } from './dto/create-tenant-admin.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
+import { UpdateTenantCompanyDto } from './dto/update-tenant-company.dto';
 import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
 import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
-import { tenantAdminSelect } from '../common/utils/tenant-branding';
+import {
+  tenantAdminSelect,
+  tenantBrandingSelect,
+} from '../common/utils/tenant-branding';
 import { publicUserSelect } from '../common/utils/user-select';
 import { SALT_ROUNDS } from '../config/security.constants';
 import { DEFAULT_FUNNEL_STAGES } from '../catalog/catalog.defaults';
@@ -24,7 +29,17 @@ import {
   resolvePlanoFields,
 } from './tenant-plan';
 import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
-import { PLATFORM_TENANT_ID } from '../common/utils/tenant';
+import {
+  PLATFORM_TENANT_ID,
+  requireTenantId,
+} from '../common/utils/tenant';
+import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { TenantLogoColorService } from './tenant-logo-color.service';
+import { TenantCloneService } from './tenant-clone.service';
+import { TenantDemoDataService } from './tenant-demo-data.service';
+import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
+import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
+import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
 
 const tenantSelect = tenantAdminSelect;
 
@@ -81,7 +96,22 @@ function maskMetaConnection(connection: MetaConnection) {
 
 @Injectable()
 export class TenantsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantLogoColor: TenantLogoColorService,
+    private readonly cloneService: TenantCloneService,
+    private readonly demoDataService: TenantDemoDataService,
+  ) {}
+
+  /**
+   * Gera dados fictícios (usuários, leads, imóveis, agenda, financeiro…)
+   * no tenant informado. Uso exclusivo de demonstração/treinamento.
+   */
+  async populateDemoData(id: string, dto: PopulateDemoDataDto = {}) {
+    const result = await this.demoDataService.populate(id, dto);
+    const tenant = await this.findOne(id);
+    return { ...result, tenant };
+  }
 
   findAll() {
     return this.prisma.tenant
@@ -133,6 +163,9 @@ export class TenantsService {
       logoUrl: dto.logoUrl,
       modules: planFields.modules,
     });
+    const primaryColor = await this.tenantLogoColor.extractPrimaryColor(
+      extras.logoUrl ?? null,
+    );
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -142,7 +175,7 @@ export class TenantsService {
             slug,
             documento: this.normalizeDocumento(dto.documento),
             status: dto.status ?? UserStatus.ativo,
-            primaryColor: null,
+            primaryColor,
             sidebarStyle: 'default',
             density: 'comfortable',
             homePath: '/dashboard',
@@ -295,20 +328,114 @@ export class TenantsService {
     }
 
     const temporaryPassword = this.generateTemporaryPassword();
-    const user = await this.prisma.user.update({
-      where: { id: admin.id },
+    const hashed = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
+    const updated = await this.prisma.user.updateMany({
+      where: { id: admin.id, tenantId },
       data: {
-        password: await bcrypt.hash(temporaryPassword, SALT_ROUNDS),
+        password: hashed,
         hashedRefreshToken: null,
         passwordResetToken: null,
         passwordResetExpires: null,
         failedLoginAttempts: 0,
         lockedUntil: null,
       },
+    });
+    if (updated.count === 0) {
+      throw new NotFoundException('Administrador não encontrado neste tenant.');
+    }
+
+    const user = await this.prisma.user.findFirstOrThrow({
+      where: { id: admin.id, tenantId },
       select: publicUserSelect,
     });
 
     return { user, temporaryPassword };
+  }
+
+  /**
+   * Atualiza nome/e-mail do admin principal deste tenant.
+   * O where inclui tenantId para não tocar no admin de outro cliente
+   * mesmo se o e-mail for igual (ex.: tenant duplicado).
+   */
+  async updateAdmin(tenantId: string, dto: UpdateTenantAdminDto) {
+    if (tenantId === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser alterado por aqui.',
+      );
+    }
+    await this.ensureExists(tenantId);
+
+    const admin = await this.prisma.user.findFirst({
+      where: { tenantId, role: Role.admin },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, tenantId: true, email: true },
+    });
+
+    if (!admin || admin.tenantId !== tenantId) {
+      throw new NotFoundException(
+        'Este tenant ainda não tem administrador. Crie o admin inicial primeiro.',
+      );
+    }
+
+    const name = dto.name?.trim();
+    const email = dto.email?.trim().toLowerCase();
+    if (!name && !email) {
+      throw new BadRequestException('Informe nome ou e-mail para atualizar.');
+    }
+
+    if (email && email !== admin.email) {
+      const clash = await this.prisma.user.findFirst({
+        where: { tenantId, email, id: { not: admin.id } },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new ConflictException(
+          'Já existe um usuário com este e-mail neste tenant.',
+        );
+      }
+    }
+
+    const emailChanged = Boolean(email && email !== admin.email);
+
+    try {
+      const updated = await this.prisma.user.updateMany({
+        where: { id: admin.id, tenantId },
+        data: {
+          ...(name ? { name } : {}),
+          ...(email ? { email } : {}),
+          ...(emailChanged
+            ? {
+                hashedRefreshToken: null,
+                passwordResetToken: null,
+                passwordResetExpires: null,
+              }
+            : {}),
+        },
+      });
+      if (updated.count === 0) {
+        throw new NotFoundException('Administrador não encontrado neste tenant.');
+      }
+    } catch (error) {
+      throw this.translateUniqueConstraint(
+        error,
+        'Este e-mail já está em uso neste tenant.',
+      );
+    }
+
+    return this.prisma.user.findFirstOrThrow({
+      where: { id: admin.id, tenantId },
+      select: publicUserSelect,
+    });
+  }
+
+  /**
+   * Cria um tenant novo e independente com cópia dos dados operacionais.
+   * Não reutiliza IDs, conexões Meta/OZap nem contratos da plataforma.
+   */
+  async duplicate(id: string, dto: DuplicateTenantDto = {}) {
+    const created = await this.cloneService.duplicate(id, dto);
+    const tenant = await this.findOne(created.id);
+    return { ...tenant, copied: created.copied };
   }
 
   /**
@@ -417,6 +544,7 @@ export class TenantsService {
         usuariosExtras: true,
         iaBotEnabled: true,
         modules: true,
+        logoUrl: true,
       },
     });
     if (!current) throw new NotFoundException('Tenant não encontrado.');
@@ -450,6 +578,11 @@ export class TenantsService {
       logoUrl: dto.logoUrl,
       modules: modulesToSave,
     });
+    const logoChanged =
+      dto.logoUrl !== undefined && extras.logoUrl !== current.logoUrl;
+    const primaryColor = logoChanged
+      ? await this.tenantLogoColor.extractPrimaryColor(extras.logoUrl ?? null)
+      : undefined;
 
     try {
       return await this.prisma.tenant.update({
@@ -468,7 +601,7 @@ export class TenantsService {
               : current.maxUsuarios),
           usuariosExtras: planFields.usuariosExtras,
           iaBotEnabled: planFields.iaBotEnabled,
-          primaryColor: null,
+          ...(logoChanged ? { primaryColor } : {}),
           sidebarStyle: 'default',
           density: 'comfortable',
           homePath: '/dashboard',
@@ -508,6 +641,7 @@ export class TenantsService {
   async createMetaConnection(tenantId: string, dto: CreateMetaConnectionDto) {
     await this.ensureExists(tenantId);
     const pageId = dto.pageId.trim();
+    const pageAccessToken = dto.pageAccessToken.trim();
     await this.ensurePageIdAvailable(pageId);
 
     try {
@@ -515,7 +649,7 @@ export class TenantsService {
         data: {
           tenantId,
           pageId,
-          pageAccessToken: dto.pageAccessToken,
+          pageAccessToken,
           ativo: dto.ativo ?? true,
         },
         select: metaConnectionSelect,
@@ -540,7 +674,7 @@ export class TenantsService {
       where: { id: connectionId },
       data: {
         ...(dto.pageAccessToken !== undefined
-          ? { pageAccessToken: dto.pageAccessToken }
+          ? { pageAccessToken: dto.pageAccessToken.trim() }
           : {}),
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },
@@ -715,6 +849,60 @@ export class TenantsService {
     }
 
     return chars.join('');
+  }
+
+  /** Dados da imobiliária do tenant do requester. */
+  async getCompanyProfile(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: tenantBrandingSelect,
+    });
+    if (!tenant) {
+      throw new NotFoundException('Tenant não encontrado.');
+    }
+    return tenant;
+  }
+
+  /** Atualiza nome/documento/CRECI/contato da imobiliária (admin). */
+  async updateCompanyProfile(
+    requester: AuthenticatedUser,
+    dto: UpdateTenantCompanyDto,
+  ) {
+    if (requester.role !== Role.admin) {
+      throw new ForbiddenException(
+        'Somente o administrador pode editar os dados da imobiliária.',
+      );
+    }
+    const tenantId = requireTenantId(requester);
+    if (tenantId === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser alterado por aqui.',
+      );
+    }
+    await this.ensureExists(tenantId);
+
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.documento !== undefined
+          ? { documento: this.normalizeDocumento(dto.documento) }
+          : {}),
+        ...(dto.creci !== undefined ? { creci: dto.creci.trim() } : {}),
+        ...(dto.email !== undefined
+          ? { email: dto.email.trim().toLowerCase() }
+          : {}),
+        ...(dto.telefone !== undefined
+          ? { telefone: dto.telefone.trim() }
+          : {}),
+        ...(dto.endereco !== undefined
+          ? { endereco: dto.endereco.trim() }
+          : {}),
+        ...(dto.cidade !== undefined ? { cidade: dto.cidade.trim() } : {}),
+      },
+      select: tenantBrandingSelect,
+    });
   }
 
   /** Mantém só dígitos do CPF/CNPJ (até 14). */

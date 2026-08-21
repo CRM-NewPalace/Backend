@@ -1,5 +1,6 @@
-import { Role, UserStatus } from '@prisma/client';
+import { CreciProcessoStatus, Role, UserStatus } from '@prisma/client';
 import {
+  IsDateString,
   IsEmail,
   IsIn,
   IsEnum,
@@ -7,6 +8,7 @@ import {
   IsString,
   Matches,
   MinLength,
+  MaxLength,
   ValidateIf,
 } from 'class-validator';
 
@@ -31,8 +33,23 @@ export class UpdateUserDto {
   whatsapp?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsDateString({}, { message: 'Data de nascimento inválida.' })
+  dataNascimento?: string | null;
+
+  @IsOptional()
   @IsString()
   cargo?: string;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== '')
+  @IsString()
+  @MaxLength(40)
+  creci?: string | null;
+
+  @IsOptional()
+  @IsEnum(CreciProcessoStatus, { message: 'Andamento do CRECI inválido.' })
+  creciStatus?: CreciProcessoStatus;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== '')
@@ -43,7 +60,7 @@ export class UpdateUserDto {
   cor?: string | null;
 
   @IsOptional()
-  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista], {
+  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee], {
     message: 'Perfil inválido.',
   })
   role?: Role;
