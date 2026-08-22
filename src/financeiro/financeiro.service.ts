@@ -21,6 +21,7 @@ import {
 } from "../common/utils/documentacao-status";
 import { resolveFinanceiroTenantId } from "../common/utils/tenant";
 import { isCorretorLike } from "../common/utils/roles";
+import { hasUserModule } from "../common/utils/user-permissions";
 import { DocumentacaoService } from "../documentacao/documentacao.service";
 import { LeadsService } from "../leads/leads.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -4358,15 +4359,18 @@ export class FinanceiroService {
 
   private assertComissaoAccess(requester: AuthenticatedUser) {
     if (
-      requester.role !== Role.admin &&
-      requester.role !== Role.gerente &&
-      requester.role !== Role.corretor &&
-      requester.role !== Role.treinee &&
-      requester.role !== Role.super_admin &&
-      requester.role !== Role.financeiro
+      requester.role === Role.admin ||
+      requester.role === Role.gerente ||
+      requester.role === Role.corretor ||
+      requester.role === Role.treinee ||
+      requester.role === Role.super_admin ||
+      requester.role === Role.financeiro ||
+      hasUserModule(requester.role, requester.permissions, "comissao") ||
+      hasUserModule(requester.role, requester.permissions, "financeiro")
     ) {
-      throw new ForbiddenException("Você não possui acesso às comissões.");
+      return;
     }
+    throw new ForbiddenException("Você não possui acesso às comissões.");
   }
 
   private assertComissaoWrite(requester: AuthenticatedUser) {
@@ -4383,15 +4387,17 @@ export class FinanceiroService {
 
   private assertAccess(requester: AuthenticatedUser) {
     if (
-      requester.role !== Role.admin &&
-      requester.role !== Role.gerente &&
-      requester.role !== Role.super_admin &&
-      requester.role !== Role.financeiro
+      requester.role === Role.admin ||
+      requester.role === Role.gerente ||
+      requester.role === Role.super_admin ||
+      requester.role === Role.financeiro ||
+      hasUserModule(requester.role, requester.permissions, "financeiro")
     ) {
-      throw new ForbiddenException(
-        "Módulo financeiro disponível para admin, gerente, financeiro e super admin.",
-      );
+      return;
     }
+    throw new ForbiddenException(
+      "Módulo financeiro disponível para admin, gerente, financeiro e super admin.",
+    );
   }
 
   private assertWrite(requester: AuthenticatedUser) {

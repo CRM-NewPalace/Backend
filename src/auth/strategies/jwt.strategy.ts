@@ -1,13 +1,14 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { Role } from '@prisma/client';
+import { Role, UserStatus } from '@prisma/client';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import type { Request } from 'express';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { COOKIE } from '../../common/utils/auth-cookies';
 import type { UserPermissions } from '../../common/utils/user-permissions';
 import { sanitizeUserPermissions } from '../../common/utils/user-permissions';
+import { PrismaService } from '../../prisma/prisma.service';
 
 export interface JwtPayload {
   sub: string;
@@ -35,7 +36,10 @@ function extractAccessToken(req: Request): string | null {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     const secret = config.get<string>('JWT_ACCESS_SECRET');
     if (!secret) {
       throw new Error('JWT_ACCESS_SECRET não configurado no ambiente.');
@@ -48,21 +52,45 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  validate(payload: JwtPayload): AuthenticatedUser {
+  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     if (!payload?.sub) {
       throw new UnauthorizedException('Token inválido.');
     }
 
+    const row = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        name: true,
+        tenantId: true,
+        status: true,
+        financeiroCanView: true,
+        financeiroCanCreate: true,
+        financeiroCanEdit: true,
+        financeiroCanDelete: true,
+        permissions: true,
+      },
+    });
+
+    if (!row || row.status !== UserStatus.ativo) {
+      throw new UnauthorizedException('Sessão inválida.');
+    }
+
     return {
-      id: payload.sub,
-      email: payload.email,
-      role: payload.role,
-      name: payload.name,
-      tenantId: payload.tenantId ?? null,
-      financeiroPerms: payload.financeiroPerms,
-      permissions: payload.permissions
-        ? sanitizeUserPermissions(payload.permissions)
-        : null,
+      id: row.id,
+      email: row.email,
+      role: row.role,
+      name: row.name,
+      tenantId: row.tenantId,
+      financeiroPerms: {
+        view: row.financeiroCanView !== false,
+        create: row.financeiroCanCreate !== false,
+        edit: row.financeiroCanEdit !== false,
+        delete: row.financeiroCanDelete !== false,
+      },
+      permissions: sanitizeUserPermissions(row.permissions),
     };
   }
 }

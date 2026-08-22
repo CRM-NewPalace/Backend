@@ -382,3 +382,73 @@ export function hasUserAction(
 ): boolean {
   return effectivePermissions(role, stored).actions[action] === true;
 }
+
+export function hasUserModule(
+  role: Role,
+  stored: UserPermissions | null | undefined,
+  moduleKey: string,
+): boolean {
+  return effectivePermissions(role, stored).modules[moduleKey] === true;
+}
+
+export function hasAnyUserModule(
+  role: Role,
+  stored: UserPermissions | null | undefined,
+  moduleKeys: readonly string[],
+): boolean {
+  return moduleKeys.some((key) => hasUserModule(role, stored, key));
+}
+
+/** Prefixos de escrita que continuam restritos ao cargo (não bastam módulos). */
+const SENSITIVE_WRITE_PREFIXES = ['users', 'tenants', 'equipes'] as const;
+
+/**
+ * Módulos de permissão que liberam um path da API além do @Roles.
+ * Um path pode mapear para mais de um módulo (ex.: ranking serve Dashboard e Taxa).
+ */
+export function modulesForApiPath(rawPath: string): string[] {
+  const path = rawPath.split('?')[0].replace(/^\/+/, '').toLowerCase();
+
+  if (path.startsWith('leads/monitoramento')) return ['atrasos'];
+  if (path.startsWith('leads/perdidos') || path.startsWith('leads/clientes-perdidos')) {
+    return path.includes('clientes-perdidos')
+      ? ['clientesPerdidos']
+      : ['leadsPerdidos'];
+  }
+  if (path.startsWith('dashboard/ranking')) {
+    return ['corretores', 'taxaConversao', 'dashboard'];
+  }
+  if (path.startsWith('dashboard')) {
+    return ['dashboard', 'taxaConversao', 'corretores'];
+  }
+  if (path.startsWith('financeiro/comissao')) return ['comissao', 'financeiro'];
+  if (path.startsWith('financeiro')) return ['financeiro'];
+  if (path.startsWith('documentacao')) return ['documentacao', 'vendas'];
+  if (path.startsWith('propostas')) return ['propostas'];
+  if (path.startsWith('contratos')) return ['contratos'];
+  if (path.startsWith('funis')) return ['funil'];
+  if (path.startsWith('leads')) return ['leads'];
+  if (path.startsWith('agenda')) return ['agenda'];
+  if (path.startsWith('users')) return ['usuarios'];
+  if (path.startsWith('equipes')) return ['equipes'];
+  if (path.startsWith('analise')) return ['analise'];
+  if (path.startsWith('metas')) return ['metas'];
+  if (path.startsWith('catalog')) return ['configuracoes'];
+  if (path.startsWith('construtoras')) return ['construtoras'];
+  if (path.startsWith('empreendimentos') || path.startsWith('imoveis')) {
+    return ['imoveis', 'construtoras'];
+  }
+  if (path.startsWith('treinamento')) return ['treinamento'];
+  if (path.startsWith('triagem')) return ['triagem'];
+  if (path.startsWith('localidades')) return ['imoveis', 'construtoras'];
+  return [];
+}
+
+export function isSensitiveApiWrite(rawPath: string, method: string): boolean {
+  const verb = method.toUpperCase();
+  if (verb === 'GET' || verb === 'HEAD' || verb === 'OPTIONS') return false;
+  const path = rawPath.split('?')[0].replace(/^\/+/, '').toLowerCase();
+  return SENSITIVE_WRITE_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+}

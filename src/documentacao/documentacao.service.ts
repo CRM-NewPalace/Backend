@@ -26,6 +26,7 @@ import {
   isStatusVendido,
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
+import { hasUserModule } from '../common/utils/user-permissions';
 import { prismaTableOrderBy } from '../common/utils/table-sort';
 import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
 import { UpdateDocumentacaoDto } from './dto/update-documentacao.dto';
@@ -639,6 +640,12 @@ export class DocumentacaoService {
         };
       }
       default:
+        if (
+          hasUserModule(requester.role, requester.permissions, 'documentacao') ||
+          hasUserModule(requester.role, requester.permissions, 'vendas')
+        ) {
+          return {};
+        }
         throw new ForbiddenException(
           'Você não tem permissão para acessar este recurso.',
         );

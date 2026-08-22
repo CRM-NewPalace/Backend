@@ -20,7 +20,14 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('corretor/:id/vendas')
-  @Roles(Role.admin, Role.gerente)
+  @Roles(
+    Role.admin,
+    Role.gerente,
+    Role.analista,
+    Role.corretor,
+    Role.treinee,
+    Role.financeiro,
+  )
   listVendasCorretor(
     @Param('id', ParseUUIDPipe) corretorId: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -34,7 +41,14 @@ export class DashboardController {
   }
 
   @Get('corretor/:id/esteira')
-  @Roles(Role.admin, Role.gerente)
+  @Roles(
+    Role.admin,
+    Role.gerente,
+    Role.analista,
+    Role.corretor,
+    Role.treinee,
+    Role.financeiro,
+  )
   esteiraCorretor(
     @Param('id', ParseUUIDPipe) corretorId: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -54,7 +68,14 @@ export class DashboardController {
   }
 
   @Get('admin')
-  @Roles(Role.admin, Role.gerente)
+  @Roles(
+    Role.admin,
+    Role.gerente,
+    Role.analista,
+    Role.corretor,
+    Role.treinee,
+    Role.financeiro,
+  )
   resumoAdmin(
     @CurrentUser() requester: AuthenticatedUser,
     @Query() query: QueryDashboardDto,
@@ -63,7 +84,14 @@ export class DashboardController {
   }
 
   @Get('ranking')
-  @Roles(Role.admin, Role.gerente)
+  @Roles(
+    Role.admin,
+    Role.gerente,
+    Role.analista,
+    Role.corretor,
+    Role.treinee,
+    Role.financeiro,
+  )
   ranking(
     @CurrentUser() requester: AuthenticatedUser,
     @Query() query: QueryDashboardDto,

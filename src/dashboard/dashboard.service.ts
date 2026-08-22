@@ -32,6 +32,10 @@ import {
   sumVgvVendido,
 } from '../common/utils/documentacao-status';
 import { requireTenantId } from '../common/utils/tenant';
+import {
+  hasAnyUserModule,
+  sanitizeUserPermissions,
+} from '../common/utils/user-permissions';
 import { AgendaService } from '../agenda/agenda.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { FunisService } from '../funis/funis.service';
@@ -312,11 +316,10 @@ export class DashboardService {
       granularidade?: PeriodoGranularidade;
     } = {},
   ) {
-    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
-      throw new ForbiddenException(
-        'Dashboard gerencial disponível para admin e gerente.',
-      );
-    }
+    await this.assertDashboardGerencial(requester, [
+      'dashboard',
+      'taxaConversao',
+    ]);
 
     const tenantId = requireTenantId(requester);
     const windows = janelasBrasil({
@@ -1256,11 +1259,10 @@ export class DashboardService {
       granularidade?: PeriodoGranularidade;
     } = {},
   ) {
-    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
-      throw new ForbiddenException(
-        'Esteira disponível para admin e gerente.',
-      );
-    }
+    await this.assertDashboardGerencial(requester, [
+      'dashboard',
+      'corretores',
+    ]);
 
     const tenantId = requireTenantId(requester);
     const allowed = await this.teamScope.canAccessCorretor(
@@ -1400,11 +1402,11 @@ export class DashboardService {
       granularidade?: PeriodoGranularidade;
     } = {},
   ) {
-    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
-      throw new ForbiddenException(
-        'Ranking disponível para admin e gerente.',
-      );
-    }
+    await this.assertDashboardGerencial(requester, [
+      'dashboard',
+      'corretores',
+      'taxaConversao',
+    ]);
 
     const tenantId = requireTenantId(requester);
     const { mesAtual, mesAnterior, agora } = janelasBrasil({
@@ -1837,11 +1839,10 @@ export class DashboardService {
       granularidade?: PeriodoGranularidade;
     } = {},
   ) {
-    if (requester.role !== Role.admin && requester.role !== Role.gerente) {
-      throw new ForbiddenException(
-        'Vendas do corretor disponíveis para admin e gerente.',
-      );
-    }
+    await this.assertDashboardGerencial(requester, [
+      'dashboard',
+      'corretores',
+    ]);
     const allowed = await this.teamScope.canAccessCorretor(
       requester,
       corretorId,
@@ -1958,5 +1959,38 @@ export class DashboardService {
       },
       items,
     };
+  }
+
+  private async assertDashboardGerencial(
+    requester: AuthenticatedUser,
+    moduleKeys: readonly string[] = ['dashboard'],
+  ) {
+    if (
+      requester.role === Role.admin ||
+      requester.role === Role.gerente ||
+      requester.role === Role.super_admin
+    ) {
+      return;
+    }
+    if (hasAnyUserModule(requester.role, requester.permissions, moduleKeys)) {
+      return;
+    }
+    const row = await this.prisma.user.findUnique({
+      where: { id: requester.id },
+      select: { role: true, permissions: true },
+    });
+    if (
+      row &&
+      hasAnyUserModule(
+        row.role,
+        sanitizeUserPermissions(row.permissions),
+        moduleKeys,
+      )
+    ) {
+      return;
+    }
+    throw new ForbiddenException(
+      'Você não tem permissão para o dashboard gerencial.',
+    );
   }
 }

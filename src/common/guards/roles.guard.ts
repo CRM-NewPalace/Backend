@@ -9,8 +9,13 @@ import { Role } from '@prisma/client';
 import type { Request } from 'express';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { AuthenticatedUser } from '../types/authenticated-user';
+import {
+  hasAnyUserModule,
+  isSensitiveApiWrite,
+  modulesForApiPath,
+} from '../utils/user-permissions';
 
-/** Autoriza a rota apenas para os perfis definidos com @Roles(). */
+/** Autoriza a rota para os perfis de @Roles() ou para quem recebeu o módulo. */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
@@ -36,12 +41,20 @@ export class RolesGuard implements CanActivate {
 
     const userRole = String(user.role);
     const allowed = requiredRoles.some((role) => String(role) === userRole);
-    if (!allowed) {
-      throw new ForbiddenException(
-        'Você não tem permissão para acessar este recurso.',
-      );
+    if (allowed) {
+      return true;
     }
 
-    return true;
+    const rawPath = `${request.originalUrl ?? request.url ?? ''}`.split('?')[0];
+    if (
+      !isSensitiveApiWrite(rawPath, request.method) &&
+      hasAnyUserModule(user.role, user.permissions, modulesForApiPath(rawPath))
+    ) {
+      return true;
+    }
+
+    throw new ForbiddenException(
+      'Você não tem permissão para acessar este recurso.',
+    );
   }
 }

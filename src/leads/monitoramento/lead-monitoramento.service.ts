@@ -21,6 +21,7 @@ import { TeamScopeService } from '../../equipes/team-scope.service';
 import { NotificacoesService } from '../../notificacoes/notificacoes.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { requireTenantId } from '../../common/utils/tenant';
+import { hasUserModule } from '../../common/utils/user-permissions';
 import { AdiarPrazoDto } from '../dto/adiar-prazo.dto';
 import {
   addPrazo,
@@ -562,7 +563,8 @@ export class LeadMonitoramentoService {
     if (
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
-      requester.role !== Role.analista
+      requester.role !== Role.analista &&
+      !hasUserModule(requester.role, requester.permissions, 'atrasos')
     ) {
       throw new ForbiddenException(
         'Sem permissão para visualizar corretores em atraso.',

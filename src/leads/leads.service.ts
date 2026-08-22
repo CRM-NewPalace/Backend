@@ -76,7 +76,8 @@ export class LeadsService {
 
     if (
       requester.role === Role.analista &&
-      dto.tipo !== 'cliente'
+      dto.tipo !== 'cliente' &&
+      !hasUserAction(requester.role, requester.permissions, 'leads.create')
     ) {
       throw new ForbiddenException(
         'Analistas podem criar somente clientes para documentação.',
@@ -138,7 +139,10 @@ export class LeadsService {
   }
 
   async importMany(dto: ImportLeadsDto, requester: AuthenticatedUser) {
-    if (requester.role === Role.analista) {
+    if (
+      requester.role === Role.analista &&
+      !hasUserAction(requester.role, requester.permissions, 'leads.create')
+    ) {
       throw new ForbiddenException('Analistas não podem importar contatos.');
     }
 
