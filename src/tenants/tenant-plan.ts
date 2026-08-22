@@ -95,6 +95,16 @@ export function isGerenteAllowed(plano: TenantPlano): boolean {
   return plano !== TenantPlano.solo;
 }
 
+/** Perfil exclusivo do módulo Financeiro — Bronze não tem o módulo. */
+export function isFinanceiroRoleAllowed(
+  plano: TenantPlano,
+  modules?: Record<string, boolean> | null,
+): boolean {
+  if (plano === TenantPlano.bronze) return false;
+  if (plano === TenantPlano.solo) return true;
+  return modules?.financeiro !== false;
+}
+
 export function assertRoleAllowedForPlano(
   plano: TenantPlano,
   role: Role,
@@ -102,6 +112,12 @@ export function assertRoleAllowedForPlano(
 ): string | null {
   if (role === Role.gerente && !isGerenteAllowed(plano)) {
     return 'O plano Solo não inclui o perfil Gerente.';
+  }
+  if (role === Role.financeiro && !isFinanceiroRoleAllowed(plano, modules)) {
+    if (plano === TenantPlano.bronze) {
+      return 'O plano Bronze não inclui o módulo Financeiro.';
+    }
+    return 'O perfil Financeiro exige o módulo Financeiro ativo no plano.';
   }
   if (role === Role.analista && !isAnalistaAllowed(plano, modules)) {
     if (plano === TenantPlano.solo) {

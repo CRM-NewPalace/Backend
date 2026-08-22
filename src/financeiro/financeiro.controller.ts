@@ -18,6 +18,7 @@ import {
 } from "@prisma/client";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { Roles } from "../common/decorators/roles.decorator";
+import { FinanceiroPermsGuard } from "../common/guards/financeiro-perms.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { AuthenticatedUser } from "../common/types/authenticated-user";
 import { CreateCategoriaDto } from "./dto/create-categoria.dto";
@@ -49,20 +50,20 @@ import { RenovarRecebimentosDto } from "./dto/renovar-recebimentos.dto";
 import { FinanceiroService } from "./financeiro.service";
 
 @Controller("financeiro")
-@UseGuards(RolesGuard)
+@UseGuards(RolesGuard, FinanceiroPermsGuard)
 export class FinanceiroController {
   constructor(private readonly financeiroService: FinanceiroService) {}
 
   // ─── Resumos ─────────────────────────────────────────────────
 
   @Get("visao-geral")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   visaoGeral(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.visaoGeral(requester);
   }
 
   @Get("fluxo-caixa")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   fluxoCaixa(
     @CurrentUser() requester: AuthenticatedUser,
     @Query() query: QueryFluxoCaixaDto,
@@ -71,7 +72,7 @@ export class FinanceiroController {
   }
 
   @Get("fluxo-caixa/itens")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   fluxoCaixaItens(
     @CurrentUser() requester: AuthenticatedUser,
     @Query("from") from?: string,
@@ -81,7 +82,7 @@ export class FinanceiroController {
   }
 
   @Get("centros-despesa")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   centrosDespesa(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.centrosDespesa(requester);
   }
@@ -89,13 +90,13 @@ export class FinanceiroController {
   // ─── Parceiros ───────────────────────────────────────────────
 
   @Get("parceiros")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   listParceiros(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.listParceiros(requester);
   }
 
   @Post("parceiros")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   createParceiro(
     @Body() dto: CreateParceiroDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -104,7 +105,7 @@ export class FinanceiroController {
   }
 
   @Patch("parceiros/:id")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   updateParceiro(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateParceiroDto,
@@ -114,7 +115,7 @@ export class FinanceiroController {
   }
 
   @Delete("parceiros/:id")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   removeParceiro(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -125,7 +126,7 @@ export class FinanceiroController {
   // ─── Categorias ──────────────────────────────────────────────
 
   @Get("categorias/resumo")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   resumoCategorias(
     @CurrentUser() requester: AuthenticatedUser,
     @Query("periodo") periodo?: "mes" | "trimestre" | "ano" | "tudo",
@@ -138,7 +139,7 @@ export class FinanceiroController {
   }
 
   @Get("categorias")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   listCategorias(
     @CurrentUser() requester: AuthenticatedUser,
     @Query("tipo") tipo?: FinanceiroMovimentoTipo,
@@ -147,7 +148,7 @@ export class FinanceiroController {
   }
 
   @Post("categorias")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   createCategoria(
     @Body() dto: CreateCategoriaDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -156,7 +157,7 @@ export class FinanceiroController {
   }
 
   @Patch("categorias/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   updateCategoria(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateCategoriaDto,
@@ -166,7 +167,7 @@ export class FinanceiroController {
   }
 
   @Delete("categorias/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   removeCategoria(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -177,13 +178,13 @@ export class FinanceiroController {
   // ─── Movimentos ──────────────────────────────────────────────
 
   @Get("movimentos")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   listMovimentos(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.listMovimentos(requester);
   }
 
   @Post("movimentos")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   createMovimento(
     @Body() dto: CreateMovimentoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -192,7 +193,7 @@ export class FinanceiroController {
   }
 
   @Patch("movimentos/:id")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   updateMovimento(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateMovimentoDto,
@@ -202,7 +203,7 @@ export class FinanceiroController {
   }
 
   @Delete("movimentos/:id")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   removeMovimento(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -213,7 +214,7 @@ export class FinanceiroController {
   // ─── Títulos ─────────────────────────────────────────────────
 
   @Get("titulos")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   listTitulos(
     @CurrentUser() requester: AuthenticatedUser,
     @Query("tipo") tipo?: FinanceiroTituloTipo,
@@ -229,7 +230,7 @@ export class FinanceiroController {
   }
 
   @Post("titulos")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   createTitulo(
     @Body() dto: CreateTituloDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -238,7 +239,7 @@ export class FinanceiroController {
   }
 
   @Post("titulos/parcelado")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   createTitulosParcelado(
     @Body() dto: CreateTitulosParceladoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -247,13 +248,13 @@ export class FinanceiroController {
   }
 
   @Get("titulos/vendas-elegiveis")
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.financeiro)
   listVendasElegiveisTitulo(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.listVendasElegiveis(requester);
   }
 
   @Post("titulos/comissao")
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.financeiro)
   createTituloComissao(
     @Body() dto: CreateTituloComissaoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -262,7 +263,7 @@ export class FinanceiroController {
   }
 
   @Post("titulos/comissao-avulsa")
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.financeiro)
   createTituloComissaoAvulsa(
     @Body() dto: CreateComissaoVendaAvulsaDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -271,7 +272,7 @@ export class FinanceiroController {
   }
 
   @Patch("titulos/grupo/:grupoParcelasId")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   updateTitulosGrupo(
     @Param("grupoParcelasId", ParseUUIDPipe) grupoParcelasId: string,
     @Body() dto: UpdateTitulosGrupoDto,
@@ -285,7 +286,7 @@ export class FinanceiroController {
   }
 
   @Patch("titulos/:id")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   updateTitulo(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateTituloDto,
@@ -295,7 +296,7 @@ export class FinanceiroController {
   }
 
   @Post("titulos/:id/baixar")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   baixarTitulo(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: BaixarTituloDto,
@@ -305,7 +306,7 @@ export class FinanceiroController {
   }
 
   @Delete("titulos/grupo/:grupoParcelasId")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   removeTitulosGrupo(
     @Param("grupoParcelasId", ParseUUIDPipe) grupoParcelasId: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -317,7 +318,7 @@ export class FinanceiroController {
   }
 
   @Delete("titulos/:id")
-  @Roles(Role.admin, Role.gerente, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
   removeTitulo(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -328,19 +329,19 @@ export class FinanceiroController {
   // ─── Comissões ───────────────────────────────────────────────
 
   @Get("comissoes/vendas-elegiveis")
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.financeiro)
   listVendasElegiveis(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.listVendasElegiveis(requester);
   }
 
   @Get("comissoes")
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.super_admin)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.super_admin, Role.financeiro)
   listComissoes(@CurrentUser() requester: AuthenticatedUser) {
     return this.financeiroService.listComissoes(requester);
   }
 
   @Post("comissoes")
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.financeiro)
   createComissao(
     @Body() dto: CreateComissaoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -349,7 +350,7 @@ export class FinanceiroController {
   }
 
   @Post("comissoes/com-venda-avulsa")
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.financeiro)
   createComissaoComVendaAvulsa(
     @Body() dto: CreateComissaoVendaAvulsaDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -358,7 +359,7 @@ export class FinanceiroController {
   }
 
   @Patch("comissoes/:id")
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.financeiro)
   updateComissao(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateComissaoDto,
@@ -368,7 +369,7 @@ export class FinanceiroController {
   }
 
   @Delete("comissoes/:id")
-  @Roles(Role.admin, Role.super_admin)
+  @Roles(Role.admin, Role.super_admin, Role.financeiro)
   removeComissao(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -379,7 +380,7 @@ export class FinanceiroController {
   // ─── Centro de despesas (somente imobiliária) ────────────────
 
   @Get("despesa-tipos")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   listDespesaTipos(
     @CurrentUser() requester: AuthenticatedUser,
     @Query("natureza") natureza?: FinanceiroDespesaNatureza,
@@ -388,7 +389,7 @@ export class FinanceiroController {
   }
 
   @Post("despesa-tipos")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   createDespesaTipo(
     @Body() dto: CreateDespesaTipoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -397,7 +398,7 @@ export class FinanceiroController {
   }
 
   @Patch("despesa-tipos/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   updateDespesaTipo(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateDespesaTipoDto,
@@ -407,7 +408,7 @@ export class FinanceiroController {
   }
 
   @Delete("despesa-tipos/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   removeDespesaTipo(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -416,7 +417,7 @@ export class FinanceiroController {
   }
 
   @Get("despesas")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   listDespesas(
     @CurrentUser() requester: AuthenticatedUser,
     @Query("natureza") natureza?: FinanceiroDespesaNatureza,
@@ -425,7 +426,7 @@ export class FinanceiroController {
   }
 
   @Post("despesas")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   createDespesa(
     @Body() dto: CreateDespesaDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -434,7 +435,7 @@ export class FinanceiroController {
   }
 
   @Post("despesas/renovar-mes")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   renovarDespesasMes(
     @Body() dto: RenovarDespesasDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -443,7 +444,7 @@ export class FinanceiroController {
   }
 
   @Patch("despesas/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   updateDespesa(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateDespesaDto,
@@ -453,7 +454,7 @@ export class FinanceiroController {
   }
 
   @Delete("despesas/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   removeDespesa(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -464,7 +465,7 @@ export class FinanceiroController {
   // ─── Centro de recebimentos (somente imobiliária) ────────────
 
   @Get("recebimento-tipos")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   listRecebimentoTipos(
     @CurrentUser() requester: AuthenticatedUser,
     @Query("natureza") natureza?: FinanceiroDespesaNatureza,
@@ -473,7 +474,7 @@ export class FinanceiroController {
   }
 
   @Post("recebimento-tipos")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   createRecebimentoTipo(
     @Body() dto: CreateRecebimentoTipoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -482,7 +483,7 @@ export class FinanceiroController {
   }
 
   @Patch("recebimento-tipos/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   updateRecebimentoTipo(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateRecebimentoTipoDto,
@@ -492,7 +493,7 @@ export class FinanceiroController {
   }
 
   @Delete("recebimento-tipos/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   removeRecebimentoTipo(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
@@ -501,7 +502,7 @@ export class FinanceiroController {
   }
 
   @Get("recebimentos")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   listRecebimentos(
     @CurrentUser() requester: AuthenticatedUser,
     @Query("natureza") natureza?: FinanceiroDespesaNatureza,
@@ -510,7 +511,7 @@ export class FinanceiroController {
   }
 
   @Post("recebimentos")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   createRecebimento(
     @Body() dto: CreateRecebimentoDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -519,7 +520,7 @@ export class FinanceiroController {
   }
 
   @Post("recebimentos/renovar-mes")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   renovarRecebimentosMes(
     @Body() dto: RenovarRecebimentosDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -528,7 +529,7 @@ export class FinanceiroController {
   }
 
   @Patch("recebimentos/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   updateRecebimento(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: UpdateRecebimentoDto,
@@ -538,7 +539,7 @@ export class FinanceiroController {
   }
 
   @Delete("recebimentos/:id")
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.financeiro)
   removeRecebimento(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,

@@ -4362,14 +4362,19 @@ export class FinanceiroService {
       requester.role !== Role.gerente &&
       requester.role !== Role.corretor &&
       requester.role !== Role.treinee &&
-      requester.role !== Role.super_admin
+      requester.role !== Role.super_admin &&
+      requester.role !== Role.financeiro
     ) {
       throw new ForbiddenException("Você não possui acesso às comissões.");
     }
   }
 
   private assertComissaoWrite(requester: AuthenticatedUser) {
-    if (requester.role !== Role.admin && requester.role !== Role.super_admin) {
+    if (
+      requester.role !== Role.admin &&
+      requester.role !== Role.super_admin &&
+      requester.role !== Role.financeiro
+    ) {
       throw new ForbiddenException(
         "Somente administradores gerenciam comissões.",
       );
@@ -4380,10 +4385,11 @@ export class FinanceiroService {
     if (
       requester.role !== Role.admin &&
       requester.role !== Role.gerente &&
-      requester.role !== Role.super_admin
+      requester.role !== Role.super_admin &&
+      requester.role !== Role.financeiro
     ) {
       throw new ForbiddenException(
-        "Módulo financeiro disponível para admin, gerente e super admin.",
+        "Módulo financeiro disponível para admin, gerente, financeiro e super admin.",
       );
     }
   }

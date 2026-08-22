@@ -26,6 +26,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUsersDto } from './dto/query-users.dto';
 import { assertRoleAllowedForPlano } from '../tenants/tenant-plan';
+import { sanitizeUserPermissions } from '../common/utils/user-permissions';
 
 export interface PaginatedUsers {
   data: PublicUser[];
@@ -99,6 +100,13 @@ export class UsersService {
         role: dto.role,
         status: dto.status ?? UserStatus.ativo,
         avatar: dto.avatar,
+        financeiroCanView: true,
+        financeiroCanCreate:
+          dto.role === Role.financeiro ? dto.financeiroCanCreate !== false : true,
+        financeiroCanEdit:
+          dto.role === Role.financeiro ? dto.financeiroCanEdit !== false : true,
+        financeiroCanDelete:
+          dto.role === Role.financeiro ? dto.financeiroCanDelete !== false : true,
       },
       select: publicUserSelect,
     });
@@ -176,7 +184,13 @@ export class UsersService {
   }
 
   private async assertRoleAllowed(tenantId: string, role: Role) {
-    if (role !== Role.analista && role !== Role.gerente) return;
+    if (
+      role !== Role.analista &&
+      role !== Role.gerente &&
+      role !== Role.financeiro
+    ) {
+      return;
+    }
 
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -355,6 +369,21 @@ export class UsersService {
         ...(dto.role !== undefined ? { role: dto.role } : {}),
         ...(dto.status !== undefined ? { status: dto.status } : {}),
         ...(dto.avatar !== undefined ? { avatar: dto.avatar } : {}),
+        ...(dto.financeiroCanView !== undefined
+          ? { financeiroCanView: true }
+          : {}),
+        ...(dto.financeiroCanCreate !== undefined
+          ? { financeiroCanCreate: dto.financeiroCanCreate }
+          : {}),
+        ...(dto.financeiroCanEdit !== undefined
+          ? { financeiroCanEdit: dto.financeiroCanEdit }
+          : {}),
+        ...(dto.financeiroCanDelete !== undefined
+          ? { financeiroCanDelete: dto.financeiroCanDelete }
+          : {}),
+        ...(dto.permissions !== undefined
+          ? { permissions: sanitizeUserPermissions(dto.permissions) }
+          : {}),
       },
       select: publicUserSelect,
     });

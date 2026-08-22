@@ -20,6 +20,8 @@ enum Role {
   analista
   /// Cadastro operacional limitado: construtoras, empreendimentos, origens e tags.
   treinee
+  /// Acesso exclusivo ao módulo Financeiro da imobiliária.
+  financeiro
 }
 
 /// Situação do usuário no sistema.
@@ -230,6 +232,13 @@ model User {
   role      Role       @default(corretor)
   status    UserStatus @default(ativo)
   avatar    String?
+  /// Permissões do perfil financeiro (ignoradas nos demais perfis).
+  financeiroCanView   Boolean @default(true)
+  financeiroCanCreate Boolean @default(true)
+  financeiroCanEdit   Boolean @default(true)
+  financeiroCanDelete Boolean @default(true)
+  /// Overrides por usuário: { modules: { leads: true }, actions: { "leads.export": false } }
+  permissions Json?
 
   lastLoginAt DateTime?
 

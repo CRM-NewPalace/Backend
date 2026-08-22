@@ -18,6 +18,7 @@ import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { prismaTableOrderBy } from '../common/utils/table-sort';
 import { isCorretorLike } from '../common/utils/roles';
+import { hasUserAction } from '../common/utils/user-permissions';
 import { CatalogService } from '../catalog/catalog.service';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
@@ -575,7 +576,11 @@ export class LeadsService {
       phoneMatchIds = rows.map((r) => r.id);
     }
 
-    const leadScope = await this.teamScope.leadScope(requester);
+    const leadScope =
+      isCorretorLike(requester.role) &&
+      hasUserAction(requester.role, requester.permissions, 'leads.viewOthers')
+        ? { tenantId: requireTenantId(requester) }
+        : await this.teamScope.leadScope(requester);
     const tipoFiltro = query.tipo as ContatoTipo | undefined;
     const isGestorCarteira =
       requester.role === Role.admin || requester.role === Role.gerente;

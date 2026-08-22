@@ -6,6 +6,8 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import type { Request } from 'express';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { COOKIE } from '../../common/utils/auth-cookies';
+import type { UserPermissions } from '../../common/utils/user-permissions';
+import { sanitizeUserPermissions } from '../../common/utils/user-permissions';
 
 export interface JwtPayload {
   sub: string;
@@ -13,6 +15,13 @@ export interface JwtPayload {
   role: Role;
   name: string;
   tenantId: string | null;
+  financeiroPerms?: {
+    view: boolean;
+    create: boolean;
+    edit: boolean;
+    delete: boolean;
+  };
+  permissions?: UserPermissions | null;
 }
 
 /** Lê o JWT do cookie httpOnly; cai no Authorization Bearer se existir. */
@@ -50,6 +59,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       role: payload.role,
       name: payload.name,
       tenantId: payload.tenantId ?? null,
+      financeiroPerms: payload.financeiroPerms,
+      permissions: payload.permissions
+        ? sanitizeUserPermissions(payload.permissions)
+        : null,
     };
   }
 }

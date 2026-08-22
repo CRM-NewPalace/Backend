@@ -41,6 +41,14 @@ export class DocumentacaoController {
    * Precisa ficar antes de GET :id.
    */
   @Get('corretores')
+  @Roles(
+    Role.admin,
+    Role.gerente,
+    Role.corretor,
+    Role.treinee,
+    Role.analista,
+    Role.financeiro,
+  )
   listCorretores(@CurrentUser() requester: AuthenticatedUser) {
     return this.documentacaoService.listCorretores(requester);
   }

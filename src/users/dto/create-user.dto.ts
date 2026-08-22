@@ -1,5 +1,6 @@
 import { CreciProcessoStatus, Role, UserStatus } from '@prisma/client';
 import {
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -68,10 +69,36 @@ export class CreateUserDto {
   })
   cor?: string | null;
 
-  @IsIn([Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee], {
-    message: 'Perfil inválido.',
-  })
+  @IsIn(
+    [
+      Role.admin,
+      Role.gerente,
+      Role.corretor,
+      Role.analista,
+      Role.treinee,
+      Role.financeiro,
+    ],
+    {
+      message: 'Perfil inválido.',
+    },
+  )
   role!: Role;
+
+  @IsOptional()
+  @IsBoolean()
+  financeiroCanView?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  financeiroCanCreate?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  financeiroCanEdit?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  financeiroCanDelete?: boolean;
 
   @IsOptional()
   @IsEnum(UserStatus, { message: 'Status inválido.' })

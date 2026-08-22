@@ -38,7 +38,14 @@ export class ConstrutorasController {
   constructor(private readonly construtorasService: ConstrutorasService) {}
 
   @Get()
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  @Roles(
+    Role.admin,
+    Role.gerente,
+    Role.corretor,
+    Role.analista,
+    Role.treinee,
+    Role.financeiro,
+  )
   list(
     @Query() query: QueryConstrutorasDto,
     @CurrentUser() requester: AuthenticatedUser,

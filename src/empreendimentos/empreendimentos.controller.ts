@@ -34,7 +34,14 @@ export class EmpreendimentosController {
   ) {}
 
   @Get()
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  @Roles(
+    Role.admin,
+    Role.gerente,
+    Role.corretor,
+    Role.analista,
+    Role.treinee,
+    Role.financeiro,
+  )
   list(
     @Query() query: QueryEmpreendimentosDto,
     @CurrentUser() requester: AuthenticatedUser,

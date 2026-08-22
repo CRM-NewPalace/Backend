@@ -33,6 +33,7 @@ import {
 } from '../config/security.constants';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { UpdateAppearanceDto } from './dto/update-appearance.dto';
+import { sanitizeUserPermissions } from '../common/utils/user-permissions';
 
 export interface AuthTokens {
   accessToken: string;
@@ -461,6 +462,13 @@ export class AuthService {
       role: user.role as Role,
       name: user.name,
       tenantId: user.tenantId,
+      financeiroPerms: {
+        view: user.financeiroCanView !== false,
+        create: user.financeiroCanCreate !== false,
+        edit: user.financeiroCanEdit !== false,
+        delete: user.financeiroCanDelete !== false,
+      },
+      permissions: sanitizeUserPermissions(user.permissions),
     };
 
     const accessExpiresIn = this.config.get<string>(
@@ -510,6 +518,11 @@ export class AuthService {
       corPrincipal: user.corPrincipal,
       corModulo: user.corModulo,
       role: user.role,
+      financeiroCanView: user.financeiroCanView,
+      financeiroCanCreate: user.financeiroCanCreate,
+      financeiroCanEdit: user.financeiroCanEdit,
+      financeiroCanDelete: user.financeiroCanDelete,
+      permissions: sanitizeUserPermissions(user.permissions),
       status: user.status,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
