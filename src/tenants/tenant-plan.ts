@@ -51,16 +51,16 @@ const FINANCEIRO = ['financeiro'] as const;
 const ALL = [...OPERACIONAL, ...ADMINISTRATIVO, ...FINANCEIRO] as const;
 
 /**
- * Recorte fixo do plano Solo: CRM pessoal, fechamento, metas e financeiro enxuto.
- * Sem funis (kanban): o corretor trabalha direto em Leads e Clientes.
+ * Recorte fixo do plano Solo: CRM pessoal (com Funil), fechamento, metas e financeiro enxuto.
+ * Sem módulo Clientes / Funil de Clientes: o corretor trabalha em Leads e Funil.
  * Telas financeiras específicas são filtradas no frontend (comissao, a receber, a pagar, fluxo).
  */
 const SOLO_ENABLED = new Set<string>([
   'dashboard',
   'leads',
+  'funil',
   'agenda',
   'imoveis',
-  'clientes',
   'construtoras',
   'usuarios',
   'configuracoes',
@@ -145,7 +145,7 @@ export function applyPlanoModules(
 
 /**
  * Normaliza módulos conforme regras do plano:
- * - solo: recorte fixo (CRM sem funis + fechamento + metas + financeiro)
+ * - solo: recorte fixo (CRM com funil, sem clientes + fechamento + metas + financeiro)
  * - bronze: só CRM (+ usuários/config); sem financeiro
  * - prata: administrativo XOR financeiro (se ambos, prioriza administrativo)
  * - ouro: sem restrição extra

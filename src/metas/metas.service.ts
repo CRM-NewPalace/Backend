@@ -10,6 +10,7 @@ import {
   MetaTipo,
   Prisma,
   Role,
+  TenantPlano,
   UserStatus,
 } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -252,6 +253,20 @@ export class MetasService {
       throw new ForbiddenException(
         'Somente administradores, gerentes e corretores criam metas.',
       );
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plano: true },
+    });
+    // Solo: sem escopo de imobiliária/equipe/corretor — meta única do tenant.
+    if (tenant?.plano === TenantPlano.solo) {
+      return {
+        escopo: MetaEscopo.imobiliaria,
+        origem: MetaOrigem.admin,
+        corretorId: null,
+        gerenteId: null,
+      };
     }
 
     if (escopo === MetaEscopo.imobiliaria) {

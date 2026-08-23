@@ -12,6 +12,7 @@ import {
   ContatoTipo,
   FinanceiroComissaoStatus,
   FunilEtapaPapel,
+  MetaEscopo,
   MetaPeriodo,
   MetaTipo,
   Prisma,
@@ -562,11 +563,18 @@ export class DashboardService {
       this.prisma.meta.findMany({
         where: {
           tenantId,
-          escopo: 'corretor',
+          escopo: { in: [MetaEscopo.corretor, MetaEscopo.imobiliaria] },
           inicio: { lte: windows.agora },
           fim: { gt: windows.agora },
           periodo: MetaPeriodo.mensal,
-          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+          ...(corretorIds
+            ? {
+                OR: [
+                  { escopo: MetaEscopo.imobiliaria },
+                  { corretorId: { in: corretorIds } },
+                ],
+              }
+            : {}),
         },
         include: {
           corretor: {
@@ -1166,45 +1174,100 @@ export class DashboardService {
       } | null;
     }>,
   ) {
-    const items = await Promise.all(
+    const tipoLabel: Record<string, string> = {
+      vendas: 'Vendas',
+      documentacoes: 'Documentações',
+      vgv: 'VGV',
+    };
+
+    const corretorItems = await Promise.all(
       metas
         .filter((meta) => meta.corretorId && meta.corretor)
         .map(async (meta) => {
-        const corretorId = meta.corretorId!;
-        const corretor = meta.corretor!;
-        let atual = 0;
-        if (meta.tipo === MetaTipo.documentacoes) {
-          atual = await this.prisma.documentacao.count({
-            where: {
+          const corretorId = meta.corretorId!;
+          const corretor = meta.corretor!;
+          let atual = 0;
+          if (meta.tipo === MetaTipo.documentacoes) {
+            atual = await this.prisma.documentacao.count({
+              where: {
+                tenantId,
+                corretorId,
+                createdAt: { gte: meta.inicio, lt: meta.fim },
+              },
+            });
+          } else {
+            const agg = await this.aggregateVendasPorCorretor(
               tenantId,
-              corretorId,
-              createdAt: { gte: meta.inicio, lt: meta.fim },
-            },
-          });
-        } else {
-          const agg = await this.aggregateVendasPorCorretor(
-            tenantId,
-            [corretorId],
-            { inicio: meta.inicio, fim: meta.fim },
-          );
-          atual =
-            meta.tipo === MetaTipo.vendas
-              ? (agg.vendas.get(corretorId) ?? 0)
-              : (agg.vgv.get(corretorId) ?? 0);
-        }
-        return {
-          id: meta.id,
-          tipo: meta.tipo,
-          valor: meta.valor,
-          atual,
-          percentual: Math.min(100, Math.round((atual / meta.valor) * 100)),
-          corretorId,
-          corretorNome: corretor.name,
-          equipeId: corretor.equipeId,
-          equipeNome: corretor.equipe?.name ?? null,
-        };
-      }),
+              [corretorId],
+              { inicio: meta.inicio, fim: meta.fim },
+            );
+            atual =
+              meta.tipo === MetaTipo.vendas
+                ? (agg.vendas.get(corretorId) ?? 0)
+                : (agg.vgv.get(corretorId) ?? 0);
+          }
+          return {
+            id: meta.id,
+            tipo: meta.tipo,
+            valor: meta.valor,
+            atual,
+            percentual: Math.min(100, Math.round((atual / meta.valor) * 100)),
+            corretorId,
+            corretorNome: corretor.name,
+            equipeId: corretor.equipeId,
+            equipeNome: corretor.equipe?.name ?? null,
+          };
+        }),
     );
+
+    const imobiliariaItems = await Promise.all(
+      metas
+        .filter((meta) => !meta.corretorId)
+        .map(async (meta) => {
+          let atual = 0;
+          if (meta.tipo === MetaTipo.documentacoes) {
+            atual = await this.prisma.documentacao.count({
+              where: {
+                tenantId,
+                createdAt: { gte: meta.inicio, lt: meta.fim },
+              },
+            });
+          } else {
+            const docs = await this.prisma.documentacao.findMany({
+              where: {
+                tenantId,
+                AND: [
+                  documentacaoVendaNoPeriodoWhere({
+                    inicio: meta.inicio,
+                    fim: meta.fim,
+                  }),
+                ],
+              },
+              select: { id: true, status2: true, vgv: true },
+            });
+            const seen = new Set<string>();
+            for (const doc of docs) {
+              if (!isStatusVendido(doc.status2) || seen.has(doc.id)) continue;
+              seen.add(doc.id);
+              if (meta.tipo === MetaTipo.vendas) atual += 1;
+              else atual += Number(doc.vgv ?? 0);
+            }
+          }
+          return {
+            id: meta.id,
+            tipo: meta.tipo,
+            valor: meta.valor,
+            atual,
+            percentual: Math.min(100, Math.round((atual / meta.valor) * 100)),
+            corretorId: meta.id,
+            corretorNome: tipoLabel[meta.tipo] ?? meta.tipo,
+            equipeId: null as string | null,
+            equipeNome: null as string | null,
+          };
+        }),
+    );
+
+    const items = [...corretorItems, ...imobiliariaItems];
 
     const porEquipe = new Map<
       string,
@@ -1215,6 +1278,10 @@ export class DashboardService {
     for (const item of items) {
       metaImob += item.valor;
       atualImob += item.atual;
+      if (!item.equipeId && item.corretorId === item.id) {
+        // Meta de imobiliária/solo — entra só no consolidado.
+        continue;
+      }
       const key = item.equipeId ?? 'sem-equipe';
       const nome = item.equipeNome ?? 'Sem equipe';
       const cur = porEquipe.get(key) ?? {
@@ -1473,11 +1540,18 @@ export class DashboardService {
       this.prisma.meta.findMany({
         where: {
           tenantId,
-          escopo: 'corretor',
+          escopo: { in: [MetaEscopo.corretor, MetaEscopo.imobiliaria] },
           inicio: { lte: agora },
           fim: { gt: agora },
           periodo: MetaPeriodo.mensal,
-          ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
+          ...(corretorIds
+            ? {
+                OR: [
+                  { escopo: MetaEscopo.imobiliaria },
+                  { corretorId: { in: corretorIds } },
+                ],
+              }
+            : {}),
         },
         include: {
           corretor: {
