@@ -52,12 +52,12 @@ const ALL = [...OPERACIONAL, ...ADMINISTRATIVO, ...FINANCEIRO] as const;
 
 /**
  * Recorte fixo do plano Solo: CRM pessoal, fechamento, metas e financeiro enxuto.
+ * Sem funis (kanban): o corretor trabalha direto em Leads e Clientes.
  * Telas financeiras específicas são filtradas no frontend (comissao, a receber, a pagar, fluxo).
  */
 const SOLO_ENABLED = new Set<string>([
   'dashboard',
   'leads',
-  'funil',
   'agenda',
   'imoveis',
   'clientes',
@@ -131,9 +131,21 @@ export function assertRoleAllowedForPlano(
   return null;
 }
 
+/** Normaliza o JSON persistido do tenant pelas regras do plano (ex.: /auth/me). */
+export function applyPlanoModules(
+  plano: TenantPlano,
+  modules: unknown,
+): Record<string, boolean> {
+  const raw =
+    modules && typeof modules === 'object' && !Array.isArray(modules)
+      ? (modules as Record<string, boolean>)
+      : {};
+  return normalizeModulesForPlano(plano, raw);
+}
+
 /**
  * Normaliza módulos conforme regras do plano:
- * - solo: recorte fixo (CRM + fechamento + metas + financeiro)
+ * - solo: recorte fixo (CRM sem funis + fechamento + metas + financeiro)
  * - bronze: só CRM (+ usuários/config); sem financeiro
  * - prata: administrativo XOR financeiro (se ambos, prioriza administrativo)
  * - ouro: sem restrição extra

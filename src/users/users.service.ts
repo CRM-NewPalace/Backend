@@ -5,7 +5,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CreciProcessoStatus, Prisma, Role, UserStatus } from '@prisma/client';
+import {
+  CreciProcessoStatus,
+  Prisma,
+  Role,
+  TenantPlano,
+  UserStatus,
+} from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -72,6 +78,9 @@ export class UsersService {
     this.assertCanCreateRole(requester, dto.role);
     await this.assertCanCreateUser(tenantId);
     await this.assertRoleAllowed(tenantId, dto.role);
+    if (dto.role === Role.admin) {
+      await this.assertCanAddAdmin(tenantId);
+    }
 
     const email = dto.email.toLowerCase().trim();
     await this.ensureEmailIsAvailable(tenantId, email);
@@ -329,6 +338,15 @@ export class UsersService {
 
     if (dto.role !== undefined) {
       await this.assertRoleAllowed(tenantId, dto.role);
+      if (dto.role === Role.admin) {
+        const current = await this.prisma.user.findFirst({
+          where: { id, tenantId },
+          select: { role: true },
+        });
+        if (current?.role !== Role.admin) {
+          await this.assertCanAddAdmin(tenantId);
+        }
+      }
     }
 
     const dataNascimento =
@@ -405,6 +423,22 @@ export class UsersService {
 
     await this.ensureCanDeleteUser(requester, target);
 
+    if (target.role === Role.admin) {
+      const otherAdmins = await this.prisma.user.count({
+        where: {
+          tenantId,
+          role: Role.admin,
+          id: { not: id },
+          status: UserStatus.ativo,
+        },
+      });
+      if (otherAdmins === 0) {
+        throw new BadRequestException(
+          'Não é possível excluir o último administrador da conta.',
+        );
+      }
+    }
+
     const equipeGerenciada = await this.prisma.equipe.findFirst({
       where: { tenantId, gerenteId: id },
       select: { id: true, name: true },
@@ -425,7 +459,10 @@ export class UsersService {
     }
 
     try {
-      await this.prisma.user.delete({ where: { id } });
+      await this.prisma.$transaction(async (tx) => {
+        await this.detachUserReferences(tx, id, requester.id);
+        await tx.user.delete({ where: { id } });
+      });
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -633,6 +670,127 @@ export class UsersService {
         'Você só pode excluir corretores da sua equipe.',
       );
     }
+  }
+
+  /** Solo tem um único administrador — o extra entra como corretor ou financeiro. */
+  private async assertCanAddAdmin(tenantId: string): Promise<void> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plano: true },
+    });
+    if (!tenant || tenant.plano !== TenantPlano.solo) return;
+
+    const admins = await this.prisma.user.count({
+      where: { tenantId, role: Role.admin },
+    });
+    if (admins >= 1) {
+      throw new ForbiddenException(
+        'O plano Solo permite apenas um administrador. Cadastre o usuário extra como Corretor.',
+      );
+    }
+  }
+
+  /**
+   * Solta FKs que impedem o DELETE (metas, agenda, autoria) e apaga dados pessoais.
+   * Histórico comercial permanece, apontando para quem excluiu quando a coluna é obrigatória.
+   */
+  private async detachUserReferences(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    fallbackUserId: string,
+  ): Promise<void> {
+    await tx.notificacao.deleteMany({ where: { userId } });
+    await tx.userSessionSegment.deleteMany({ where: { userId } });
+    await tx.userGoogleCalendar.deleteMany({ where: { userId } });
+
+    await tx.lead.updateMany({
+      where: { corretorId: userId },
+      data: { corretorId: null },
+    });
+    await tx.lead.updateMany({
+      where: { perdidoPorId: userId },
+      data: { perdidoPorId: null },
+    });
+
+    await tx.documentacao.updateMany({
+      where: { corretorId: userId },
+      data: { corretorId: null },
+    });
+    await tx.documentacao.updateMany({
+      where: { gerenteId: userId },
+      data: { gerenteId: null },
+    });
+    await tx.documentacao.updateMany({
+      where: { autorId: userId },
+      data: { autorId: fallbackUserId },
+    });
+
+    await tx.proposta.updateMany({
+      where: { corretorId: userId },
+      data: { corretorId: null },
+    });
+    await tx.proposta.updateMany({
+      where: { autorId: userId },
+      data: { autorId: fallbackUserId },
+    });
+
+    await tx.analise.updateMany({
+      where: { analistaId: userId },
+      data: { analistaId: null },
+    });
+    await tx.analise.updateMany({
+      where: { autorId: userId },
+      data: { autorId: fallbackUserId },
+    });
+
+    await tx.agendamento.updateMany({
+      where: { atribuidoParaId: userId },
+      data: { atribuidoParaId: null },
+    });
+    await tx.agendamento.updateMany({
+      where: { alvoGerenteId: userId },
+      data: { alvoGerenteId: null },
+    });
+    await tx.agendamento.updateMany({
+      where: { aprovadoPorId: userId },
+      data: { aprovadoPorId: null },
+    });
+    await tx.agendamento.updateMany({
+      where: { autorId: userId },
+      data: { autorId: fallbackUserId },
+    });
+
+    await tx.triagemEvent.updateMany({
+      where: { autorId: userId },
+      data: { autorId: fallbackUserId },
+    });
+    await tx.leadPrazoAdiamento.updateMany({
+      where: { autorId: userId },
+      data: { autorId: fallbackUserId },
+    });
+
+    await tx.meta.updateMany({
+      where: { criadorId: userId },
+      data: { criadorId: fallbackUserId },
+    });
+    await tx.meta.updateMany({
+      where: { corretorId: userId },
+      data: { corretorId: null },
+    });
+    await tx.meta.updateMany({
+      where: { gerenteId: userId },
+      data: { gerenteId: null },
+    });
+
+    await tx.financeiroComissao.updateMany({
+      where: { gerenteId: userId },
+      data: { gerenteId: null },
+    });
+
+    await tx.user.update({
+      where: { id: userId },
+      data: { equipeId: null },
+    });
   }
 
   private async ensureExists(id: string, tenantId: string): Promise<void> {

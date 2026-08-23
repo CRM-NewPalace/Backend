@@ -34,6 +34,7 @@ import {
 import { JwtPayload } from './strategies/jwt.strategy';
 import { UpdateAppearanceDto } from './dto/update-appearance.dto';
 import { sanitizeUserPermissions } from '../common/utils/user-permissions';
+import { applyPlanoModules } from '../tenants/tenant-plan';
 
 export interface AuthTokens {
   accessToken: string;
@@ -257,7 +258,12 @@ export class AuthService {
     }
 
     const { tenant, ...rest } = user;
-    return { ...rest, tenant };
+    return {
+      ...rest,
+      tenant: tenant
+        ? { ...tenant, modules: applyPlanoModules(tenant.plano, tenant.modules) }
+        : null,
+    };
   }
 
   /** Atualiza preferências visuais e o CRECI do próprio usuário. */
@@ -527,7 +533,9 @@ export class AuthService {
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-      tenant,
+      tenant: tenant
+        ? { ...tenant, modules: applyPlanoModules(tenant.plano, tenant.modules) }
+        : null,
     };
   }
 }
