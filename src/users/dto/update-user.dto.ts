@@ -70,6 +70,7 @@ export class UpdateUserDto {
       Role.analista,
       Role.treinee,
       Role.financeiro,
+      Role.assistente,
     ],
     {
       message: 'Perfil inválido.',

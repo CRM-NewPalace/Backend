@@ -1,7 +1,7 @@
 import { Role, TenantPlano } from '@prisma/client';
 
 export const PLANO_MAX_USUARIOS: Record<TenantPlano, number> = {
-  [TenantPlano.solo]: 1,
+  [TenantPlano.solo]: 2,
   [TenantPlano.bronze]: 5,
   [TenantPlano.prata]: 15,
   [TenantPlano.ouro]: 30,

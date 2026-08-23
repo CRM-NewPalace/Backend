@@ -22,6 +22,8 @@ enum Role {
   treinee
   /// Acesso exclusivo ao módulo Financeiro da imobiliária.
   financeiro
+  /// Extra do plano Solo: acesso só pelos módulos/ações liberados pelo admin.
+  assistente
 }
 
 /// Situação do usuário no sistema.

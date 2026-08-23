@@ -46,9 +46,16 @@ export class RolesGuard implements CanActivate {
     }
 
     const rawPath = `${request.originalUrl ?? request.url ?? ''}`.split('?')[0];
+    const moduleOk = hasAnyUserModule(
+      user.role,
+      user.permissions,
+      modulesForApiPath(rawPath),
+    );
+    // Assistente: o admin libera módulos — permite escrita nas rotas liberadas.
     if (
-      !isSensitiveApiWrite(rawPath, request.method) &&
-      hasAnyUserModule(user.role, user.permissions, modulesForApiPath(rawPath))
+      moduleOk &&
+      (user.role === Role.assistente ||
+        !isSensitiveApiWrite(rawPath, request.method))
     ) {
       return true;
     }

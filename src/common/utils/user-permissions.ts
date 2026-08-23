@@ -252,7 +252,7 @@ const ROLE_DEFAULT_ROUTES: Record<Role, readonly string[]> = {
     '/financeiro/comissao',
     '/perfil',
   ],
-  treinee: [
+    treinee: [
     '/dashboard',
     '/leads',
     '/funil',
@@ -271,6 +271,8 @@ const ROLE_DEFAULT_ROUTES: Record<Role, readonly string[]> = {
     '/configuracoes',
     '/perfil',
   ],
+  /** Solo: acesso só via permissions liberadas pelo admin. */
+  assistente: ['/perfil'],
 };
 
 function roleHasRoute(role: Role, route: string): boolean {

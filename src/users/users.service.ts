@@ -31,7 +31,7 @@ import { SALT_ROUNDS } from '../config/security.constants';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUsersDto } from './dto/query-users.dto';
-import { assertRoleAllowedForPlano } from '../tenants/tenant-plan';
+import { assertRoleAllowedForPlano, PLANO_MAX_USUARIOS } from '../tenants/tenant-plan';
 import { sanitizeUserPermissions } from '../common/utils/user-permissions';
 
 export interface PaginatedUsers {
@@ -109,6 +109,10 @@ export class UsersService {
         role: dto.role,
         status: dto.status ?? UserStatus.ativo,
         avatar: dto.avatar,
+        permissions:
+          dto.permissions !== undefined
+            ? sanitizeUserPermissions(dto.permissions)
+            : undefined,
         financeiroCanView: true,
         financeiroCanCreate:
           dto.role === Role.financeiro ? dto.financeiroCanCreate !== false : true,
@@ -137,10 +141,14 @@ export class UsersService {
       throw new NotFoundException('Tenant não encontrado.');
     }
     const used = await this.prisma.user.count({ where: { tenantId } });
-    const limit = tenant.maxUsuarios + tenant.usuariosExtras;
+    const maxUsuarios =
+      tenant.plano === TenantPlano.solo
+        ? Math.max(tenant.maxUsuarios, PLANO_MAX_USUARIOS[TenantPlano.solo])
+        : tenant.maxUsuarios;
+    const limit = maxUsuarios + tenant.usuariosExtras;
     return {
       plano: tenant.plano,
-      maxUsuarios: tenant.maxUsuarios,
+      maxUsuarios,
       usuariosExtras: tenant.usuariosExtras,
       limite: limit,
       usados: used,
@@ -158,7 +166,11 @@ export class UsersService {
       throw new NotFoundException('Tenant não encontrado.');
     }
     const used = await this.prisma.user.count({ where: { tenantId } });
-    const limit = tenant.maxUsuarios + tenant.usuariosExtras;
+    const maxUsuarios =
+      tenant.plano === TenantPlano.solo
+        ? Math.max(tenant.maxUsuarios, PLANO_MAX_USUARIOS[TenantPlano.solo])
+        : tenant.maxUsuarios;
+    const limit = maxUsuarios + tenant.usuariosExtras;
     if (used >= limit) {
       throw new ForbiddenException(
         `Limite de usuários do plano atingido (${used}/${limit}). Peça ao administrador da plataforma para liberar usuários extras.`,
@@ -193,20 +205,35 @@ export class UsersService {
   }
 
   private async assertRoleAllowed(tenantId: string, role: Role) {
-    if (
-      role !== Role.analista &&
-      role !== Role.gerente &&
-      role !== Role.financeiro
-    ) {
-      return;
-    }
-
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { plano: true, modules: true },
     });
     if (!tenant) {
       throw new NotFoundException('Tenant não encontrado.');
+    }
+
+    if (tenant.plano === TenantPlano.solo) {
+      if (role !== Role.assistente && role !== Role.admin) {
+        throw new ForbiddenException(
+          'No plano Solo o usuário extra deve ser Assistente.',
+        );
+      }
+      return;
+    }
+
+    if (role === Role.assistente) {
+      throw new ForbiddenException(
+        'O perfil Assistente é exclusivo do plano Solo.',
+      );
+    }
+
+    if (
+      role !== Role.analista &&
+      role !== Role.gerente &&
+      role !== Role.financeiro
+    ) {
+      return;
     }
 
     const message = assertRoleAllowedForPlano(
@@ -672,7 +699,7 @@ export class UsersService {
     }
   }
 
-  /** Solo tem um único administrador — o extra entra como corretor ou financeiro. */
+  /** Solo tem um único administrador — o extra entra como Assistente. */
   private async assertCanAddAdmin(tenantId: string): Promise<void> {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -685,7 +712,7 @@ export class UsersService {
     });
     if (admins >= 1) {
       throw new ForbiddenException(
-        'O plano Solo permite apenas um administrador. Cadastre o usuário extra como Corretor.',
+        'O plano Solo permite apenas um administrador. Cadastre o usuário extra como Assistente.',
       );
     }
   }

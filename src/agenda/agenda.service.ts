@@ -1612,6 +1612,7 @@ export class AgendaService {
       [Role.treinee]: 'Treinee',
       [Role.corretor]: 'Corretor',
       [Role.financeiro]: 'Financeiro',
+      [Role.assistente]: 'Assistente',
       [Role.super_admin]: 'Plataforma',
     };
 

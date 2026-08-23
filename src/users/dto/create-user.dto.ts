@@ -5,6 +5,7 @@ import {
   IsEmail,
   IsEnum,
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -77,6 +78,7 @@ export class CreateUserDto {
       Role.analista,
       Role.treinee,
       Role.financeiro,
+      Role.assistente,
     ],
     {
       message: 'Perfil inválido.',
@@ -99,6 +101,13 @@ export class CreateUserDto {
   @IsOptional()
   @IsBoolean()
   financeiroCanDelete?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  permissions?: {
+    modules?: Record<string, boolean>;
+    actions?: Record<string, boolean>;
+  };
 
   @IsOptional()
   @IsEnum(UserStatus, { message: 'Status inválido.' })
