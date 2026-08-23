@@ -18,6 +18,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { PresenceService } from '../presence/presence.service';
+import { MediaService } from '../media/media.service';
 import { publicUserSelect, PublicUser } from '../common/utils/user-select';
 import {
   tenantBrandingSelect,
@@ -74,6 +75,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly presence: PresenceService,
+    private readonly media: MediaService,
   ) {}
 
   async login(
@@ -299,6 +301,56 @@ export class AuthService {
       },
     });
 
+    return this.me(userId);
+  }
+
+  async uploadAvatar(
+    userId: string,
+    rawFile: Express.Multer.File | undefined,
+  ): Promise<AuthUserPayload> {
+    const file = this.media.requireFile(rawFile);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, tenantId: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException('Usuário não encontrado.');
+    }
+
+    const tenantKey = user.tenantId ?? 'platform';
+    const uploaded = await this.media.uploadImage({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      folder: `crm/${tenantKey}/avatars`,
+      publicId: user.id,
+      maxWidth: 1080,
+      maxHeight: 1080,
+      fit: 'cover',
+      minSide: 256,
+    });
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatar: uploaded.url },
+    });
+    return this.me(userId);
+  }
+
+  async removeAvatar(userId: string): Promise<AuthUserPayload> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, tenantId: true, avatar: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException('Usuário não encontrado.');
+    }
+
+    const tenantKey = user.tenantId ?? 'platform';
+    await this.media.destroy(`crm/${tenantKey}/avatars/${user.id}`);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatar: null },
+    });
     return this.me(userId);
   }
 
@@ -530,6 +582,7 @@ export class AuthService {
       financeiroCanDelete: user.financeiroCanDelete,
       permissions: sanitizeUserPermissions(user.permissions),
       status: user.status,
+      avatar: user.avatar,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

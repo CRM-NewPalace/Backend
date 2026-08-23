@@ -23,6 +23,7 @@ export const publicUserSelect = {
   financeiroCanDelete: true,
   permissions: true,
   status: true,
+  avatar: true,
   lastLoginAt: true,
   createdAt: true,
   updatedAt: true,

@@ -29,12 +29,16 @@ export class MediaService {
     folder: string;
     maxWidth: number;
     maxHeight: number;
+    fit?: 'inside' | 'cover';
+    publicId?: string;
+    minSide?: number;
   }): Promise<UploadedMedia> {
     this.ensureConfigured();
     if (params.buffer.length > IMAGE_MAX_BYTES) {
       throw new BadRequestException('A imagem deve ter no máximo 5 MB.');
     }
 
+    const fit = params.fit ?? 'inside';
     let processed: Buffer;
     try {
       const meta = await sharp(params.buffer, {
@@ -45,14 +49,24 @@ export class MediaService {
       if (!format || !SHARP_FORMATS.has(format)) {
         throw new BadRequestException('Envie uma imagem JPG, PNG ou WebP.');
       }
+      const minSide = params.minSide;
+      if (minSide) {
+        const width = meta.width ?? 0;
+        const height = meta.height ?? 0;
+        if (width < minSide || height < minSide) {
+          throw new BadRequestException(
+            `A imagem deve ter pelo menos ${minSide} × ${minSide} pixels.`,
+          );
+        }
+      }
       processed = await sharp(params.buffer, {
         failOn: 'none',
         animated: false,
       })
         .rotate()
         .resize(params.maxWidth, params.maxHeight, {
-          fit: 'inside',
-          withoutEnlargement: true,
+          fit,
+          withoutEnlargement: fit !== 'cover',
         })
         .webp({ quality: 82 })
         .toBuffer();
@@ -70,8 +84,10 @@ export class MediaService {
           {
             folder: params.folder,
             resource_type: 'image',
-            unique_filename: true,
-            overwrite: false,
+            public_id: params.publicId,
+            unique_filename: !params.publicId,
+            overwrite: Boolean(params.publicId),
+            invalidate: Boolean(params.publicId),
           },
           (error, uploaded) => {
             if (error || !uploaded) {
@@ -120,7 +136,11 @@ export class MediaService {
     await Promise.all(publicIds.map((id) => this.destroy(id)));
   }
 
-  folder(tenantId: string, kind: 'empreendimentos' | 'construtoras', id: string) {
+  folder(
+    tenantId: string,
+    kind: 'empreendimentos' | 'construtoras' | 'avatars',
+    id: string,
+  ) {
     return `crm/${tenantId}/${kind}/${id}`;
   }
 
