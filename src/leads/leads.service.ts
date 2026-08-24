@@ -869,7 +869,7 @@ export class LeadsService {
     ]);
 
     return {
-      data,
+      data: data.map(withDocumentacaoStatus),
       meta: {
         total,
         page,
