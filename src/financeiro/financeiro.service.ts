@@ -3230,6 +3230,9 @@ export class FinanceiroService {
           status: { not: FinanceiroTituloStatus.cancelado },
           data: { gte: fromDate, lt: toExclusive },
         },
+        include: {
+          titulo: { select: { comissaoId: true, tipo: true } },
+        },
       }),
       this.prisma.financeiroTitulo.findMany({
         where: {
@@ -3241,6 +3244,13 @@ export class FinanceiroService {
             ],
           },
           vencimento: { gte: fromDate, lt: toExclusive },
+          // Contas a pagar de comissão ficam só no módulo Comissão.
+          NOT: {
+            AND: [
+              { comissaoId: { not: null } },
+              { tipo: FinanceiroTituloTipo.pagar },
+            ],
+          },
         },
       }),
     ]);
@@ -3248,6 +3258,12 @@ export class FinanceiroService {
     const eventos: FluxoEvento[] = [];
 
     for (const m of movimentos) {
+      if (
+        m.titulo?.comissaoId &&
+        m.titulo.tipo === FinanceiroTituloTipo.pagar
+      ) {
+        continue;
+      }
       const natureza =
         m.status === FinanceiroTituloStatus.pago ? "realizado" : "previsto";
       eventos.push({
