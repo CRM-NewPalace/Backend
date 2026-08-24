@@ -745,8 +745,41 @@ export class LeadsService {
       monCtx,
       requester,
     );
+
+    const leadIds = decorated.map((lead) => lead.id);
+    const docs =
+      leadIds.length === 0
+        ? []
+        : await this.prisma.documentacao.findMany({
+            where: { tenantId, leadId: { in: leadIds } },
+            orderBy: { updatedAt: 'desc' },
+            select: { leadId: true, status1: true, status2: true },
+          });
+    const latestDoc = new Map<
+      string,
+      { status1: string; status2: string }
+    >();
+    for (const doc of docs) {
+      if (!latestDoc.has(doc.leadId)) {
+        latestDoc.set(doc.leadId, {
+          status1: doc.status1,
+          status2: doc.status2,
+        });
+      }
+    }
+
     return {
-      data: decorated.map(withDocumentacaoStatus),
+      data: decorated.map((lead) => {
+        const fromBatch = latestDoc.get(lead.id);
+        const fromNested = lead.documentacoes?.[0];
+        return {
+          ...lead,
+          documentacaoStatus1:
+            fromBatch?.status1 ?? fromNested?.status1 ?? null,
+          documentacaoStatus2:
+            fromBatch?.status2 ?? fromNested?.status2 ?? null,
+        };
+      }),
       meta: {
         total,
         page,
@@ -1558,6 +1591,17 @@ export class LeadsService {
       ctx,
       requester,
     );
-    return withDocumentacaoStatus(decorated);
+    const latest = await this.prisma.documentacao.findFirst({
+      where: { tenantId, leadId: lead.id },
+      orderBy: { updatedAt: 'desc' },
+      select: { status1: true, status2: true },
+    });
+    return {
+      ...decorated,
+      documentacaoStatus1:
+        latest?.status1 ?? lead.documentacoes?.[0]?.status1 ?? null,
+      documentacaoStatus2:
+        latest?.status2 ?? lead.documentacoes?.[0]?.status2 ?? null,
+    };
   }
 }
