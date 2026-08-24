@@ -36,13 +36,31 @@ import {
   DistribuirEquipesDto,
 } from './dto/distribuir-leads.dto';
 
-export type LeadWithMonitoramento = LeadEntity & {
+export type LeadWithDocStatus = LeadEntity & {
+  documentacaoStatus1: string | null;
+  documentacaoStatus2: string | null;
+};
+
+export type LeadWithMonitoramento = LeadWithDocStatus & {
   monitoramento: LeadMonitoramento;
 };
 
 export interface PaginatedLeads {
-  data: Array<LeadEntity & { monitoramento?: LeadMonitoramento }>;
+  data: Array<LeadWithDocStatus & { monitoramento?: LeadMonitoramento }>;
   meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
+/** Expõe Status 1/2 da ficha mais recente no root do lead (cards do funil). */
+function withDocumentacaoStatus<T extends LeadEntity>(lead: T): T & {
+  documentacaoStatus1: string | null;
+  documentacaoStatus2: string | null;
+} {
+  const latest = lead.documentacoes?.[0];
+  return {
+    ...lead,
+    documentacaoStatus1: latest?.status1 ?? null,
+    documentacaoStatus2: latest?.status2 ?? null,
+  };
 }
 
 /** Aceita ISO ou YYYY-MM-DD para cadastro retroativo. */
@@ -722,12 +740,13 @@ export class LeadsService {
       this.prisma.lead.count({ where }),
     ]);
 
+    const decorated = await this.monitoramento.decorateLeadsWithTarefas(
+      data,
+      monCtx,
+      requester,
+    );
     return {
-      data: await this.monitoramento.decorateLeadsWithTarefas(
-        data,
-        monCtx,
-        requester,
-      ),
+      data: decorated.map(withDocumentacaoStatus),
       meta: {
         total,
         page,
@@ -1534,6 +1553,11 @@ export class LeadsService {
   ): Promise<LeadWithMonitoramento> {
     const tenantId = requireTenantId(requester);
     const ctx = await this.monitoramento.loadFunilContext(tenantId);
-    return this.monitoramento.decorateLeadWithTarefas(lead, ctx, requester);
+    const decorated = await this.monitoramento.decorateLeadWithTarefas(
+      lead,
+      ctx,
+      requester,
+    );
+    return withDocumentacaoStatus(decorated);
   }
 }

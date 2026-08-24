@@ -37,6 +37,17 @@ export const leadSelect = {
       analista: { select: { id: true, name: true } },
     },
   },
+  /** Parecer de crédito mais recente (Status 1 da documentação). */
+  documentacoes: {
+    orderBy: { updatedAt: 'desc' },
+    take: 1,
+    select: {
+      id: true,
+      status1: true,
+      status2: true,
+      updatedAt: true,
+    },
+  },
   perdidoAt: true,
   motivoPerda: true,
   perdidoPorId: true,
