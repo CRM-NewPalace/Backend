@@ -41,6 +41,7 @@ import {
   FluxoGranularidade,
   QueryFluxoCaixaDto,
 } from "./dto/query-fluxo-caixa.dto";
+import { QueryVisaoGeralDto } from "./dto/query-visao-geral.dto";
 import { UpdateCategoriaDto } from "./dto/update-categoria.dto";
 import { UpdateDespesaDto } from "./dto/update-despesa.dto";
 import { UpdateComissaoDto } from "./dto/update-comissao.dto";
@@ -1794,18 +1795,35 @@ export class FinanceiroService {
 
   // ─── Resumos ─────────────────────────────────────────────────
 
-  async visaoGeral(requester: AuthenticatedUser) {
+  async visaoGeral(
+    requester: AuthenticatedUser,
+    query: QueryVisaoGeralDto = {},
+  ) {
     this.assertAccess(requester);
     const tenantId = resolveFinanceiroTenantId(requester);
     const now = new Date();
     const brasil = new Date(now.getTime() - BRASIL_UTC_OFFSET_MS);
-    const y = brasil.getUTCFullYear();
-    const m = brasil.getUTCMonth();
-    const inicioMes = new Date(Date.UTC(y, m, 1) + BRASIL_UTC_OFFSET_MS);
-    const inicioProx = new Date(Date.UTC(y, m + 1, 1) + BRASIL_UTC_OFFSET_MS);
-    const inicioAnt = new Date(Date.UTC(y, m - 1, 1) + BRASIL_UTC_OFFSET_MS);
+    const y = query.ano ?? brasil.getUTCFullYear();
+    const mesFiltro =
+      query.mes != null && query.mes >= 1 && query.mes <= 12
+        ? query.mes
+        : undefined;
+    const inicioMes =
+      mesFiltro != null
+        ? new Date(Date.UTC(y, mesFiltro - 1, 1) + BRASIL_UTC_OFFSET_MS)
+        : new Date(Date.UTC(y, 0, 1) + BRASIL_UTC_OFFSET_MS);
+    const inicioProx =
+      mesFiltro != null
+        ? new Date(Date.UTC(y, mesFiltro, 1) + BRASIL_UTC_OFFSET_MS)
+        : new Date(Date.UTC(y + 1, 0, 1) + BRASIL_UTC_OFFSET_MS);
+    const inicioAnt =
+      mesFiltro != null
+        ? new Date(Date.UTC(y, mesFiltro - 2, 1) + BRASIL_UTC_OFFSET_MS)
+        : new Date(Date.UTC(y - 1, 0, 1) + BRASIL_UTC_OFFSET_MS);
 
-    const [movMes, movAnt, aReceber, aPagar, movAbertosParceiro] =
+    await this.syncComissoesParaTitulos(tenantId).catch(() => undefined);
+
+    const [movMes, movAnt, aReceber, aPagar, movAbertosParceiro, comissoesAReceberMes] =
       await Promise.all([
         this.prisma.financeiroMovimento.findMany({
           where: {
@@ -1832,6 +1850,7 @@ export class FinanceiroService {
               ],
             },
             vencimento: { gte: inicioMes, lt: inicioProx },
+            comissaoId: null,
           },
           _sum: { valor: true },
         }),
@@ -1861,6 +1880,21 @@ export class FinanceiroService {
             },
           },
           select: { tipo: true, valor: true },
+        }),
+        this.prisma.financeiroTitulo.findMany({
+          where: {
+            tenantId,
+            tipo: FinanceiroTituloTipo.receber,
+            comissaoId: { not: null },
+            status: {
+              in: [
+                FinanceiroTituloStatus.aberto,
+                FinanceiroTituloStatus.atrasado,
+              ],
+            },
+            vencimento: { gte: inicioMes, lt: inicioProx },
+          },
+          orderBy: [{ valor: "desc" }, { vencimento: "asc" }],
         }),
       ]);
 
@@ -1908,6 +1942,10 @@ export class FinanceiroService {
     const saidasMes = movMes.filter(
       (r) => r.tipo === FinanceiroMovimentoTipo.saida,
     );
+    const comissoesAReceberMesValor = comissoesAReceberMes.reduce(
+      (s, t) => s + t.valor,
+      0,
+    );
     const despesasPipeline = {
       fixas: saidasMes
         .filter((r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "fixa")
@@ -1928,6 +1966,16 @@ export class FinanceiroService {
         .sort((a, b) => b.valor - a.valor)
         .slice(0, 40)
         .map(mapPipelineItem),
+      comissoes: comissoesAReceberMes.slice(0, 40).map((row) => ({
+        id: row.id,
+        descricao: row.descricao,
+        valor: row.valor,
+        data: isoDateOnly(row.vencimento),
+        centro: row.centro || row.categoria || "",
+        parceiro: row.parceiroNome,
+        status: row.status,
+        comissaoId: row.comissaoId,
+      })),
     };
 
     const evolucao = (atual: number, anterior: number): number | null => {
@@ -1935,7 +1983,7 @@ export class FinanceiroService {
       return Number((((atual - anterior) / anterior) * 100).toFixed(1));
     };
 
-    const mesesResumo = await this.buildMesesResumo(tenantId, 6);
+    const mesesResumo = await this.buildMesesResumo(tenantId, y);
     const saldoAtual = movAbertosParceiro.reduce((acc, m) => {
       return m.tipo === FinanceiroMovimentoTipo.entrada
         ? acc + m.valor
@@ -1955,6 +2003,7 @@ export class FinanceiroService {
         despesasFixaMes,
         despesasVariavelMes,
         despesasOutrosMes,
+        comissoesAReceberMes: comissoesAReceberMesValor,
         aReceber: aReceber._sum.valor ?? 0,
         aPagar: aPagar._sum.valor ?? 0,
         resultadoMes,
@@ -2791,26 +2840,37 @@ export class FinanceiroService {
     return "outros";
   }
 
-  private async buildMesesResumo(tenantId: string, qtd: number) {
-    const now = new Date();
-    const brasil = new Date(now.getTime() - BRASIL_UTC_OFFSET_MS);
+  private async buildMesesResumo(tenantId: string, ano: number) {
     const resolvedNatureza = await this.despesaNaturezaResolver(tenantId);
+    const inicioJanela = new Date(Date.UTC(ano, 0, 1) + BRASIL_UTC_OFFSET_MS);
+    const fimJanela = new Date(Date.UTC(ano + 1, 0, 1) + BRASIL_UTC_OFFSET_MS);
+    const comissoesAberto = await this.prisma.financeiroTitulo.findMany({
+      where: {
+        tenantId,
+        tipo: FinanceiroTituloTipo.receber,
+        comissaoId: { not: null },
+        status: {
+          in: [
+            FinanceiroTituloStatus.aberto,
+            FinanceiroTituloStatus.atrasado,
+          ],
+        },
+        vencimento: { gte: inicioJanela, lt: fimJanela },
+      },
+      select: { valor: true, vencimento: true },
+    });
     const result: {
       mes: string;
       receitas: number;
       despesas: number;
       variaveis: number;
       fixas: number;
+      comissoesAReceber: number;
     }[] = [];
 
-    for (let i = qtd - 1; i >= 0; i -= 1) {
-      const ref = new Date(
-        Date.UTC(brasil.getUTCFullYear(), brasil.getUTCMonth() - i, 1),
-      );
-      const y = ref.getUTCFullYear();
-      const m = ref.getUTCMonth();
-      const inicio = new Date(Date.UTC(y, m, 1) + BRASIL_UTC_OFFSET_MS);
-      const fim = new Date(Date.UTC(y, m + 1, 1) + BRASIL_UTC_OFFSET_MS);
+    for (let m = 0; m < 12; m += 1) {
+      const inicio = new Date(Date.UTC(ano, m, 1) + BRASIL_UTC_OFFSET_MS);
+      const fim = new Date(Date.UTC(ano, m + 1, 1) + BRASIL_UTC_OFFSET_MS);
       const rows = await this.prisma.financeiroMovimento.findMany({
         where: {
           tenantId,
@@ -2837,6 +2897,9 @@ export class FinanceiroService {
             (r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "fixa",
           )
           .reduce((s, r) => s + r.valor, 0),
+        comissoesAReceber: comissoesAberto
+          .filter((t) => t.vencimento >= inicio && t.vencimento < fim)
+          .reduce((s, t) => s + t.valor, 0),
       });
     }
     return result;

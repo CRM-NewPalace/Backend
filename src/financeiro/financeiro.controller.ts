@@ -35,6 +35,7 @@ import { CreateTituloDto } from "./dto/create-titulo.dto";
 import { CreateTituloComissaoDto } from "./dto/create-titulo-comissao.dto";
 import { CreateTitulosParceladoDto } from "./dto/create-titulos-parcelado.dto";
 import { QueryFluxoCaixaDto } from "./dto/query-fluxo-caixa.dto";
+import { QueryVisaoGeralDto } from "./dto/query-visao-geral.dto";
 import { UpdateCategoriaDto } from "./dto/update-categoria.dto";
 import { UpdateDespesaDto } from "./dto/update-despesa.dto";
 import { UpdateDespesaTipoDto } from "./dto/update-despesa-tipo.dto";
@@ -58,8 +59,11 @@ export class FinanceiroController {
 
   @Get("visao-geral")
   @Roles(Role.admin, Role.gerente, Role.super_admin, Role.financeiro)
-  visaoGeral(@CurrentUser() requester: AuthenticatedUser) {
-    return this.financeiroService.visaoGeral(requester);
+  visaoGeral(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query() query: QueryVisaoGeralDto,
+  ) {
+    return this.financeiroService.visaoGeral(requester, query);
   }
 
   @Get("fluxo-caixa")
