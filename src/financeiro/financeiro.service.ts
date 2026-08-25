@@ -127,6 +127,29 @@ function isoDateOnly(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function ymBrasil(d: Date): string {
+  return isoDateOnly(d).slice(0, 7);
+}
+
+function noPeriodoVisao(d: Date, ano: number, mes?: number): boolean {
+  const ym = ymBrasil(d);
+  if (mes == null) return ym.startsWith(`${ano}-`);
+  return ym === `${ano}-${String(mes).padStart(2, "0")}`;
+}
+
+function slackBoundsVisao(ano: number, mes?: number) {
+  if (mes == null) {
+    return {
+      gte: new Date(Date.UTC(ano, 0, 1)),
+      lt: new Date(Date.UTC(ano + 1, 0, 1) + BRASIL_UTC_OFFSET_MS),
+    };
+  }
+  return {
+    gte: new Date(Date.UTC(ano, mes - 1, 1)),
+    lt: new Date(Date.UTC(ano, mes, 1) + BRASIL_UTC_OFFSET_MS),
+  };
+}
+
 function parseDayStart(iso: string): Date {
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d) + BRASIL_UTC_OFFSET_MS);
@@ -1805,41 +1828,38 @@ export class FinanceiroService {
     const brasil = new Date(now.getTime() - BRASIL_UTC_OFFSET_MS);
     const y = query.ano ?? brasil.getUTCFullYear();
     const mesFiltro =
-      query.mes != null && query.mes >= 1 && query.mes <= 12
-        ? query.mes
+      query.mes != null && Number(query.mes) >= 1 && Number(query.mes) <= 12
+        ? Number(query.mes)
         : undefined;
-    const inicioMes =
+    const bounds = slackBoundsVisao(y, mesFiltro);
+    const mesAnt =
       mesFiltro != null
-        ? new Date(Date.UTC(y, mesFiltro - 1, 1) + BRASIL_UTC_OFFSET_MS)
-        : new Date(Date.UTC(y, 0, 1) + BRASIL_UTC_OFFSET_MS);
-    const inicioProx =
-      mesFiltro != null
-        ? new Date(Date.UTC(y, mesFiltro, 1) + BRASIL_UTC_OFFSET_MS)
-        : new Date(Date.UTC(y + 1, 0, 1) + BRASIL_UTC_OFFSET_MS);
-    const inicioAnt =
-      mesFiltro != null
-        ? new Date(Date.UTC(y, mesFiltro - 2, 1) + BRASIL_UTC_OFFSET_MS)
-        : new Date(Date.UTC(y - 1, 0, 1) + BRASIL_UTC_OFFSET_MS);
+        ? mesFiltro === 1
+          ? 12
+          : mesFiltro - 1
+        : undefined;
+    const anoAnt = mesFiltro != null ? (mesFiltro === 1 ? y - 1 : y) : y - 1;
+    const boundsAnt = slackBoundsVisao(anoAnt, mesAnt);
 
     await this.syncComissoesParaTitulos(tenantId).catch(() => undefined);
 
-    const [movMes, movAnt, aReceber, aPagar, movAbertosParceiro, comissoesAReceberMes] =
+    const [movJanela, movJanelaAnt, titulosReceber, titulosPagar, movAbertosParceiro, comissoesJanela] =
       await Promise.all([
         this.prisma.financeiroMovimento.findMany({
           where: {
             tenantId,
-            data: { gte: inicioMes, lt: inicioProx },
+            data: { gte: bounds.gte, lt: bounds.lt },
             status: { not: FinanceiroTituloStatus.cancelado },
           },
         }),
         this.prisma.financeiroMovimento.findMany({
           where: {
             tenantId,
-            data: { gte: inicioAnt, lt: inicioMes },
+            data: { gte: boundsAnt.gte, lt: boundsAnt.lt },
             status: { not: FinanceiroTituloStatus.cancelado },
           },
         }),
-        this.prisma.financeiroTitulo.aggregate({
+        this.prisma.financeiroTitulo.findMany({
           where: {
             tenantId,
             tipo: FinanceiroTituloTipo.receber,
@@ -1849,12 +1869,11 @@ export class FinanceiroService {
                 FinanceiroTituloStatus.atrasado,
               ],
             },
-            vencimento: { gte: inicioMes, lt: inicioProx },
+            vencimento: { gte: bounds.gte, lt: bounds.lt },
             comissaoId: null,
           },
-          _sum: { valor: true },
         }),
-        this.prisma.financeiroTitulo.aggregate({
+        this.prisma.financeiroTitulo.findMany({
           where: {
             tenantId,
             tipo: FinanceiroTituloTipo.pagar,
@@ -1864,9 +1883,8 @@ export class FinanceiroService {
                 FinanceiroTituloStatus.atrasado,
               ],
             },
-            vencimento: { gte: inicioMes, lt: inicioProx },
+            vencimento: { gte: bounds.gte, lt: bounds.lt },
           },
-          _sum: { valor: true },
         }),
         this.prisma.financeiroMovimento.findMany({
           where: {
@@ -1892,11 +1910,27 @@ export class FinanceiroService {
                 FinanceiroTituloStatus.atrasado,
               ],
             },
-            vencimento: { gte: inicioMes, lt: inicioProx },
+            vencimento: { gte: bounds.gte, lt: bounds.lt },
           },
           orderBy: [{ valor: "desc" }, { vencimento: "asc" }],
         }),
       ]);
+
+    const movMes = movJanela.filter((r) =>
+      noPeriodoVisao(r.data, y, mesFiltro),
+    );
+    const movAnt = movJanelaAnt.filter((r) =>
+      noPeriodoVisao(r.data, anoAnt, mesAnt),
+    );
+    const aReceberValor = titulosReceber
+      .filter((t) => noPeriodoVisao(t.vencimento, y, mesFiltro))
+      .reduce((s, t) => s + t.valor, 0);
+    const aPagarValor = titulosPagar
+      .filter((t) => noPeriodoVisao(t.vencimento, y, mesFiltro))
+      .reduce((s, t) => s + t.valor, 0);
+    const comissoesAReceberMes = comissoesJanela.filter((t) =>
+      noPeriodoVisao(t.vencimento, y, mesFiltro),
+    );
 
     const sumTipo = (
       rows: { tipo: FinanceiroMovimentoTipo; valor: number }[],
@@ -2004,8 +2038,8 @@ export class FinanceiroService {
         despesasVariavelMes,
         despesasOutrosMes,
         comissoesAReceberMes: comissoesAReceberMesValor,
-        aReceber: aReceber._sum.valor ?? 0,
-        aPagar: aPagar._sum.valor ?? 0,
+        aReceber: aReceberValor,
+        aPagar: aPagarValor,
         resultadoMes,
         evolucaoReceitas: evolucao(receitasMes, receitasAnt),
         evolucaoDespesas: evolucao(despesasMes, despesasAnt),
@@ -2842,54 +2876,100 @@ export class FinanceiroService {
 
   private async buildMesesResumo(tenantId: string, ano: number) {
     const resolvedNatureza = await this.despesaNaturezaResolver(tenantId);
-    const inicioJanela = new Date(Date.UTC(ano, 0, 1) + BRASIL_UTC_OFFSET_MS);
+    const inicioJanela = new Date(Date.UTC(ano, 0, 1));
     const fimJanela = new Date(Date.UTC(ano + 1, 0, 1) + BRASIL_UTC_OFFSET_MS);
-    const comissoesAberto = await this.prisma.financeiroTitulo.findMany({
-      where: {
-        tenantId,
-        tipo: FinanceiroTituloTipo.receber,
-        comissaoId: { not: null },
-        status: {
-          in: [
-            FinanceiroTituloStatus.aberto,
-            FinanceiroTituloStatus.atrasado,
-          ],
-        },
-        vencimento: { gte: inicioJanela, lt: fimJanela },
-      },
-      select: { valor: true, vencimento: true },
-    });
-    const result: {
-      mes: string;
-      receitas: number;
-      despesas: number;
-      variaveis: number;
-      fixas: number;
-      comissoesAReceber: number;
-    }[] = [];
-
-    for (let m = 0; m < 12; m += 1) {
-      const inicio = new Date(Date.UTC(ano, m, 1) + BRASIL_UTC_OFFSET_MS);
-      const fim = new Date(Date.UTC(ano, m + 1, 1) + BRASIL_UTC_OFFSET_MS);
-      const rows = await this.prisma.financeiroMovimento.findMany({
+    const [comissoesAberto, titulosAbertos, movimentos] = await Promise.all([
+      this.prisma.financeiroTitulo.findMany({
         where: {
           tenantId,
-          data: { gte: inicio, lt: fim },
-          status: { not: FinanceiroTituloStatus.cancelado },
+          tipo: FinanceiroTituloTipo.receber,
+          comissaoId: { not: null },
+          status: {
+            in: [
+              FinanceiroTituloStatus.aberto,
+              FinanceiroTituloStatus.atrasado,
+            ],
+          },
+          vencimento: { gte: inicioJanela, lt: fimJanela },
         },
-      });
+        select: { valor: true, vencimento: true },
+      }),
+      this.prisma.financeiroTitulo.findMany({
+        where: {
+          tenantId,
+          status: {
+            in: [
+              FinanceiroTituloStatus.aberto,
+              FinanceiroTituloStatus.atrasado,
+            ],
+          },
+          vencimento: { gte: inicioJanela, lt: fimJanela },
+        },
+        select: {
+          tipo: true,
+          valor: true,
+          vencimento: true,
+          comissaoId: true,
+        },
+      }),
+      this.prisma.financeiroMovimento.findMany({
+        where: {
+          tenantId,
+          status: { not: FinanceiroTituloStatus.cancelado },
+          data: { gte: inicioJanela, lt: fimJanela },
+        },
+      }),
+    ]);
+    const somarPorMes = (
+      items: { valor: number; vencimento?: Date; data?: Date }[],
+      campo: "vencimento" | "data",
+    ) => {
+      const map = new Map<string, number>();
+      for (const item of items) {
+        const d = campo === "vencimento" ? item.vencimento : item.data;
+        if (!d) continue;
+        const key = isoDateOnly(d).slice(0, 7);
+        if (!key.startsWith(`${ano}-`)) continue;
+        map.set(key, (map.get(key) ?? 0) + item.valor);
+      }
+      return map;
+    };
+    const comissaoPorMes = somarPorMes(comissoesAberto, "vencimento");
+    const aReceberPorMes = somarPorMes(
+      titulosAbertos.filter(
+        (t) => t.tipo === FinanceiroTituloTipo.receber && t.comissaoId == null,
+      ),
+      "vencimento",
+    );
+    const aPagarPorMes = somarPorMes(
+      titulosAbertos.filter((t) => t.tipo === FinanceiroTituloTipo.pagar),
+      "vencimento",
+    );
+    const movPorMes = new Map<string, typeof movimentos>();
+    for (const row of movimentos) {
+      const key = isoDateOnly(row.data).slice(0, 7);
+      if (!key.startsWith(`${ano}-`)) continue;
+      const list = movPorMes.get(key) ?? [];
+      list.push(row);
+      movPorMes.set(key, list);
+    }
+
+    return MESES_CURTOS.map((mes, m) => {
+      const key = `${ano}-${String(m + 1).padStart(2, "0")}`;
+      const rows = movPorMes.get(key) ?? [];
       const saidas = rows.filter(
         (r) => r.tipo === FinanceiroMovimentoTipo.saida,
       );
-      result.push({
-        mes: MESES_CURTOS[m],
+      return {
+        mes,
         receitas: rows
           .filter((r) => r.tipo === FinanceiroMovimentoTipo.entrada)
           .reduce((s, r) => s + r.valor, 0),
         despesas: saidas.reduce((s, r) => s + r.valor, 0),
         variaveis: saidas
           .filter(
-            (r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "variavel",
+            (r) =>
+              this.classifyDespesaBucket(resolvedNatureza(r)) === "variavel",
           )
           .reduce((s, r) => s + r.valor, 0),
         fixas: saidas
@@ -2897,12 +2977,11 @@ export class FinanceiroService {
             (r) => this.classifyDespesaBucket(resolvedNatureza(r)) === "fixa",
           )
           .reduce((s, r) => s + r.valor, 0),
-        comissoesAReceber: comissoesAberto
-          .filter((t) => t.vencimento >= inicio && t.vencimento < fim)
-          .reduce((s, t) => s + t.valor, 0),
-      });
-    }
-    return result;
+        comissoesAReceber: comissaoPorMes.get(key) ?? 0,
+        aReceber: aReceberPorMes.get(key) ?? 0,
+        aPagar: aPagarPorMes.get(key) ?? 0,
+      };
+    });
   }
 
   private async buildCentros(tenantId: string) {
