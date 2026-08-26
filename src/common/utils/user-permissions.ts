@@ -48,6 +48,12 @@ export const PERMISSION_MODULES = [
     group: 'operacao',
   },
   {
+    key: 'locacao',
+    label: 'Locação',
+    routes: ['/locacao'],
+    group: 'operacao',
+  },
+  {
     key: 'documentacao',
     label: 'Documentação',
     routes: ['/documentacao'],
@@ -455,6 +461,9 @@ export function modulesForApiPath(rawPath: string): string[] {
   if (path.startsWith('treinamento')) return ['treinamento'];
   if (path.startsWith('triagem')) return ['triagem'];
   if (path.startsWith('localidades')) return ['imoveis', 'construtoras'];
+  if (path.startsWith('captacao')) return ['captacao'];
+  if (path.startsWith('imoveis-usados')) return ['imoveisUsados'];
+  if (path.startsWith('locacao')) return ['locacao'];
   return [];
 }
 

@@ -48,7 +48,32 @@ const ADMINISTRATIVO_TOGGLE = [
 
 const FINANCEIRO = ['financeiro'] as const;
 
-const ALL = [...OPERACIONAL, ...ADMINISTRATIVO, ...FINANCEIRO] as const;
+const OPERACOES = [
+  'comercial',
+  'captacao',
+  'imoveisUsados',
+  'locacao',
+] as const;
+
+const ALL = [
+  ...OPERACIONAL,
+  ...ADMINISTRATIVO,
+  ...FINANCEIRO,
+  ...OPERACOES,
+] as const;
+
+const OPERACAO_DEFAULT: Record<(typeof OPERACOES)[number], boolean> = {
+  comercial: true,
+  captacao: false,
+  imoveisUsados: false,
+  locacao: false,
+};
+
+function applyOperationDefaults(next: Record<string, boolean>) {
+  for (const k of OPERACOES) {
+    if (typeof next[k] !== 'boolean') next[k] = OPERACAO_DEFAULT[k];
+  }
+}
 
 /**
  * Recorte fixo do plano Solo: CRM pessoal (com Funil), fechamento, metas e financeiro enxuto.
@@ -69,6 +94,7 @@ const SOLO_ENABLED = new Set<string>([
   'contratos',
   'metas',
   'financeiro',
+  'comercial',
 ]);
 
 export function isAdminGroupEnabled(
@@ -155,7 +181,17 @@ export function normalizeModulesForPlano(
   modules: Record<string, boolean>,
 ): Record<string, boolean> {
   if (plano === TenantPlano.solo) {
-    return Object.fromEntries(ALL.map((k) => [k, SOLO_ENABLED.has(k)]));
+    const next: Record<string, boolean> = Object.fromEntries(
+      ALL.map((k) => [k, SOLO_ENABLED.has(k)]),
+    );
+    for (const k of OPERACOES) {
+      if (k === 'comercial') {
+        next[k] = true;
+      } else {
+        next[k] = modules[k] === true;
+      }
+    }
+    return next;
   }
 
   const next: Record<string, boolean> = { ...modules };
@@ -181,6 +217,8 @@ export function normalizeModulesForPlano(
       next.financeiro = false;
     }
   }
+
+  applyOperationDefaults(next);
 
   return Object.fromEntries(ALL.map((k) => [k, next[k] === true]));
 }
@@ -214,7 +252,14 @@ export function modulesPresetForPlano(
 
   return normalizeModulesForPlano(
     plano,
-    Object.fromEntries(ALL.map((k) => [k, enabled.has(k)])),
+    Object.fromEntries(
+      ALL.map((k) => {
+        if ((OPERACOES as readonly string[]).includes(k)) {
+          return [k, OPERACAO_DEFAULT[k as (typeof OPERACOES)[number]]];
+        }
+        return [k, enabled.has(k)];
+      }),
+    ),
   );
 }
 

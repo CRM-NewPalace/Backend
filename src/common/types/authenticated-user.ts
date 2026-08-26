@@ -18,4 +18,6 @@ export interface AuthenticatedUser {
   tenantId: string | null;
   financeiroPerms?: FinanceiroPerms;
   permissions?: UserPermissions | null;
+  /** Módulos do tenant (plano + operações), para guards. */
+  tenantModules?: Record<string, boolean> | null;
 }

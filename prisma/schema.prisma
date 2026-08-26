@@ -125,7 +125,7 @@ model Tenant {
   density      String @default("comfortable")
   /// Rota inicial após login (ex.: /dashboard, /funil).
   homePath     String @default("/dashboard")
-  /// Módulos ligados/desligados: { "metas": true, "financeiro": false, ... }
+  /// Módulos do plano + operações: { "funil": true, "captacao": false, "comercial": true, ... }
   modules      Json?
 
   /// Plano: solo (corretor), bronze (CRM), prata (CRM+admin), ouro (tudo).

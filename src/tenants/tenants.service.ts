@@ -30,8 +30,14 @@ import {
 } from '../catalog/catalog.defaults';
 import {
   PLANO_MAX_USUARIOS,
+  applyPlanoModules,
   resolvePlanoFields,
 } from './tenant-plan';
+import {
+  mergeOperationModules,
+  pickOperationModules,
+} from './tenant-operation.util';
+import { UpdateTenantOperationModulesDto } from './dto/update-tenant-operation-modules.dto';
 import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
 import {
   PLATFORM_TENANT_ID,
@@ -930,6 +936,54 @@ export class TenantsService {
       },
       select: tenantBrandingSelect,
     });
+  }
+
+  async getOperationModules(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plano: true, modules: true },
+    });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+    const modules = applyPlanoModules(tenant.plano, tenant.modules);
+    return { modules, operations: pickOperationModules(modules) };
+  }
+
+  async updateOperationModules(
+    requester: AuthenticatedUser,
+    dto: UpdateTenantOperationModulesDto,
+  ) {
+    if (requester.role !== Role.admin) {
+      throw new ForbiddenException(
+        'Somente o administrador pode alterar as operações da imobiliária.',
+      );
+    }
+    const tenantId = requireTenantId(requester);
+    if (tenantId === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser alterado por aqui.',
+      );
+    }
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plano: true, modules: true },
+    });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+
+    const current = applyPlanoModules(tenant.plano, tenant.modules);
+    const merged = mergeOperationModules(current, {
+      captacao: dto.captacao,
+      imoveisUsados: dto.imoveisUsados,
+      locacao: dto.locacao,
+    });
+    const modules = applyPlanoModules(tenant.plano, merged);
+
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { modules: modules as Prisma.InputJsonValue },
+    });
+
+    return { modules, operations: pickOperationModules(modules) };
   }
 
   /** Mantém só dígitos do CPF/CNPJ (até 14). */
