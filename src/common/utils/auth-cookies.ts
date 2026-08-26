@@ -30,39 +30,37 @@ export function parseDurationMs(value: string, fallbackMs: number): number {
 
 type SameSite = 'lax' | 'none' | 'strict';
 
-/**
- * SameSite dos cookies de sessão.
- *
- * Produção usa proxy same-origin (Vercel /api → API), então o padrão é
- * 'lax' — cookies first-party, sem avisos de third-party no Firefox.
- * Use COOKIE_SAMESITE=none só se o front chamar a API em outro domínio
- * sem proxy (cenário frágil; browsers bloqueiam com frequência).
- */
-function resolveSameSite(config: ConfigService): SameSite {
-  const raw = config.get<string>('COOKIE_SAMESITE')?.trim().toLowerCase();
-  if (raw === 'lax' || raw === 'none' || raw === 'strict') return raw;
-  return 'lax';
-}
-
 function frontendUsesHttps(config: ConfigService): boolean {
   const raw = config.get<string>('FRONTEND_URL') ?? '';
   return raw.split(',').some((u) => u.trim().startsWith('https://'));
 }
 
 /**
+ * SameSite dos cookies de sessão.
+ *
+ * Sempre Lax (ou Strict se pedido). SameSite=None exige Secure; o rewrite
+ * HTTP da Vercel para o Dokploy costuma entregar o cookie sem Secure e o
+ * Firefox descarta crm_access/refresh/csrf.
+ */
+function resolveSameSite(config: ConfigService): SameSite {
+  const raw = config.get<string>('COOKIE_SAMESITE')?.trim().toLowerCase();
+  if (raw === 'strict') return 'strict';
+  return 'lax';
+}
+
+/**
  * Secure no cookie do browser (Vercel HTTPS), mesmo se o Nest recebe HTTP
  * do rewrite Vercel → Dokploy.
  *
- * COOKIE_SECURE=true|false sobrescreve. Senão: FRONTEND_URL https, ou
- * NODE_ENV=production, ou SameSite=None.
+ * SameSite=None exige Secure. COOKIE_SECURE=false não pode desligar isso.
  */
 export function resolveCookieSecure(config: ConfigService): boolean {
+  if (resolveSameSite(config) === 'none') return true;
   const raw = config.get<string>('COOKIE_SECURE')?.trim().toLowerCase();
   if (raw === 'true' || raw === '1') return true;
   if (raw === 'false' || raw === '0') return false;
   if (frontendUsesHttps(config)) return true;
-  const isProd = config.get<string>('NODE_ENV') === 'production';
-  return isProd || resolveSameSite(config) === 'none';
+  return config.get<string>('NODE_ENV') === 'production';
 }
 
 function baseCookieOptions(config: ConfigService): CookieOptions {
@@ -105,6 +103,8 @@ function clearCookieAllVariants(
   for (const path of paths) {
     for (const secure of [true, false]) {
       for (const sameSite of sameSites) {
+        // Firefox recusa SameSite=None sem Secure — não emitir esse header.
+        if (sameSite === 'none' && !secure) continue;
         const partitionedOpts =
           sameSite === 'none' ? [true, false] : [false];
         for (const partitioned of partitionedOpts) {
