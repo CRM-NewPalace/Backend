@@ -11,6 +11,8 @@ export const COOKIE = {
 
 export const CSRF_HEADER = 'x-csrf-token';
 
+const AUTH_COOKIE_NAMES = [COOKIE.access, COOKIE.refresh, COOKIE.csrf] as const;
+
 /** Converte "15m" / "7d" em milissegundos para maxAge do cookie. */
 export function parseDurationMs(value: string, fallbackMs: number): number {
   const match = /^(\d+)(s|m|h|d)$/.exec(value.trim());
@@ -31,7 +33,7 @@ type SameSite = 'lax' | 'none' | 'strict';
 /**
  * SameSite dos cookies de sessão.
  *
- * Produção usa proxy same-origin (Vercel /api → Render), então o padrão é
+ * Produção usa proxy same-origin (Vercel /api → API), então o padrão é
  * 'lax' — cookies first-party, sem avisos de third-party no Firefox.
  * Use COOKIE_SAMESITE=none só se o front chamar a API em outro domínio
  * sem proxy (cenário frágil; browsers bloqueiam com frequência).
@@ -39,20 +41,37 @@ type SameSite = 'lax' | 'none' | 'strict';
 function resolveSameSite(config: ConfigService): SameSite {
   const raw = config.get<string>('COOKIE_SAMESITE')?.trim().toLowerCase();
   if (raw === 'lax' || raw === 'none' || raw === 'strict') return raw;
-  // Mesmo em produção o front deve falar via /api (same-site).
   return 'lax';
 }
 
-function baseCookieOptions(config: ConfigService): CookieOptions {
+function frontendUsesHttps(config: ConfigService): boolean {
+  const raw = config.get<string>('FRONTEND_URL') ?? '';
+  return raw.split(',').some((u) => u.trim().startsWith('https://'));
+}
+
+/**
+ * Secure no cookie do browser (Vercel HTTPS), mesmo se o Nest recebe HTTP
+ * do rewrite Vercel → Dokploy.
+ *
+ * COOKIE_SECURE=true|false sobrescreve. Senão: FRONTEND_URL https, ou
+ * NODE_ENV=production, ou SameSite=None.
+ */
+export function resolveCookieSecure(config: ConfigService): boolean {
+  const raw = config.get<string>('COOKIE_SECURE')?.trim().toLowerCase();
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  if (frontendUsesHttps(config)) return true;
   const isProd = config.get<string>('NODE_ENV') === 'production';
+  return isProd || resolveSameSite(config) === 'none';
+}
+
+function baseCookieOptions(config: ConfigService): CookieOptions {
   const sameSite = resolveSameSite(config);
   return {
     httpOnly: true,
-    // O browser descarta SameSite=None sem Secure.
-    secure: isProd || sameSite === 'none',
+    secure: resolveCookieSecure(config),
     sameSite,
     path: '/api',
-    // CHIPS só quando realmente cross-site (SameSite=None).
     ...(sameSite === 'none' ? { partitioned: true } : {}),
   };
 }
@@ -71,6 +90,45 @@ function csrfCookieOptions(config: ConfigService): CookieOptions {
   };
 }
 
+/**
+ * O browser só apaga o cookie se path/secure/sameSite/partitioned baterem.
+ * Depois de trocar a API (HTTPS→HTTP, Lax↔None) ficam duplicatas e o
+ * Express lê o JWT/CSRF antigo → 401/403.
+ */
+function clearCookieAllVariants(
+  res: Response,
+  name: string,
+  httpOnly: boolean,
+): void {
+  const paths = ['/', '/api'] as const;
+  const sameSites: SameSite[] = ['lax', 'none', 'strict'];
+  for (const path of paths) {
+    for (const secure of [true, false]) {
+      for (const sameSite of sameSites) {
+        const partitionedOpts =
+          sameSite === 'none' ? [true, false] : [false];
+        for (const partitioned of partitionedOpts) {
+          const opts: CookieOptions = {
+            httpOnly,
+            path,
+            secure,
+            sameSite,
+            maxAge: 0,
+            ...(partitioned ? { partitioned: true } : {}),
+          };
+          res.clearCookie(name, opts);
+        }
+      }
+    }
+  }
+}
+
+function clearAllAuthCookieVariants(res: Response): void {
+  clearCookieAllVariants(res, COOKIE.access, true);
+  clearCookieAllVariants(res, COOKIE.refresh, true);
+  clearCookieAllVariants(res, COOKIE.csrf, false);
+}
+
 export function setAuthCookies(
   res: Response,
   config: ConfigService,
@@ -86,6 +144,8 @@ export function setAuthCookies(
   );
   const base = baseCookieOptions(config);
 
+  clearAllAuthCookieVariants(res);
+
   res.cookie(COOKIE.access, tokens.accessToken, {
     ...base,
     maxAge: accessMs,
@@ -96,29 +156,14 @@ export function setAuthCookies(
     maxAge: refreshMs,
   });
 
-  // Remove cookie CSRF legado (path /api) para não sobrar token fantasma.
-  res.clearCookie(COOKIE.csrf, { ...base, httpOnly: false });
-
   res.cookie(COOKIE.csrf, tokens.csrfToken, {
     ...csrfCookieOptions(config),
     maxAge: refreshMs,
   });
 }
 
-export function clearAuthCookies(res: Response, config: ConfigService): void {
-  const base = baseCookieOptions(config);
-  res.clearCookie(COOKIE.access, base);
-  res.clearCookie(COOKIE.refresh, base);
-  // Limpa ambos os paths (legado /api e atual /).
-  res.clearCookie(COOKIE.csrf, { ...base, httpOnly: false });
-  res.clearCookie(COOKIE.csrf, csrfCookieOptions(config));
-  // Cookies antigos sem Partitioned (pré-CHIPS) — limpa o jar clássico também.
-  if (base.partitioned) {
-    const legacy = { ...base, partitioned: undefined };
-    delete (legacy as { partitioned?: boolean }).partitioned;
-    res.clearCookie(COOKIE.access, legacy);
-    res.clearCookie(COOKIE.refresh, legacy);
-    res.clearCookie(COOKIE.csrf, { ...legacy, httpOnly: false });
-    res.clearCookie(COOKIE.csrf, { ...csrfCookieOptions(config), partitioned: undefined });
-  }
+export function clearAuthCookies(res: Response, _config?: ConfigService): void {
+  clearAllAuthCookieVariants(res);
 }
+
+export { AUTH_COOKIE_NAMES };
