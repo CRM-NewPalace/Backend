@@ -12,7 +12,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "prisma migrate deploy && node dist/src/main",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
-    "test": "node -r ts-node/register --test src/meta/meta-webhook.parser.spec.ts src/meta/meta-signature.spec.ts src/meta/meta.service.spec.ts src/common/utils/user-permissions.spec.ts src/common/utils/last-cookie.util.spec.ts src/common/guards/roles.guard.spec.ts src/catalog/catalog.defaults.spec.ts src/funis/funil-ativo.util.spec.ts src/tenants/tenant-operation.util.spec.ts src/tenants/tenant-plan.spec.ts",
+    "test": "node -r ts-node/register --test src/meta/meta-webhook.parser.spec.ts src/meta/meta-signature.spec.ts src/meta/meta.service.spec.ts src/common/utils/user-permissions.spec.ts src/common/utils/last-cookie.util.spec.ts src/common/guards/roles.guard.spec.ts src/catalog/catalog.defaults.spec.ts src/funis/funil-ativo.util.spec.ts src/tenants/tenant-operation.util.spec.ts src/tenants/tenant-plan.spec.ts src/captacao/captacao.util.spec.ts src/captacao/captacao.service.spec.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",

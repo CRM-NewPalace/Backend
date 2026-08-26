@@ -55,10 +55,8 @@ describe('permissões por usuário', () => {
       'comissao',
       'financeiro',
     ]);
-    assert.deepEqual(modulesForApiPath('/documentacao'), [
-      'documentacao',
-      'vendas',
-    ]);
+    assert.deepEqual(modulesForApiPath('/captacao/proprietarios'), ['captacao']);
+    assert.deepEqual(modulesForApiPath('/captacao'), ['captacao']);
   });
 
   it('não libera escrita sensível só com módulo', () => {

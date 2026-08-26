@@ -49,7 +49,7 @@ export function mergeOperationModules(
   return next;
 }
 
-/** Paths futuros das operações (rotas ainda não existem nesta etapa). */
+/** Paths das operações (captação, usados, locação). */
 export function operationModuleForApiPath(
   rawPath: string,
 ): TenantOperationKey | null {
