@@ -25,7 +25,7 @@ import {
   UpdateFunilDto,
   UpdateFunilEtapaDto,
 } from './dto/funil.dto';
-import { whereDeactivateActiveOfTipo } from './funil-ativo.util';
+import { looksLikeCommercialFunnel, whereDeactivateActiveOfTipo } from './funil-ativo.util';
 
 /** Slugs legados usados como fallback quando `papel` ainda não foi atribuído. */
 const LEGACY_PAPEL_BY_SLUG: Record<string, FunilEtapaPapel> = {
@@ -801,9 +801,49 @@ export class FunisService {
   }
 
   async ensureTenantOperationFunnels(tenantId: string) {
+    await this.reclaimLegacyCommercialFunnels(tenantId);
     await this.ensureTenantHasFunil(tenantId, FunilTipo.comercial);
     await this.ensureTenantHasFunil(tenantId, FunilTipo.captacao);
     await this.ensureTenantHasFunil(tenantId, FunilTipo.venda_usados);
+  }
+
+  /**
+   * Funis criados antes de `tipo` (ou gravados no tipo errado) voltam para comercial
+   * se tiverem as etapas do funil de vendas.
+   */
+  private async reclaimLegacyCommercialFunnels(tenantId: string) {
+    const funis = await this.prisma.funil.findMany({
+      where: { tenantId, NOT: { tipo: FunilTipo.comercial } },
+      select: {
+        id: true,
+        tipo: true,
+        ativo: true,
+        etapas: { select: { slug: true, label: true } },
+      },
+    });
+    const misplaced = funis.filter((f) => looksLikeCommercialFunnel(f.etapas));
+    if (misplaced.length === 0) return;
+
+    const activeComercial = await this.prisma.funil.findFirst({
+      where: { tenantId, tipo: FunilTipo.comercial, ativo: true },
+      select: { id: true },
+    });
+
+    let claimedActive = Boolean(activeComercial);
+    for (const funil of misplaced) {
+      const becomeActive = funil.ativo && !claimedActive;
+      await this.prisma.funil.update({
+        where: { id: funil.id },
+        data: {
+          tipo: FunilTipo.comercial,
+          ...(funil.ativo && claimedActive && !becomeActive
+            ? { ativo: false }
+            : {}),
+          ...(becomeActive ? { ativo: true } : {}),
+        },
+      });
+      if (becomeActive) claimedActive = true;
+    }
   }
 
   /**
@@ -813,6 +853,9 @@ export class FunisService {
     tenantId: string,
     tipo: FunilTipo = FunilTipo.comercial,
   ) {
+    if (tipo === FunilTipo.comercial) {
+      await this.reclaimLegacyCommercialFunnels(tenantId);
+    }
     const ativo = await this.prisma.funil.findFirst({
       where: { tenantId, tipo, ativo: true },
       select: funilSelect,

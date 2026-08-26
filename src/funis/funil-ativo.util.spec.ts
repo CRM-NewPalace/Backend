@@ -1,7 +1,30 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { FunilTipo } from '@prisma/client';
-import { whereDeactivateActiveOfTipo } from './funil-ativo.util';
+import {
+  looksLikeCommercialFunnel,
+  whereDeactivateActiveOfTipo,
+} from './funil-ativo.util';
+
+describe('looksLikeCommercialFunnel', () => {
+  it('reconhece o funil de vendas legado', () => {
+    assert.equal(
+      looksLikeCommercialFunnel([
+        { slug: 'novo', label: 'Novo lead' },
+        { slug: 'em-analise' },
+      ]),
+      true,
+    );
+  });
+
+  it('não classifica o seed de captação como comercial', () => {
+    assert.equal(
+      looksLikeCommercialFunnel([{ slug: 'novo-proprietario' }]),
+      false,
+    );
+  });
+});
+
 
 describe('ativação de funil por tipo', () => {
   it('desativa só o mesmo tenant e tipo', () => {
