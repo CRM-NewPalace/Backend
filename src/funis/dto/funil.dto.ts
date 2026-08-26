@@ -101,6 +101,10 @@ export class UpdateFunilDto {
   name?: string;
 
   @IsOptional()
+  @IsEnum(FunilTipo, { message: 'Tipo de funil inválido.' })
+  tipo?: FunilTipo;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)

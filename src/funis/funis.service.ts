@@ -172,7 +172,7 @@ export class FunisService {
 
   async update(id: string, dto: UpdateFunilDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    await this.ensureOwned(id, tenantId);
+    const owned = await this.ensureOwned(id, tenantId);
 
     const data: Prisma.FunilUpdateInput = {};
     if (dto.name !== undefined) {
@@ -193,12 +193,28 @@ export class FunisService {
       data.inatividadeUnidade = dto.inatividadeUnidade;
     }
 
-    if (Object.keys(data).length > 0) {
-      await this.prisma.funil.update({
+    const novoTipo =
+      dto.tipo !== undefined && dto.tipo !== owned.tipo ? dto.tipo : null;
+    if (novoTipo) {
+      data.tipo = novoTipo;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return this.findOne(id, requester);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (novoTipo && owned.ativo) {
+        await tx.funil.updateMany({
+          where: whereDeactivateActiveOfTipo(tenantId, novoTipo, id),
+          data: { ativo: false },
+        });
+      }
+      await tx.funil.update({
         where: { id },
         data,
       });
-    }
+    });
 
     return this.findOne(id, requester);
   }
