@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CatalogType, Prisma, Role, TenantPlano, UserStatus } from '@prisma/client';
+import { CatalogType, FunilTipo, Prisma, Role, TenantPlano, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,7 +23,11 @@ import {
 } from '../common/utils/tenant-branding';
 import { publicUserSelect } from '../common/utils/user-select';
 import { SALT_ROUNDS } from '../config/security.constants';
-import { DEFAULT_FUNNEL_STAGES } from '../catalog/catalog.defaults';
+import {
+  DEFAULT_FUNIL_NAME,
+  DEFAULT_FUNNEL_STAGES,
+  funilEtapasCreateData,
+} from '../catalog/catalog.defaults';
 import {
   PLANO_MAX_USUARIOS,
   resolvePlanoFields,
@@ -781,6 +785,7 @@ export class TenantsService {
         data: {
           tenantId,
           name: 'Funil padrão',
+          tipo: FunilTipo.comercial,
           ativo: true,
           etapas: {
             create: DEFAULT_FUNNEL_STAGES.map((stage) => ({
@@ -791,6 +796,28 @@ export class TenantsService {
               active: true,
             })),
           },
+        },
+      });
+    }
+
+    for (const tipo of [FunilTipo.captacao, FunilTipo.venda_usados] as const) {
+      const exists = await tx.funil.findFirst({
+        where: { tenantId, tipo },
+        select: { id: true },
+      });
+      if (exists) continue;
+      const baseName = DEFAULT_FUNIL_NAME[tipo];
+      const clash = await tx.funil.findUnique({
+        where: { tenantId_name: { tenantId, name: baseName } },
+        select: { id: true },
+      });
+      await tx.funil.create({
+        data: {
+          tenantId,
+          name: clash ? `${baseName} (padrão)` : baseName,
+          tipo,
+          ativo: true,
+          etapas: { create: funilEtapasCreateData(tipo) },
         },
       });
     }

@@ -412,6 +412,7 @@ export class TenantCloneService {
       id: mapped(funis, f.id),
       tenantId,
       name: f.name,
+      tipo: f.tipo,
       ativo: f.ativo,
       inatividadeValor: f.inatividadeValor,
       inatividadeUnidade: f.inatividadeUnidade,

@@ -15,7 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { FunilEtapaPapel, PrazoUnidade } from '@prisma/client';
+import { FunilEtapaPapel, FunilTipo, PrazoUnidade } from '@prisma/client';
 
 export class CreateFunilEtapaDto {
   @IsString()
@@ -61,11 +61,21 @@ export class CreateFunilEtapaDto {
   alertaAntecedenciaPercent?: number;
 }
 
+export class QueryFunisDto {
+  @IsOptional()
+  @IsEnum(FunilTipo, { message: 'Tipo de funil inválido.' })
+  tipo?: FunilTipo;
+}
+
 export class CreateFunilDto {
   @IsString()
   @MinLength(1)
   @MaxLength(80)
   name!: string;
+
+  @IsOptional()
+  @IsEnum(FunilTipo, { message: 'Tipo de funil inválido.' })
+  tipo?: FunilTipo;
 
   /** Se true, copia as etapas padrão. Ignorado se `etapas` for enviado. */
   @IsOptional()

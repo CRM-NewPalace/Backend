@@ -1190,14 +1190,23 @@ enum FunilEtapaPapel {
   perdido
 }
 
-/// Funil comercial nomeado do tenant. Apenas um pode estar `ativo` por vez.
+/// Tipo de operação do funil. Um funil ativo por (tenant, tipo).
+enum FunilTipo {
+  comercial
+  captacao
+  venda_usados
+}
+
+/// Funil nomeado do tenant. Um `ativo` por tipo de operação.
 model Funil {
-  id       String @id @default(uuid())
+  id       String    @id @default(uuid())
   tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name     String
-  /// Funil em uso no kanban, dashboard e novos leads.
-  ativo    Boolean @default(false)
+  /// Operação à qual este funil pertence (comercial = CRM atual).
+  tipo     FunilTipo @default(comercial)
+  /// Funil em uso no kanban/dashboard daquele tipo.
+  ativo    Boolean   @default(false)
   /// Sem movimentação relevante após este período gera alerta no card.
   inatividadeValor   Int          @default(48)
   inatividadeUnidade PrazoUnidade @default(horas)
@@ -1209,6 +1218,7 @@ model Funil {
 
   @@unique([tenantId, name])
   @@index([tenantId, ativo])
+  @@index([tenantId, tipo])
   @@map("funis")
 }
 

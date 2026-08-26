@@ -14,6 +14,7 @@ import {
   FinanceiroTituloStatus,
   FinanceiroTituloTipo,
   FunilEtapaPapel,
+  FunilTipo,
   MetaEscopo,
   MetaOrigem,
   MetaPeriodo,
@@ -37,8 +38,10 @@ import {
   DEFAULT_EMPREENDIMENTO_STATUS,
   DEFAULT_EMPREENDIMENTO_TAGS,
   DEFAULT_EMPREENDIMENTO_TIPOS,
+  DEFAULT_FUNIL_NAME,
   DEFAULT_FUNNEL_STAGES,
   DEFAULT_MOTIVOS_PERDA,
+  funilEtapasCreateData,
 } from '../catalog/catalog.defaults';
 import { slugify } from '../catalog/catalog.util';
 import { isStatusVendido } from '../common/utils/documentacao-status';
@@ -379,6 +382,7 @@ export class TenantDemoDataService {
         data: {
           tenantId,
           name: 'Funil padrão',
+          tipo: FunilTipo.comercial,
           ativo: true,
           etapas: {
             create: DEFAULT_FUNNEL_STAGES.map((stage) => ({
@@ -393,6 +397,28 @@ export class TenantDemoDataService {
               prazoValor: stage.papel === 'perdido' ? null : 48,
             })),
           },
+        },
+      });
+    }
+
+    for (const tipo of [FunilTipo.captacao, FunilTipo.venda_usados] as const) {
+      const exists = await this.prisma.funil.findFirst({
+        where: { tenantId, tipo },
+        select: { id: true },
+      });
+      if (exists) continue;
+      const baseName = DEFAULT_FUNIL_NAME[tipo];
+      const clash = await this.prisma.funil.findUnique({
+        where: { tenantId_name: { tenantId, name: baseName } },
+        select: { id: true },
+      });
+      await this.prisma.funil.create({
+        data: {
+          tenantId,
+          name: clash ? `${baseName} (padrão)` : baseName,
+          tipo,
+          ativo: true,
+          etapas: { create: funilEtapasCreateData(tipo) },
         },
       });
     }

@@ -4,23 +4,28 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CatalogType, FunilEtapaPapel, Prisma } from '@prisma/client';
+import { CatalogType, FunilEtapaPapel, FunilTipo, Prisma } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeadMonitoramentoService } from '../leads/monitoramento/lead-monitoramento.service';
 import {
+  DEFAULT_FUNIL_NAME,
   DEFAULT_FUNNEL_STAGES,
   DEFAULT_INITIAL_STAGE_SLUG,
+  defaultStagesForTipo,
+  type FunilOperacaoTipo,
 } from '../catalog/catalog.defaults';
 import { slugify } from '../catalog/catalog.util';
 import {
   CreateFunilDto,
   CreateFunilEtapaDto,
+  QueryFunisDto,
   ReorderFunilEtapasDto,
   UpdateFunilDto,
   UpdateFunilEtapaDto,
 } from './dto/funil.dto';
+import { whereDeactivateActiveOfTipo } from './funil-ativo.util';
 
 /** Slugs legados usados como fallback quando `papel` ainda não foi atribuído. */
 const LEGACY_PAPEL_BY_SLUG: Record<string, FunilEtapaPapel> = {
@@ -51,6 +56,7 @@ const funilSelect = {
   id: true,
   tenantId: true,
   name: true,
+  tipo: true,
   ativo: true,
   inatividadeValor: true,
   inatividadeUnidade: true,
@@ -76,13 +82,14 @@ export class FunisService {
     private readonly monitoramento: LeadMonitoramentoService,
   ) {}
 
-  async list(requester: AuthenticatedUser) {
+  async list(requester: AuthenticatedUser, query?: QueryFunisDto) {
     const tenantId = requireTenantId(requester);
-    await this.ensureTenantHasFunil(tenantId);
+    await this.ensureTenantOperationFunnels(tenantId);
+    const tipo = query?.tipo;
     return this.prisma.funil.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(tipo ? { tipo } : {}) },
       select: funilSelect,
-      orderBy: [{ ativo: 'desc' }, { name: 'asc' }],
+      orderBy: [{ tipo: 'asc' }, { ativo: 'desc' }, { name: 'asc' }],
     });
   }
 
@@ -96,16 +103,20 @@ export class FunisService {
     return funil;
   }
 
-  /** Funil ativo do tenant (cria padrão se ainda não existir). */
-  async getAtivo(requester: AuthenticatedUser) {
+  /** Funil ativo do tipo (padrão: comercial, para o kanban atual). */
+  async getAtivo(
+    requester: AuthenticatedUser,
+    tipo: FunilTipo = FunilTipo.comercial,
+  ) {
     const tenantId = requireTenantId(requester);
-    return this.ensureTenantHasFunil(tenantId);
+    return this.ensureTenantHasFunil(tenantId, tipo);
   }
 
   async create(dto: CreateFunilDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
     const name = dto.name.trim();
     if (!name) throw new BadRequestException('Informe o nome do funil.');
+    const tipo = dto.tipo ?? FunilTipo.comercial;
 
     const clash = await this.prisma.funil.findUnique({
       where: { tenantId_name: { tenantId, name } },
@@ -114,18 +125,19 @@ export class FunisService {
       throw new ConflictException('Já existe um funil com este nome.');
     }
 
+    const padrao = defaultStagesForTipo(tipo);
     const etapasInput =
       dto.etapas && dto.etapas.length > 0
         ? dto.etapas
         : dto.usarPadrao === false
           ? [
               {
-                label: 'Novo lead',
-                color: DEFAULT_FUNNEL_STAGES[0]!.color,
+                label: padrao[0]!.label,
+                color: padrao[0]!.color,
                 papel: FunilEtapaPapel.inicial,
               },
             ]
-          : DEFAULT_FUNNEL_STAGES.map((s) => ({
+          : padrao.map((s) => ({
               label: s.label,
               color: s.color,
               sortOrder: s.sortOrder,
@@ -138,15 +150,16 @@ export class FunisService {
     const funil = await this.prisma.$transaction(async (tx) => {
       if (ativar) {
         await tx.funil.updateMany({
-          where: { tenantId, ativo: true },
+          where: whereDeactivateActiveOfTipo(tenantId, tipo),
           data: { ativo: false },
         });
       }
-      const count = await tx.funil.count({ where: { tenantId } });
+      const count = await tx.funil.count({ where: { tenantId, tipo } });
       return tx.funil.create({
         data: {
           tenantId,
           name,
+          tipo,
           ativo: ativar || count === 0,
           etapas: { create: etapasData },
         },
@@ -192,11 +205,11 @@ export class FunisService {
 
   async ativar(id: string, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    await this.ensureOwned(id, tenantId);
+    const funil = await this.ensureOwned(id, tenantId);
 
     await this.prisma.$transaction([
       this.prisma.funil.updateMany({
-        where: { tenantId, ativo: true },
+        where: whereDeactivateActiveOfTipo(tenantId, funil.tipo, id),
         data: { ativo: false },
       }),
       this.prisma.funil.update({
@@ -212,20 +225,22 @@ export class FunisService {
     const tenantId = requireTenantId(requester);
     const funil = await this.ensureOwned(id, tenantId);
 
-    const total = await this.prisma.funil.count({ where: { tenantId } });
-    if (total <= 1) {
+    const totalDoTipo = await this.prisma.funil.count({
+      where: { tenantId, tipo: funil.tipo },
+    });
+    if (totalDoTipo <= 1) {
       throw new BadRequestException(
-        'Não é possível excluir o único funil do tenant.',
+        'Não é possível excluir o único funil deste tipo.',
       );
     }
     if (funil.ativo) {
       throw new BadRequestException(
-        'Ative outro funil antes de excluir o funil em uso.',
+        'Ative outro funil deste tipo antes de excluir o funil em uso.',
       );
     }
 
     const ativo = await this.prisma.funil.findFirst({
-      where: { tenantId, ativo: true, NOT: { id } },
+      where: { tenantId, tipo: funil.tipo, ativo: true, NOT: { id } },
       select: { id: true },
     });
 
@@ -236,7 +251,7 @@ export class FunisService {
         where: { id: ativo.id },
         select: funilSelect,
       });
-      if (remaining) {
+      if (remaining?.tipo === FunilTipo.comercial) {
         await this.attachOrphanStages(tenantId, remaining);
       }
     }
@@ -482,9 +497,10 @@ export class FunisService {
    */
   async installDefaults(funilId: string, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    await this.ensureOwned(funilId, tenantId);
+    const owned = await this.ensureOwned(funilId, tenantId);
+    const stages = defaultStagesForTipo(owned.tipo);
 
-    for (const stage of DEFAULT_FUNNEL_STAGES) {
+    for (const stage of stages) {
       const papel = stage.papel ?? null;
       const existing = await this.prisma.funilEtapa.findFirst({
         where: { funilId, slug: stage.slug },
@@ -778,33 +794,48 @@ export class FunisService {
   private async ensureOwned(id: string, tenantId: string) {
     const funil = await this.prisma.funil.findFirst({
       where: { id, tenantId },
-      select: { id: true, ativo: true, name: true },
+      select: { id: true, ativo: true, name: true, tipo: true },
     });
     if (!funil) throw new NotFoundException('Funil não encontrado.');
     return funil;
   }
 
+  async ensureTenantOperationFunnels(tenantId: string) {
+    await this.ensureTenantHasFunil(tenantId, FunilTipo.comercial);
+    await this.ensureTenantHasFunil(tenantId, FunilTipo.captacao);
+    await this.ensureTenantHasFunil(tenantId, FunilTipo.venda_usados);
+  }
+
   /**
-   * Garante ao menos um funil ativo. Preferência: existente → backfill catálogo → defaults.
+   * Garante ao menos um funil ativo do tipo. Comercial: backfill catálogo / defaults.
    */
-  async ensureTenantHasFunil(tenantId: string) {
+  async ensureTenantHasFunil(
+    tenantId: string,
+    tipo: FunilTipo = FunilTipo.comercial,
+  ) {
     const ativo = await this.prisma.funil.findFirst({
-      where: { tenantId, ativo: true },
+      where: { tenantId, tipo, ativo: true },
       select: funilSelect,
     });
-    if (ativo) return this.attachOrphanStages(tenantId, ativo);
+    if (ativo) return this.maybeAttachOrphans(tenantId, ativo);
 
     const qualquer = await this.prisma.funil.findFirst({
-      where: { tenantId },
+      where: { tenantId, tipo },
       select: { id: true },
       orderBy: { createdAt: 'asc' },
     });
     if (qualquer) {
-      await this.prisma.funil.update({
-        where: { id: qualquer.id },
-        data: { ativo: true },
-      });
-      return this.attachOrphanStages(
+      await this.prisma.$transaction([
+        this.prisma.funil.updateMany({
+          where: whereDeactivateActiveOfTipo(tenantId, tipo, qualquer.id),
+          data: { ativo: false },
+        }),
+        this.prisma.funil.update({
+          where: { id: qualquer.id },
+          data: { ativo: true },
+        }),
+      ]);
+      return this.maybeAttachOrphans(
         tenantId,
         await this.prisma.funil.findFirstOrThrow({
           where: { id: qualquer.id },
@@ -813,59 +844,111 @@ export class FunisService {
       );
     }
 
-    const fromCatalog = await this.prisma.catalogItem.findMany({
-      where: { tenantId, type: CatalogType.funil_etapa },
-      orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
-    });
+    const padrao = defaultStagesForTipo(tipo);
+    let etapas: Array<{
+      label: string;
+      slug: string;
+      color: string;
+      sortOrder: number;
+      active: boolean;
+      papel: FunilEtapaPapel | null;
+    }>;
 
-    const etapas =
-      fromCatalog.length > 0
-        ? fromCatalog.map((c, i) => {
-            const slug = c.slug || slugify(c.label) || `etapa-${i + 1}`;
-            return {
-              label: c.label,
-              slug,
-              color: c.color || 'bg-slate-200 text-slate-700',
-              sortOrder: c.sortOrder,
-              active: c.active,
-              papel: LEGACY_PAPEL_BY_SLUG[slug] ?? null,
-            };
-          })
-        : DEFAULT_FUNNEL_STAGES.map((s) => ({
-            label: s.label,
-            slug: s.slug,
-            color: s.color,
-            sortOrder: s.sortOrder,
-            active: true,
-            papel: s.papel ?? null,
-          }));
+    if (tipo === FunilTipo.comercial) {
+      const fromCatalog = await this.prisma.catalogItem.findMany({
+        where: { tenantId, type: CatalogType.funil_etapa },
+        orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+      });
+      etapas =
+        fromCatalog.length > 0
+          ? fromCatalog.map((c, i) => {
+              const slug = c.slug || slugify(c.label) || `etapa-${i + 1}`;
+              return {
+                label: c.label,
+                slug,
+                color: c.color || 'bg-slate-200 text-slate-700',
+                sortOrder: c.sortOrder,
+                active: c.active,
+                papel: LEGACY_PAPEL_BY_SLUG[slug] ?? null,
+              };
+            })
+          : padrao.map((s) => ({
+              label: s.label,
+              slug: s.slug,
+              color: s.color,
+              sortOrder: s.sortOrder,
+              active: true,
+              papel: (s.papel as FunilEtapaPapel | undefined) ?? null,
+            }));
+    } else {
+      etapas = padrao.map((s) => ({
+        label: s.label,
+        slug: s.slug,
+        color: s.color,
+        sortOrder: s.sortOrder,
+        active: true,
+        papel: (s.papel as FunilEtapaPapel | undefined) ?? null,
+      }));
+    }
 
     if (!etapas.some((e) => e.papel === FunilEtapaPapel.inicial)) {
       if (etapas[0]) etapas[0].papel = FunilEtapaPapel.inicial;
     }
 
-    return this.attachOrphanStages(
+    const name = await this.uniqueFunilName(
       tenantId,
-      await this.prisma.funil.create({
-        data: {
-          tenantId,
-          name: 'Funil padrão',
-          ativo: true,
-          etapas: { create: etapas },
-        },
-        select: funilSelect,
-      }),
+      DEFAULT_FUNIL_NAME[tipo as FunilOperacaoTipo],
     );
+
+    const created = await this.prisma.funil.create({
+      data: {
+        tenantId,
+        name,
+        tipo,
+        ativo: true,
+        etapas: { create: etapas },
+      },
+      select: funilSelect,
+    });
+    return this.maybeAttachOrphans(tenantId, created);
   }
 
   async recoverOrphanStages(funilId: string, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
-    await this.ensureOwned(funilId, tenantId);
+    const owned = await this.ensureOwned(funilId, tenantId);
+    if (owned.tipo !== FunilTipo.comercial) {
+      throw new BadRequestException(
+        'Recuperar etapas dos leads aplica-se somente ao funil comercial.',
+      );
+    }
     const funil = await this.prisma.funil.findFirst({
       where: { id: funilId },
       select: funilSelect,
     });
     if (!funil) throw new NotFoundException('Funil não encontrado.');
+    return this.attachOrphanStages(tenantId, funil);
+  }
+
+  private async uniqueFunilName(tenantId: string, base: string) {
+    let name = base;
+    let n = 2;
+    while (
+      await this.prisma.funil.findUnique({
+        where: { tenantId_name: { tenantId, name } },
+        select: { id: true },
+      })
+    ) {
+      name = `${base} (${n})`;
+      n += 1;
+    }
+    return name;
+  }
+
+  private maybeAttachOrphans(
+    tenantId: string,
+    funil: Prisma.FunilGetPayload<{ select: typeof funilSelect }>,
+  ) {
+    if (funil.tipo !== FunilTipo.comercial) return Promise.resolve(funil);
     return this.attachOrphanStages(tenantId, funil);
   }
 

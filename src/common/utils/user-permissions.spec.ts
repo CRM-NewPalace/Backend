@@ -16,6 +16,11 @@ describe('permissões por usuário', () => {
     assert.equal(defaultsFromRole(Role.analista).modules.dashboard, false);
   });
 
+  it('captação e imóveis usados ficam desligados por padrão (fundação)', () => {
+    assert.equal(defaultsFromRole(Role.admin).modules.captacao, false);
+    assert.equal(defaultsFromRole(Role.admin).modules.imoveisUsados, false);
+  });
+
   it('analista vê dashboard quando o módulo é concedido', () => {
     const stored = {
       modules: { dashboard: true },

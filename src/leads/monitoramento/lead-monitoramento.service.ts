@@ -166,12 +166,12 @@ export class LeadMonitoramentoService {
 
     const funil =
       (await this.prisma.funil.findFirst({
-        where: { tenantId, ativo: true },
+        where: { tenantId, tipo: 'comercial', ativo: true },
         orderBy: { updatedAt: 'desc' },
         select: funilSelect,
       })) ??
       (await this.prisma.funil.findFirst({
-        where: { tenantId },
+        where: { tenantId, tipo: 'comercial' },
         orderBy: { updatedAt: 'desc' },
         select: funilSelect,
       }));

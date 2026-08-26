@@ -7,9 +7,10 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, FunilTipo } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -18,6 +19,7 @@ import { FunisService } from './funis.service';
 import {
   CreateFunilDto,
   CreateFunilEtapaDto,
+  QueryFunisDto,
   ReorderFunilEtapasDto,
   UpdateFunilDto,
   UpdateFunilEtapaDto,
@@ -30,14 +32,23 @@ export class FunisController {
 
   @Get()
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista)
-  list(@CurrentUser() requester: AuthenticatedUser) {
-    return this.funisService.list(requester);
+  list(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query() query: QueryFunisDto,
+  ) {
+    return this.funisService.list(requester, query);
   }
 
   @Get('ativo')
   @Roles(Role.admin, Role.gerente, Role.corretor, Role.treinee, Role.analista)
-  getAtivo(@CurrentUser() requester: AuthenticatedUser) {
-    return this.funisService.getAtivo(requester);
+  getAtivo(
+    @CurrentUser() requester: AuthenticatedUser,
+    @Query() query: QueryFunisDto,
+  ) {
+    return this.funisService.getAtivo(
+      requester,
+      query.tipo ?? FunilTipo.comercial,
+    );
   }
 
   @Get(':id')
