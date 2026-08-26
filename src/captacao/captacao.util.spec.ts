@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { pickFirstActiveEtapa, moneyEqual, toMoneyNumber } from './captacao.util';
+import { pickFirstActiveEtapa, moneyEqual, toMoneyNumber, normalizeCpfCnpj } from './captacao.util';
 import {
   textoCriacao,
   textoEtapa,
@@ -9,7 +9,7 @@ import {
   textoValorPretendido,
 } from './captacao-history.util';
 import { imovelTitulo } from './captacao.constants';
-import { CaptacaoImovelTipo } from '@prisma/client';
+import { CaptacaoImovelTipo, PessoaTipo } from '@prisma/client';
 
 describe('funil de captação', () => {
   it('escolhe a primeira etapa ativa por sortOrder', () => {
@@ -60,6 +60,19 @@ describe('valores e título do imóvel', () => {
         cidade: 'Recife',
       }),
       'Apartamento — Rua A, 10',
+    );
+  });
+});
+
+describe('CPF e CNPJ do proprietário', () => {
+  it('corta CPF em 11 dígitos e CNPJ em 14', () => {
+    assert.equal(
+      normalizeCpfCnpj('000.000.000-000000', PessoaTipo.fisica),
+      '00000000000',
+    );
+    assert.equal(
+      normalizeCpfCnpj('00.000.000/0000-0000', PessoaTipo.juridica),
+      '00000000000000',
     );
   });
 });

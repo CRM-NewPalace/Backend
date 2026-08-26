@@ -1,3 +1,6 @@
+import { PessoaTipo } from '@prisma/client';
+import { BadRequestException } from '@nestjs/common';
+
 export function pickFirstActiveEtapa<
   T extends { id: string; sortOrder: number; active: boolean },
 >(etapas: T[]): T | null {
@@ -29,4 +32,25 @@ export function moneyEqual(
   if (left == null && right == null) return true;
   if (left == null || right == null) return false;
   return Math.abs(left - right) < 0.005;
+}
+
+/** CPF (11) ou CNPJ (14), só dígitos. */
+export function normalizeCpfCnpj(
+  value: string | undefined | null,
+  tipo: PessoaTipo = PessoaTipo.fisica,
+): string {
+  const max = tipo === PessoaTipo.juridica ? 14 : 11;
+  return String(value ?? '')
+    .replace(/\D/g, '')
+    .slice(0, max);
+}
+
+export function assertCpfCnpj(digits: string, tipo: PessoaTipo): void {
+  if (!digits) return;
+  if (tipo === PessoaTipo.juridica && digits.length !== 14) {
+    throw new BadRequestException('Informe um CNPJ com 14 dígitos.');
+  }
+  if (tipo === PessoaTipo.fisica && digits.length !== 11) {
+    throw new BadRequestException('Informe um CPF com 11 dígitos.');
+  }
 }

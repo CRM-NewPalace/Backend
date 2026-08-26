@@ -6,6 +6,7 @@ import {
 import {
   CaptacaoHistoricoTipo,
   FunilTipo,
+  PessoaTipo,
   Prisma,
   UserStatus,
 } from '@prisma/client';
@@ -17,6 +18,8 @@ import {
   moneyEqual,
   pickFirstActiveEtapa,
   toMoneyNumber,
+  normalizeCpfCnpj,
+  assertCpfCnpj,
 } from './captacao.util';
 import {
   textoCriacao,
@@ -135,12 +138,15 @@ export class CaptacaoService {
 
   createProprietario(dto: CreateProprietarioDto, user: AuthenticatedUser) {
     const tenantId = requireTenantId(user);
+    const tipoPessoa = dto.tipoPessoa ?? PessoaTipo.fisica;
+    const cpfCnpj = normalizeCpfCnpj(dto.cpfCnpj, tipoPessoa);
+    assertCpfCnpj(cpfCnpj, tipoPessoa);
     return this.prisma.proprietario.create({
       data: {
         tenantId,
         nome: dto.nome.trim(),
-        tipoPessoa: dto.tipoPessoa,
-        cpfCnpj: dto.cpfCnpj?.trim() ?? '',
+        tipoPessoa,
+        cpfCnpj,
         telefone: dto.telefone?.trim() ?? '',
         email: dto.email?.trim() ?? '',
         observacoes: dto.observacoes?.trim() ?? '',
@@ -154,13 +160,19 @@ export class CaptacaoService {
     dto: UpdateProprietarioDto,
     user: AuthenticatedUser,
   ) {
-    await this.getProprietario(id, user);
+    const current = await this.getProprietario(id, user);
+    const tipoPessoa = dto.tipoPessoa ?? current.tipoPessoa;
+    const cpfCnpj =
+      dto.cpfCnpj != null
+        ? normalizeCpfCnpj(dto.cpfCnpj, tipoPessoa)
+        : undefined;
+    if (cpfCnpj != null) assertCpfCnpj(cpfCnpj, tipoPessoa);
     return this.prisma.proprietario.update({
       where: { id },
       data: {
         ...(dto.nome != null ? { nome: dto.nome.trim() } : {}),
         ...(dto.tipoPessoa != null ? { tipoPessoa: dto.tipoPessoa } : {}),
-        ...(dto.cpfCnpj != null ? { cpfCnpj: dto.cpfCnpj.trim() } : {}),
+        ...(cpfCnpj != null ? { cpfCnpj } : {}),
         ...(dto.telefone != null ? { telefone: dto.telefone.trim() } : {}),
         ...(dto.email != null ? { email: dto.email.trim() } : {}),
         ...(dto.observacoes != null

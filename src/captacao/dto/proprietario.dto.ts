@@ -22,7 +22,7 @@ export class CreateProprietarioDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(20)
+  @MaxLength(18)
   cpfCnpj?: string;
 
   @IsOptional()
@@ -55,7 +55,7 @@ export class UpdateProprietarioDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(20)
+  @MaxLength(18)
   cpfCnpj?: string;
 
   @IsOptional()
