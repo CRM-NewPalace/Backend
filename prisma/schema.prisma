@@ -703,6 +703,8 @@ model Empreendimento {
   vagas       Int?
   /// Preço de referência do produto (opcional) — usado no matching.
   valorReferencia Int?
+  /// Renda mínima sugerida para o cliente (opcional).
+  rendaAPartirDe Int?
   areaM2      Float?
   externalUrl String?
   /// Capa (primeira da galeria). Mantida para listagens.

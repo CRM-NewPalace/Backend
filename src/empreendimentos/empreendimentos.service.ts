@@ -50,6 +50,7 @@ const empreendimentoSelect = {
   banheiros: true,
   vagas: true,
   valorReferencia: true,
+  rendaAPartirDe: true,
   areaM2: true,
   externalUrl: true,
   imagemUrl: true,
@@ -147,6 +148,7 @@ export class EmpreendimentosService {
         banheiros: dto.banheiros ?? null,
         vagas: dto.vagas ?? null,
         valorReferencia: dto.valorReferencia ?? null,
+        rendaAPartirDe: dto.rendaAPartirDe ?? null,
         areaM2: dto.areaM2 ?? null,
         externalUrl: dto.externalUrl?.trim() || null,
         imagemUrl: null,
@@ -213,6 +215,9 @@ export class EmpreendimentosService {
         ...(dto.vagas !== undefined ? { vagas: dto.vagas } : {}),
         ...(dto.valorReferencia !== undefined
           ? { valorReferencia: dto.valorReferencia }
+          : {}),
+        ...(dto.rendaAPartirDe !== undefined
+          ? { rendaAPartirDe: dto.rendaAPartirDe }
           : {}),
         ...(dto.areaM2 !== undefined ? { areaM2: dto.areaM2 } : {}),
         ...(dto.externalUrl !== undefined
