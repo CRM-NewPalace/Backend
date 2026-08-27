@@ -128,3 +128,44 @@ export const NEGOCIACAO_ORIGEM_LABEL: Record<string, string> = {
   corretor: 'Corretor',
   outro: 'Outro',
 };
+
+export const FECHAMENTO_STATUS_LABEL: Record<string, string> = {
+  iniciado: 'Iniciado',
+  documentacao_pendente: 'Documentação pendente',
+  documentacao_em_analise: 'Documentação em análise',
+  contrato_em_elaboracao: 'Contrato em elaboração',
+  contrato_enviado: 'Contrato enviado',
+  aguardando_assinatura: 'Aguardando assinatura',
+  concluido: 'Concluído',
+  cancelado: 'Cancelado',
+};
+
+export const DOCUMENTO_STATUS_LABEL: Record<string, string> = {
+  pendente: 'Pendente',
+  recebido: 'Recebido',
+  em_analise: 'Em análise',
+  aprovado: 'Aprovado',
+  recusado: 'Recusado',
+};
+
+export const DOCUMENTO_CATEGORIA_LABEL: Record<string, string> = {
+  comprador: 'Comprador',
+  proprietario: 'Proprietário',
+  imovel: 'Imóvel',
+  venda: 'Venda',
+};
+
+export const DOCUMENTO_FORNECEDOR_LABEL: Record<string, string> = {
+  comprador: 'Comprador',
+  proprietario: 'Proprietário',
+  imobiliaria: 'Imobiliária',
+};
+
+export const CONTRATO_STATUS_LABEL: Record<string, string> = {
+  rascunho: 'Rascunho',
+  em_elaboracao: 'Em elaboração',
+  enviado: 'Enviado',
+  aguardando_assinatura: 'Aguardando assinatura',
+  assinado: 'Assinado',
+  cancelado: 'Cancelado',
+};

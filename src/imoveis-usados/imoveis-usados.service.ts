@@ -8,6 +8,9 @@ import {
   FunilTipo,
   Prisma,
   UserStatus,
+  VendaUsadoContratoStatus,
+  VendaUsadoDocumentoStatus,
+  VendaUsadoFechamentoStatus,
   VendaUsadoHistoricoTipo,
   VendaUsadoPropostaStatus,
   VendaUsadoStatus,
@@ -63,6 +66,9 @@ export class ImoveisUsadosService {
       propostasRecebidas,
       propostasEmNegociacao,
       propostasAceitas,
+      fechamentosAndamento,
+      documentacaoPendente,
+      contratosAguardandoAssinatura,
     ] = await Promise.all([
       this.prisma.vendaUsado.count({
         where: { tenantId, status: VendaUsadoStatus.disponivel },
@@ -98,6 +104,41 @@ export class ImoveisUsadosService {
       this.prisma.vendaUsadoProposta.count({
         where: { tenantId, status: VendaUsadoPropostaStatus.aceita },
       }),
+      this.prisma.vendaUsadoFechamento.count({
+        where: {
+          tenantId,
+          status: {
+            notIn: [
+              VendaUsadoFechamentoStatus.concluido,
+              VendaUsadoFechamentoStatus.cancelado,
+            ],
+          },
+        },
+      }),
+      this.prisma.vendaUsadoDocumento.count({
+        where: {
+          tenantId,
+          obrigatorio: true,
+          status: { not: VendaUsadoDocumentoStatus.aprovado },
+          fechamento: {
+            status: {
+              notIn: [
+                VendaUsadoFechamentoStatus.concluido,
+                VendaUsadoFechamentoStatus.cancelado,
+              ],
+            },
+          },
+        },
+      }),
+      this.prisma.vendaUsadoContrato.count({
+        where: {
+          tenantId,
+          status: VendaUsadoContratoStatus.aguardando_assinatura,
+          fechamento: {
+            status: { not: VendaUsadoFechamentoStatus.cancelado },
+          },
+        },
+      }),
     ]);
     return {
       disponiveis,
@@ -109,6 +150,9 @@ export class ImoveisUsadosService {
       propostasRecebidas,
       propostasEmNegociacao,
       propostasAceitas,
+      fechamentosAndamento,
+      documentacaoPendente,
+      contratosAguardandoAssinatura,
     };
   }
 

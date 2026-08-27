@@ -16,6 +16,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { ImoveisUsadosService } from './imoveis-usados.service';
 import { VendaUsadoFluxoService } from './venda-usado-fluxo.service';
+import { VendaUsadoFechamentoService } from './venda-usado-fechamento.service';
 import { IMOVEIS_USADOS_ROLES } from './imoveis-usados.roles';
 import {
   CreateVendaUsadoDto,
@@ -32,6 +33,14 @@ import {
   UpdatePropostaUsadoDto,
   UpdateVisitaUsadoDto,
 } from './dto/venda-usado-fluxo.dto';
+import {
+  CreateContratoUsadoDto,
+  CreateDocumentoUsadoDto,
+  CreateFechamentoUsadoDto,
+  UpdateContratoUsadoDto,
+  UpdateDocumentoUsadoDto,
+  UpdateFechamentoUsadoDto,
+} from './dto/venda-usado-fechamento.dto';
 
 @Controller('imoveis-usados')
 @UseGuards(RolesGuard)
@@ -39,6 +48,7 @@ export class ImoveisUsadosController {
   constructor(
     private readonly service: ImoveisUsadosService,
     private readonly fluxo: VendaUsadoFluxoService,
+    private readonly fechamento: VendaUsadoFechamentoService,
   ) {}
 
   @Get('resumo')
@@ -245,5 +255,102 @@ export class ImoveisUsadosController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.fluxo.addMovimento(id, propostaId, dto, user);
+  }
+
+  @Get(':id/fechamento')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  getFechamento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.get(id, user);
+  }
+
+  @Post(':id/fechamento')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  iniciarFechamento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateFechamentoUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.iniciar(id, dto, user);
+  }
+
+  @Patch(':id/fechamento')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  updateFechamento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateFechamentoUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.update(id, dto, user);
+  }
+
+  @Post(':id/fechamento/concluir')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  concluirFechamento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.concluir(id, user);
+  }
+
+  @Get(':id/fechamento/documentos')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  listDocumentos(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.listDocumentos(id, user);
+  }
+
+  @Post(':id/fechamento/documentos')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  createDocumento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateDocumentoUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.createDocumento(id, dto, user);
+  }
+
+  @Patch(':id/fechamento/documentos/:documentoId')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  updateDocumento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('documentoId', ParseUUIDPipe) documentoId: string,
+    @Body() dto: UpdateDocumentoUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.updateDocumento(id, documentoId, dto, user);
+  }
+
+  @Get(':id/fechamento/contrato')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  getContrato(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.getContrato(id, user);
+  }
+
+  @Post(':id/fechamento/contrato')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  createContrato(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateContratoUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.createContrato(id, dto, user);
+  }
+
+  @Patch(':id/fechamento/contrato')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  updateContrato(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateContratoUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fechamento.updateContrato(id, dto, user);
   }
 }

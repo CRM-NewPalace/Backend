@@ -179,6 +179,9 @@ model Tenant {
   vendaUsadoPropostas     VendaUsadoProposta[]
   vendaUsadoNegociacoes   VendaUsadoNegociacao[]
   vendaUsadoNegociacaoMovimentos VendaUsadoNegociacaoMovimento[]
+  vendaUsadoFechamentos          VendaUsadoFechamento[]
+  vendaUsadoDocumentos           VendaUsadoDocumento[]
+  vendaUsadoContratos            VendaUsadoContrato[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -347,6 +350,9 @@ model User {
   vendasUsadoVisitas     VendaUsadoVisita[] @relation("VendaUsadoVisitaResponsavel")
   vendasUsadoPropostas   VendaUsadoProposta[] @relation("VendaUsadoPropostaResponsavel")
   vendasUsadoNegociacaoMovimentos VendaUsadoNegociacaoMovimento[] @relation("VendaUsadoNegociacaoMovimentoAutor")
+  vendasUsadoFechamentos          VendaUsadoFechamento[] @relation("VendaUsadoFechamentoResponsavel")
+  vendasUsadoDocumentosAnalise    VendaUsadoDocumento[] @relation("VendaUsadoDocumentoAnalista")
+  vendasUsadoContratosAssinatura  VendaUsadoContrato[] @relation("VendaUsadoContratoAssinatura")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1442,6 +1448,9 @@ enum VendaUsadoHistoricoTipo {
   visita_feedback
   proposta
   negociacao
+  fechamento
+  documentacao
+  contrato
 }
 
 enum VendaUsadoVisitaStatus {
@@ -1483,6 +1492,59 @@ enum VendaUsadoNegociacaoOrigem {
   outro
 }
 
+enum VendaUsadoFechamentoStatus {
+  iniciado
+  documentacao_pendente
+  documentacao_em_analise
+  contrato_em_elaboracao
+  contrato_enviado
+  aguardando_assinatura
+  concluido
+  cancelado
+}
+
+enum VendaUsadoDocumentoCategoria {
+  comprador
+  proprietario
+  imovel
+  venda
+}
+
+enum VendaUsadoDocumentoTipo {
+  identificacao
+  cpf
+  comprovante_residencia
+  complementar
+  matricula
+  iptu
+  certidao
+  proposta
+  contrato
+}
+
+enum VendaUsadoDocumentoStatus {
+  pendente
+  recebido
+  em_analise
+  aprovado
+  recusado
+}
+
+enum VendaUsadoDocumentoFornecedor {
+  comprador
+  proprietario
+  imobiliaria
+}
+
+enum VendaUsadoContratoStatus {
+  rascunho
+  em_elaboracao
+  enviado
+  aguardando_assinatura
+  assinado
+  cancelado
+}
+
 /// Comprador de imóveis usados (não é o Lead comercial de lançamentos).
 model InteressadoUsado {
   id            String              @id @default(uuid())
@@ -1505,6 +1567,7 @@ model InteressadoUsado {
   vinculos  VendaUsadoVinculo[]
   visitas   VendaUsadoVisita[]
   propostas VendaUsadoProposta[]
+  fechamentos VendaUsadoFechamento[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1536,6 +1599,7 @@ model VendaUsado {
   historicos VendaUsadoHistorico[]
   visitas    VendaUsadoVisita[]
   propostas  VendaUsadoProposta[]
+  fechamento VendaUsadoFechamento?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1631,6 +1695,7 @@ model VendaUsadoProposta {
   status             VendaUsadoPropostaStatus @default(rascunho)
 
   negociacao VendaUsadoNegociacao?
+  fechamentos VendaUsadoFechamento[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1676,6 +1741,86 @@ model VendaUsadoNegociacaoMovimento {
   @@index([tenantId, negociacaoId])
   @@index([negociacaoId, createdAt])
   @@map("venda_usado_negociacao_movimentos")
+}
+
+/// Fechamento formal da venda de usado (não reutiliza Documentacao/Contrato comercial).
+model VendaUsadoFechamento {
+  id            String                     @id @default(uuid())
+  tenantId      String
+  tenant        Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendaUsadoId  String                     @unique
+  vendaUsado    VendaUsado                 @relation(fields: [vendaUsadoId], references: [id], onDelete: Cascade)
+  propostaId    String
+  proposta      VendaUsadoProposta         @relation(fields: [propostaId], references: [id], onDelete: Restrict)
+  interessadoId String
+  interessado   InteressadoUsado           @relation(fields: [interessadoId], references: [id], onDelete: Restrict)
+  responsavelId String
+  responsavel   User                       @relation("VendaUsadoFechamentoResponsavel", fields: [responsavelId], references: [id], onDelete: Restrict)
+  status        VendaUsadoFechamentoStatus @default(iniciado)
+  observacoes   String                     @default("")
+  concluidoAt   DateTime?
+  canceladoAt   DateTime?
+
+  documentos VendaUsadoDocumento[]
+  contrato   VendaUsadoContrato?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("venda_usado_fechamentos")
+}
+
+/// Checklist de documentos — sem arquivo, URL ou storage.
+model VendaUsadoDocumento {
+  id              String                         @id @default(uuid())
+  tenantId        String
+  tenant          Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fechamentoId    String
+  fechamento      VendaUsadoFechamento           @relation(fields: [fechamentoId], references: [id], onDelete: Cascade)
+  categoria       VendaUsadoDocumentoCategoria
+  tipo            VendaUsadoDocumentoTipo
+  nome            String
+  obrigatorio     Boolean                        @default(true)
+  fornecedor      VendaUsadoDocumentoFornecedor
+  analistaId      String?
+  analista        User?                          @relation("VendaUsadoDocumentoAnalista", fields: [analistaId], references: [id], onDelete: SetNull)
+  status          VendaUsadoDocumentoStatus      @default(pendente)
+  observacao      String                         @default("")
+  dataSolicitacao DateTime                       @default(now())
+  dataRecebimento DateTime?
+  dataAnalise     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, fechamentoId])
+  @@index([fechamentoId, categoria])
+  @@map("venda_usado_documentos")
+}
+
+/// Contrato da venda de usado — controla status, não armazena PDF.
+model VendaUsadoContrato {
+  id            String                   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fechamentoId  String                   @unique
+  fechamento    VendaUsadoFechamento     @relation(fields: [fechamentoId], references: [id], onDelete: Cascade)
+  numero        String
+  status        VendaUsadoContratoStatus @default(rascunho)
+  observacoes   String                   @default("")
+  dataCriacao   DateTime                 @default(now())
+  dataEnvio     DateTime?
+  dataAssinatura DateTime?
+  assinadoPorId String?
+  assinadoPor   User?                    @relation("VendaUsadoContratoAssinatura", fields: [assinadoPorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@unique([tenantId, numero])
+  @@map("venda_usado_contratos")
 }
 
 /// Item de catálogo (etapa do funil, origem, motivo de perda, tag).
