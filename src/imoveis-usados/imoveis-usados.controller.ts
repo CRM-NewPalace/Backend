@@ -15,6 +15,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { ImoveisUsadosService } from './imoveis-usados.service';
+import { VendaUsadoFluxoService } from './venda-usado-fluxo.service';
 import { IMOVEIS_USADOS_ROLES } from './imoveis-usados.roles';
 import {
   CreateVendaUsadoDto,
@@ -23,11 +24,22 @@ import {
   UpdateVinculoDto,
   VincularInteressadoDto,
 } from './dto/imoveis-usados.dto';
+import {
+  CreateNegociacaoMovimentoDto,
+  CreatePropostaUsadoDto,
+  CreateVisitaUsadoDto,
+  FeedbackVisitaUsadoDto,
+  UpdatePropostaUsadoDto,
+  UpdateVisitaUsadoDto,
+} from './dto/venda-usado-fluxo.dto';
 
 @Controller('imoveis-usados')
 @UseGuards(RolesGuard)
 export class ImoveisUsadosController {
-  constructor(private readonly service: ImoveisUsadosService) {}
+  constructor(
+    private readonly service: ImoveisUsadosService,
+    private readonly fluxo: VendaUsadoFluxoService,
+  ) {}
 
   @Get('resumo')
   @Roles(...IMOVEIS_USADOS_ROLES)
@@ -131,5 +143,107 @@ export class ImoveisUsadosController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.removerVinculo(id, vinculoId, user);
+  }
+
+  @Get(':id/visitas')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  listVisitas(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.listVisitas(id, user);
+  }
+
+  @Post(':id/visitas')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  createVisita(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateVisitaUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.createVisita(id, dto, user);
+  }
+
+  @Patch(':id/visitas/:visitaId')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  updateVisita(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('visitaId', ParseUUIDPipe) visitaId: string,
+    @Body() dto: UpdateVisitaUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.updateVisita(id, visitaId, dto, user);
+  }
+
+  @Post(':id/visitas/:visitaId/feedback')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  feedbackVisita(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('visitaId', ParseUUIDPipe) visitaId: string,
+    @Body() dto: FeedbackVisitaUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.feedbackVisita(id, visitaId, dto, user);
+  }
+
+  @Get(':id/propostas')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  listPropostas(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.listPropostas(id, user);
+  }
+
+  @Post(':id/propostas')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  createProposta(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreatePropostaUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.createProposta(id, dto, user);
+  }
+
+  @Get(':id/propostas/:propostaId')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  getProposta(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('propostaId', ParseUUIDPipe) propostaId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.getProposta(id, propostaId, user);
+  }
+
+  @Patch(':id/propostas/:propostaId')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  updateProposta(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('propostaId', ParseUUIDPipe) propostaId: string,
+    @Body() dto: UpdatePropostaUsadoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.updateProposta(id, propostaId, dto, user);
+  }
+
+  @Get(':id/propostas/:propostaId/negociacao')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  getNegociacao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('propostaId', ParseUUIDPipe) propostaId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.getProposta(id, propostaId, user).then((p) => p.negociacao);
+  }
+
+  @Post(':id/propostas/:propostaId/negociacao')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  addMovimento(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('propostaId', ParseUUIDPipe) propostaId: string,
+    @Body() dto: CreateNegociacaoMovimentoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fluxo.addMovimento(id, propostaId, dto, user);
   }
 }

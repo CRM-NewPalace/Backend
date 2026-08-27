@@ -175,6 +175,10 @@ model Tenant {
   interessadosUsado       InteressadoUsado[]
   vendaUsadoVinculos      VendaUsadoVinculo[]
   vendaUsadoHistoricos    VendaUsadoHistorico[]
+  vendaUsadoVisitas       VendaUsadoVisita[]
+  vendaUsadoPropostas     VendaUsadoProposta[]
+  vendaUsadoNegociacoes   VendaUsadoNegociacao[]
+  vendaUsadoNegociacaoMovimentos VendaUsadoNegociacaoMovimento[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -340,6 +344,9 @@ model User {
   captacaoHistoricos   CaptacaoHistorico[] @relation("CaptacaoHistoricoAutor")
   vendasUsadoResponsavel VendaUsado[] @relation("VendaUsadoResponsavel")
   vendaUsadoHistoricos   VendaUsadoHistorico[] @relation("VendaUsadoHistoricoAutor")
+  vendasUsadoVisitas     VendaUsadoVisita[] @relation("VendaUsadoVisitaResponsavel")
+  vendasUsadoPropostas   VendaUsadoProposta[] @relation("VendaUsadoPropostaResponsavel")
+  vendasUsadoNegociacaoMovimentos VendaUsadoNegociacaoMovimento[] @relation("VendaUsadoNegociacaoMovimentoAutor")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1431,6 +1438,49 @@ enum VendaUsadoHistoricoTipo {
   interessado_vinculo
   interessado_remocao
   edicao
+  visita
+  visita_feedback
+  proposta
+  negociacao
+}
+
+enum VendaUsadoVisitaStatus {
+  agendada
+  confirmada
+  realizada
+  cancelada
+  nao_compareceu
+}
+
+enum VendaUsadoVisitaInteresse {
+  muito_interessado
+  interessado
+  pouco_interessado
+  sem_interesse
+}
+
+enum VendaUsadoPropostaStatus {
+  rascunho
+  enviada
+  em_analise
+  aceita
+  recusada
+  cancelada
+}
+
+enum VendaUsadoNegociacaoStatus {
+  aberta
+  em_negociacao
+  aceita
+  recusada
+  encerrada
+}
+
+enum VendaUsadoNegociacaoOrigem {
+  interessado
+  proprietario
+  corretor
+  outro
 }
 
 /// Comprador de imóveis usados (não é o Lead comercial de lançamentos).
@@ -1452,7 +1502,9 @@ model InteressadoUsado {
   vagasMin      Int?
   areaMin       Decimal?            @db.Decimal(12, 2)
 
-  vinculos VendaUsadoVinculo[]
+  vinculos  VendaUsadoVinculo[]
+  visitas   VendaUsadoVisita[]
+  propostas VendaUsadoProposta[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1482,6 +1534,8 @@ model VendaUsado {
 
   vinculos   VendaUsadoVinculo[]
   historicos VendaUsadoHistorico[]
+  visitas    VendaUsadoVisita[]
+  propostas  VendaUsadoProposta[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1529,6 +1583,99 @@ model VendaUsadoHistorico {
   @@index([tenantId, vendaUsadoId])
   @@index([vendaUsadoId, createdAt])
   @@map("venda_usado_historicos")
+}
+
+/// Visita de comprador (não reutiliza Agendamento, que avança Lead comercial).
+model VendaUsadoVisita {
+  id             String                 @id @default(uuid())
+  tenantId       String
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendaUsadoId   String
+  vendaUsado     VendaUsado             @relation(fields: [vendaUsadoId], references: [id], onDelete: Cascade)
+  interessadoId  String
+  interessado    InteressadoUsado       @relation(fields: [interessadoId], references: [id], onDelete: Restrict)
+  responsavelId  String
+  responsavel    User                   @relation("VendaUsadoVisitaResponsavel", fields: [responsavelId], references: [id], onDelete: Restrict)
+  dataHora       DateTime
+  status         VendaUsadoVisitaStatus @default(agendada)
+  observacoes    String                 @default("")
+  feedbackAvaliacao   Int?
+  feedbackInteresse   VendaUsadoVisitaInteresse?
+  feedbackComentarios String            @default("")
+  feedbackObservacoes String            @default("")
+  feedbackAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, vendaUsadoId])
+  @@index([tenantId, dataHora])
+  @@map("venda_usado_visitas")
+}
+
+/// Proposta de compra de usado (não reutiliza Proposta de lançamento).
+model VendaUsadoProposta {
+  id                 String                   @id @default(uuid())
+  tenantId           String
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendaUsadoId       String
+  vendaUsado         VendaUsado               @relation(fields: [vendaUsadoId], references: [id], onDelete: Cascade)
+  interessadoId      String
+  interessado        InteressadoUsado         @relation(fields: [interessadoId], references: [id], onDelete: Restrict)
+  responsavelId      String
+  responsavel        User                     @relation("VendaUsadoPropostaResponsavel", fields: [responsavelId], references: [id], onDelete: Restrict)
+  valor              Decimal                  @db.Decimal(14, 2)
+  entrada            Decimal?                 @db.Decimal(14, 2)
+  valorFinanciamento Decimal?                 @db.Decimal(14, 2)
+  observacoes        String                   @default("")
+  status             VendaUsadoPropostaStatus @default(rascunho)
+
+  negociacao VendaUsadoNegociacao?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, vendaUsadoId])
+  @@index([tenantId, status])
+  @@map("venda_usado_propostas")
+}
+
+model VendaUsadoNegociacao {
+  id         String                     @id @default(uuid())
+  tenantId   String
+  tenant     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  propostaId String                     @unique
+  proposta   VendaUsadoProposta         @relation(fields: [propostaId], references: [id], onDelete: Cascade)
+  status     VendaUsadoNegociacaoStatus @default(aberta)
+
+  movimentos VendaUsadoNegociacaoMovimento[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("venda_usado_negociacoes")
+}
+
+model VendaUsadoNegociacaoMovimento {
+  id                 String                    @id @default(uuid())
+  tenantId           String
+  tenant             Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  negociacaoId       String
+  negociacao         VendaUsadoNegociacao      @relation(fields: [negociacaoId], references: [id], onDelete: Cascade)
+  valor              Decimal                   @db.Decimal(14, 2)
+  entrada            Decimal?                  @db.Decimal(14, 2)
+  valorFinanciamento Decimal?                  @db.Decimal(14, 2)
+  observacoes        String                    @default("")
+  origem             VendaUsadoNegociacaoOrigem @default(corretor)
+  responsavelId      String?
+  responsavel        User?                     @relation("VendaUsadoNegociacaoMovimentoAutor", fields: [responsavelId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, negociacaoId])
+  @@index([negociacaoId, createdAt])
+  @@map("venda_usado_negociacao_movimentos")
 }
 
 /// Item de catálogo (etapa do funil, origem, motivo de perda, tag).

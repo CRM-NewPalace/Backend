@@ -89,3 +89,42 @@ export const INTERESSE_STATUS_LABEL: Record<string, string> = {
   sem_interesse: 'Sem interesse',
   descartado: 'Descartado',
 };
+
+export const VISITA_STATUS_LABEL: Record<string, string> = {
+  agendada: 'Agendada',
+  confirmada: 'Confirmada',
+  realizada: 'Realizada',
+  cancelada: 'Cancelada',
+  nao_compareceu: 'Não compareceu',
+};
+
+export const VISITA_INTERESSE_LABEL: Record<string, string> = {
+  muito_interessado: 'Muito interessado',
+  interessado: 'Interessado',
+  pouco_interessado: 'Pouco interessado',
+  sem_interesse: 'Sem interesse',
+};
+
+export const PROPOSTA_STATUS_LABEL: Record<string, string> = {
+  rascunho: 'Rascunho',
+  enviada: 'Enviada',
+  em_analise: 'Em análise',
+  aceita: 'Aceita',
+  recusada: 'Recusada',
+  cancelada: 'Cancelada',
+};
+
+export const NEGOCIACAO_STATUS_LABEL: Record<string, string> = {
+  aberta: 'Aberta',
+  em_negociacao: 'Em negociação',
+  aceita: 'Aceita',
+  recusada: 'Recusada',
+  encerrada: 'Encerrada',
+};
+
+export const NEGOCIACAO_ORIGEM_LABEL: Record<string, string> = {
+  interessado: 'Interessado',
+  proprietario: 'Proprietário',
+  corretor: 'Corretor',
+  outro: 'Outro',
+};

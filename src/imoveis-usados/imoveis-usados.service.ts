@@ -9,7 +9,9 @@ import {
   Prisma,
   UserStatus,
   VendaUsadoHistoricoTipo,
+  VendaUsadoPropostaStatus,
   VendaUsadoStatus,
+  VendaUsadoVisitaStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
@@ -51,7 +53,17 @@ export class ImoveisUsadosService {
 
   async resumo(user: AuthenticatedUser) {
     const tenantId = requireTenantId(user);
-    const [disponiveis, reservados, vendidos, interessados] = await Promise.all([
+    const [
+      disponiveis,
+      reservados,
+      vendidos,
+      interessados,
+      visitasAgendadas,
+      visitasRealizadas,
+      propostasRecebidas,
+      propostasEmNegociacao,
+      propostasAceitas,
+    ] = await Promise.all([
       this.prisma.vendaUsado.count({
         where: { tenantId, status: VendaUsadoStatus.disponivel },
       }),
@@ -62,8 +74,42 @@ export class ImoveisUsadosService {
         where: { tenantId, status: VendaUsadoStatus.vendido },
       }),
       this.prisma.interessadoUsado.count({ where: { tenantId } }),
+      this.prisma.vendaUsadoVisita.count({
+        where: {
+          tenantId,
+          status: { in: [VendaUsadoVisitaStatus.agendada, VendaUsadoVisitaStatus.confirmada] },
+        },
+      }),
+      this.prisma.vendaUsadoVisita.count({
+        where: { tenantId, status: VendaUsadoVisitaStatus.realizada },
+      }),
+      this.prisma.vendaUsadoProposta.count({ where: { tenantId } }),
+      this.prisma.vendaUsadoProposta.count({
+        where: {
+          tenantId,
+          status: {
+            in: [
+              VendaUsadoPropostaStatus.enviada,
+              VendaUsadoPropostaStatus.em_analise,
+            ],
+          },
+        },
+      }),
+      this.prisma.vendaUsadoProposta.count({
+        where: { tenantId, status: VendaUsadoPropostaStatus.aceita },
+      }),
     ]);
-    return { disponiveis, reservados, vendidos, interessados };
+    return {
+      disponiveis,
+      reservados,
+      vendidos,
+      interessados,
+      visitasAgendadas,
+      visitasRealizadas,
+      propostasRecebidas,
+      propostasEmNegociacao,
+      propostasAceitas,
+    };
   }
 
   listResponsaveis(user: AuthenticatedUser) {
