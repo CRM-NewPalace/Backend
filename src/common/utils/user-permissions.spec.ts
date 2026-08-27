@@ -69,6 +69,7 @@ describe('permissões por usuário', () => {
     assert.deepEqual(modulesForApiPath('/imoveis-usados/interessados'), [
       'imoveisUsados',
     ]);
+    assert.deepEqual(modulesForApiPath('/portal-proprietario/imoveis'), []);
   });
 
   it('não libera escrita sensível só com módulo', () => {

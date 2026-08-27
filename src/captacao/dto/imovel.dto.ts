@@ -1,6 +1,8 @@
 import { CaptacaoImovelTipo } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsEnum,
   IsInt,
   IsNumber,
@@ -96,6 +98,51 @@ export class CreateImovelDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(80)
+  tipoEmpreendimento?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(200)
+  aptsPorAndar?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(200)
+  andares?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(200)
+  torres?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  descricao?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  comodidadesUnidade?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  comodidadesCondominio?: string[];
+
+  @IsOptional()
+  @IsString()
   @MaxLength(2000)
   observacoes?: string;
 }
@@ -183,6 +230,51 @@ export class UpdateImovelDto {
   @Min(0)
   @Max(50)
   vagas?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  tipoEmpreendimento?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(200)
+  aptsPorAndar?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(200)
+  andares?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(200)
+  torres?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  descricao?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  comodidadesUnidade?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  comodidadesCondominio?: string[];
 
   @IsOptional()
   @IsString()

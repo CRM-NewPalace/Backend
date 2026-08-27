@@ -7,7 +7,10 @@ import { VendaUsadoPosVendaService } from './venda-usado-pos-venda.service';
 import { ImoveisUsadosController } from './imoveis-usados.controller';
 import { InteressadosUsadosController } from './interessados-usados.controller';
 
+import { FunisModule } from '../funis/funis.module';
+
 @Module({
+  imports: [FunisModule],
   controllers: [InteressadosUsadosController, ImoveisUsadosController],
   providers: [
     ImoveisUsadosService,

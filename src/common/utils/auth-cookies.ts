@@ -9,6 +9,13 @@ export const COOKIE = {
   csrf: 'crm_csrf',
 } as const;
 
+/** Sessão do Portal do Proprietário — não colide com cookies do CRM interno. */
+export const PORTAL_COOKIE = {
+  access: 'crm_portal_access',
+  refresh: 'crm_portal_refresh',
+  csrf: 'crm_portal_csrf',
+} as const;
+
 export const CSRF_HEADER = 'x-csrf-token';
 
 const AUTH_COOKIE_NAMES = [COOKIE.access, COOKIE.refresh, COOKIE.csrf] as const;
@@ -164,6 +171,49 @@ export function setAuthCookies(
 
 export function clearAuthCookies(res: Response, _config?: ConfigService): void {
   clearAllAuthCookieVariants(res);
+}
+
+function clearAllPortalCookieVariants(res: Response): void {
+  clearCookieAllVariants(res, PORTAL_COOKIE.access, true);
+  clearCookieAllVariants(res, PORTAL_COOKIE.refresh, true);
+  clearCookieAllVariants(res, PORTAL_COOKIE.csrf, false);
+}
+
+export function setPortalAuthCookies(
+  res: Response,
+  config: ConfigService,
+  tokens: { accessToken: string; refreshToken: string; csrfToken: string },
+): void {
+  const accessMs = parseDurationMs(
+    config.get<string>('JWT_ACCESS_EXPIRES_IN', '15m'),
+    15 * 60_000,
+  );
+  const refreshMs = parseDurationMs(
+    config.get<string>('JWT_REFRESH_EXPIRES_IN', '7d'),
+    7 * 86_400_000,
+  );
+  const base = baseCookieOptions(config);
+
+  clearAllPortalCookieVariants(res);
+
+  res.cookie(PORTAL_COOKIE.access, tokens.accessToken, {
+    ...base,
+    maxAge: accessMs,
+  });
+
+  res.cookie(PORTAL_COOKIE.refresh, tokens.refreshToken, {
+    ...base,
+    maxAge: refreshMs,
+  });
+
+  res.cookie(PORTAL_COOKIE.csrf, tokens.csrfToken, {
+    ...csrfCookieOptions(config),
+    maxAge: refreshMs,
+  });
+}
+
+export function clearPortalAuthCookies(res: Response): void {
+  clearAllPortalCookieVariants(res);
 }
 
 export { AUTH_COOKIE_NAMES };

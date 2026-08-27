@@ -1,0 +1,561 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  VendaUsadoPropostaStatus,
+  VendaUsadoVisitaStatus,
+} from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+  CAPTACAO_HISTORICO_PORTAL,
+  VENDA_HISTORICO_PORTAL,
+  money,
+  situacaoImovel,
+  tituloImovel,
+  type SituacaoPortal,
+} from './portal-proprietario.mappers';
+import type { PortalProprietarioSession } from './portal-proprietario.types';
+
+const PROPOSTAS_VISIVEIS: VendaUsadoPropostaStatus[] = [
+  VendaUsadoPropostaStatus.enviada,
+  VendaUsadoPropostaStatus.em_analise,
+  VendaUsadoPropostaStatus.aceita,
+  VendaUsadoPropostaStatus.recusada,
+  VendaUsadoPropostaStatus.cancelada,
+];
+
+@Injectable()
+export class PortalProprietarioImoveisService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async dashboard(session: PortalProprietarioSession) {
+    const imoveis = await this.listImoveis(session);
+    const counts = {
+      total: imoveis.length,
+      disponiveis: 0,
+      negociacao: 0,
+      vendidos: 0,
+      captacao: 0,
+    };
+    for (const item of imoveis) {
+      if (item.situacao === 'disponivel') counts.disponiveis += 1;
+      else if (item.situacao === 'negociacao') counts.negociacao += 1;
+      else if (item.situacao === 'vendido') counts.vendidos += 1;
+      else if (item.situacao === 'captacao') counts.captacao += 1;
+    }
+    return { resumo: counts, imoveis };
+  }
+
+  async listImoveis(session: PortalProprietarioSession) {
+    const rows = await this.prisma.imovel.findMany({
+      where: {
+        tenantId: session.tenantId,
+        proprietarioId: session.proprietarioId,
+      },
+      include: this.imovelListInclude(),
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((row) => this.exposeListItem(row));
+  }
+
+  async getImovel(imovelId: string, session: PortalProprietarioSession) {
+    const row = await this.requireImovel(imovelId, session);
+    const captacao = row.captacoes[0] ?? null;
+    const venda = row.vendaUsado;
+    const propostasAbertas =
+      venda?.propostas.filter((p) =>
+        p.status === VendaUsadoPropostaStatus.enviada ||
+          p.status === VendaUsadoPropostaStatus.em_analise,
+      ).length ?? 0;
+
+    return {
+      id: row.id,
+      identificacao: tituloImovel(row),
+      tipo: row.tipo,
+      cep: row.cep,
+      logradouro: row.logradouro,
+      numero: row.numero,
+      complemento: row.complemento,
+      bairro: row.bairro,
+      cidade: row.cidade,
+      estado: row.estado,
+      area: money(row.area),
+      areaConstruida: money(row.areaConstruida),
+      quartos: row.quartos,
+      suites: row.suites,
+      banheiros: row.banheiros,
+      vagas: row.vagas,
+      tipoEmpreendimento: row.tipoEmpreendimento,
+      aptsPorAndar: row.aptsPorAndar,
+      andares: row.andares,
+      torres: row.torres,
+      descricao: row.descricao,
+      comodidadesUnidade: row.comodidadesUnidade ?? [],
+      comodidadesCondominio: row.comodidadesCondominio ?? [],
+      fotoUrl: row.fotoUrl,
+      valorPretendido: money(captacao?.valorPretendido),
+      valorAvaliacao: money(captacao?.valorAvaliacao),
+      precoVenda: money(venda?.precoVenda),
+      dataCaptacao: captacao?.createdAt ?? row.createdAt,
+      situacao: situacaoImovel({
+        temCaptacao: Boolean(captacao),
+        vendaStatus: venda?.status,
+        propostasAbertas,
+      }),
+      captacao: captacao
+        ? {
+            id: captacao.id,
+            etapa: captacao.funilEtapa.label,
+            origem: captacao.origem,
+            exclusividade: captacao.exclusividade,
+            responsavel: captacao.responsavel.name,
+          }
+        : null,
+      comercializacao: venda
+        ? {
+            status: venda.status,
+            preco: money(venda.precoVenda),
+            responsavel: venda.responsavel.name,
+            etapa: venda.funilEtapa.label,
+            interessados: venda.vinculos.length,
+            visitas: venda.visitas.length,
+            propostas: venda.propostas.filter((p) =>
+              PROPOSTAS_VISIVEIS.includes(p.status),
+            ).length,
+            interessadosResumo: this.resumoInteresse(venda.vinculos),
+          }
+        : null,
+    };
+  }
+
+  async getHistorico(imovelId: string, session: PortalProprietarioSession) {
+    const row = await this.requireImovel(imovelId, session);
+    const eventos: Array<{
+      id: string;
+      origem: 'captacao' | 'venda';
+      tipo: string;
+      texto: string;
+      createdAt: Date;
+    }> = [];
+
+    for (const captacao of row.captacoes) {
+      const historicos = await this.prisma.captacaoHistorico.findMany({
+        where: {
+          captacaoId: captacao.id,
+          tenantId: session.tenantId,
+          tipo: { in: CAPTACAO_HISTORICO_PORTAL },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, tipo: true, texto: true, createdAt: true },
+      });
+      for (const item of historicos) {
+        eventos.push({
+          id: item.id,
+          origem: 'captacao',
+          tipo: item.tipo,
+          texto: item.texto,
+          createdAt: item.createdAt,
+        });
+      }
+    }
+
+    if (row.vendaUsado) {
+      const historicos = await this.prisma.vendaUsadoHistorico.findMany({
+        where: {
+          vendaUsadoId: row.vendaUsado.id,
+          tenantId: session.tenantId,
+          tipo: { in: VENDA_HISTORICO_PORTAL },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, tipo: true, texto: true, createdAt: true },
+      });
+      for (const item of historicos) {
+        eventos.push({
+          id: item.id,
+          origem: 'venda',
+          tipo: item.tipo,
+          texto: item.texto,
+          createdAt: item.createdAt,
+        });
+      }
+    }
+
+    eventos.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    return eventos;
+  }
+
+  async getVisitas(imovelId: string, session: PortalProprietarioSession) {
+    const venda = await this.requireVenda(imovelId, session);
+    if (!venda) return { proximas: [], realizadas: [], canceladas: [] };
+
+    const visitas = await this.prisma.vendaUsadoVisita.findMany({
+      where: { vendaUsadoId: venda.id, tenantId: session.tenantId },
+      orderBy: { dataHora: 'desc' },
+      select: {
+        id: true,
+        dataHora: true,
+        status: true,
+        feedbackAvaliacao: true,
+        feedbackInteresse: true,
+        feedbackComentarios: true,
+        feedbackAt: true,
+        interessado: { select: { nome: true } },
+      },
+    });
+
+    const mapVisita = (item: (typeof visitas)[number]) => ({
+      id: item.id,
+      dataHora: item.dataHora,
+      status: item.status,
+      interessadoNome: item.interessado.nome,
+      feedback:
+        item.feedbackAt && item.feedbackComentarios
+          ? {
+              avaliacao: item.feedbackAvaliacao,
+              interesse: item.feedbackInteresse,
+              comentarios: item.feedbackComentarios,
+            }
+          : item.feedbackAt
+            ? {
+                avaliacao: item.feedbackAvaliacao,
+                interesse: item.feedbackInteresse,
+                comentarios: item.feedbackComentarios || null,
+              }
+            : null,
+    });
+
+    return {
+      proximas: visitas
+        .filter(
+          (v) =>
+            v.status === VendaUsadoVisitaStatus.agendada ||
+            v.status === VendaUsadoVisitaStatus.confirmada,
+        )
+        .map(mapVisita),
+      realizadas: visitas
+        .filter((v) => v.status === VendaUsadoVisitaStatus.realizada)
+        .map(mapVisita),
+      canceladas: visitas
+        .filter(
+          (v) =>
+            v.status === VendaUsadoVisitaStatus.cancelada ||
+            v.status === VendaUsadoVisitaStatus.nao_compareceu,
+        )
+        .map(mapVisita),
+    };
+  }
+
+  async getPropostas(imovelId: string, session: PortalProprietarioSession) {
+    const venda = await this.requireVenda(imovelId, session);
+    if (!venda) return [];
+
+    const propostas = await this.prisma.vendaUsadoProposta.findMany({
+      where: {
+        vendaUsadoId: venda.id,
+        tenantId: session.tenantId,
+        status: { in: PROPOSTAS_VISIVEIS },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        interessado: { select: { nome: true } },
+        negociacao: {
+          include: {
+            movimentos: { orderBy: { createdAt: 'asc' } },
+          },
+        },
+      },
+    });
+
+    return propostas.map((item, index) => {
+      const movimentos = item.negociacao?.movimentos ?? [];
+      const ultimo = movimentos[movimentos.length - 1];
+      return {
+        id: item.id,
+        numero: String(propostas.length - index).padStart(3, '0'),
+        valor: money(item.valor),
+        entrada: money(item.entrada),
+        valorFinanciamento: money(item.valorFinanciamento),
+        status: item.status,
+        data: item.createdAt,
+        interessadoNome: item.interessado.nome,
+        negociacao: item.negociacao
+          ? {
+              status: item.negociacao.status,
+              valorInicial: money(item.valor),
+              ultimaContraproposta: money(ultimo?.valor) ?? money(item.valor),
+            }
+          : null,
+      };
+    });
+  }
+
+  async getFechamento(imovelId: string, session: PortalProprietarioSession) {
+    const venda = await this.requireVenda(imovelId, session);
+    if (!venda) return null;
+
+    const fechamento = await this.prisma.vendaUsadoFechamento.findFirst({
+      where: { vendaUsadoId: venda.id, tenantId: session.tenantId },
+      include: {
+        documentos: true,
+        contrato: true,
+      },
+    });
+    if (!fechamento) return null;
+
+    const docs = fechamento.documentos;
+    const aprovados = docs.filter((d) => d.status === 'aprovado').length;
+    return {
+      status: fechamento.status,
+      documentacao: {
+        aprovados,
+        total: docs.length,
+      },
+      contrato: fechamento.contrato
+        ? {
+            numero: fechamento.contrato.numero,
+            status: fechamento.contrato.status,
+            data: fechamento.contrato.dataCriacao,
+            assinado: fechamento.contrato.status === 'assinado',
+          }
+        : null,
+    };
+  }
+
+  async getDocumentacao(imovelId: string, session: PortalProprietarioSession) {
+    const venda = await this.requireVenda(imovelId, session);
+    if (!venda) return [];
+
+    const fechamento = await this.prisma.vendaUsadoFechamento.findFirst({
+      where: { vendaUsadoId: venda.id, tenantId: session.tenantId },
+      select: { id: true },
+    });
+    if (!fechamento) return [];
+
+    const docs = await this.prisma.vendaUsadoDocumento.findMany({
+      where: { fechamentoId: fechamento.id, tenantId: session.tenantId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        nome: true,
+        status: true,
+        categoria: true,
+        obrigatorio: true,
+        updatedAt: true,
+      },
+    });
+    return docs;
+  }
+
+  async getContrato(imovelId: string, session: PortalProprietarioSession) {
+    const fechamento = await this.getFechamento(imovelId, session);
+    return fechamento?.contrato ?? null;
+  }
+
+  async getChaves(imovelId: string, session: PortalProprietarioSession) {
+    await this.requireImovel(imovelId, session);
+    const chaves = await this.prisma.imovelChave.findMany({
+      where: { imovelId, tenantId: session.tenantId },
+      include: {
+        movimentos: {
+          orderBy: { createdAt: 'desc' },
+          take: 8,
+          select: {
+            id: true,
+            tipo: true,
+            quantidade: true,
+            createdAt: true,
+            responsavel: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const resumo = {
+      total: chaves.reduce((acc, c) => acc + c.quantidade, 0),
+      disponivel: 0,
+      retirada: 0,
+      entregue: 0,
+    };
+    for (const chave of chaves) {
+      if (chave.status === 'disponivel') resumo.disponivel += chave.quantidade;
+      if (chave.status === 'retirada') resumo.retirada += chave.quantidadeRetirada;
+      if (chave.localizacaoAtual === 'comprador') resumo.entregue += 1;
+    }
+
+    return {
+      resumo,
+      itens: chaves.map((chave) => ({
+        id: chave.id,
+        identificacao: chave.identificacao,
+        quantidade: chave.quantidade,
+        status: chave.status,
+        localizacaoAtual: chave.localizacaoAtual,
+        historico: chave.movimentos.map((m) => ({
+          id: m.id,
+          tipo: m.tipo,
+          quantidade: m.quantidade,
+          createdAt: m.createdAt,
+          responsavel: m.responsavel?.name ?? null,
+        })),
+      })),
+    };
+  }
+
+  async getPosVenda(imovelId: string, session: PortalProprietarioSession) {
+    await this.requireImovel(imovelId, session);
+    const pos = await this.prisma.vendaUsadoPosVenda.findFirst({
+      where: {
+        imovelId,
+        tenantId: session.tenantId,
+        proprietarioId: session.proprietarioId,
+      },
+      include: {
+        pendencias: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            titulo: true,
+            status: true,
+            prazo: true,
+            obrigatoria: true,
+          },
+        },
+      },
+    });
+    if (!pos) return null;
+    return {
+      status: pos.status,
+      pendencias: pos.pendencias,
+    };
+  }
+
+  private imovelListInclude() {
+    return {
+      captacoes: {
+        orderBy: { createdAt: 'desc' as const },
+        take: 1,
+        include: {
+          funilEtapa: { select: { label: true } },
+          responsavel: { select: { name: true } },
+        },
+      },
+      vendaUsado: {
+        include: {
+          responsavel: { select: { name: true } },
+          funilEtapa: { select: { label: true } },
+          vinculos: { select: { id: true, interesse: true } },
+          visitas: { select: { id: true } },
+          propostas: { select: { id: true, status: true } },
+        },
+      },
+    };
+  }
+
+  private exposeListItem(row: {
+    id: string;
+    tipo: Parameters<typeof tituloImovel>[0]['tipo'];
+    logradouro: string;
+    numero: string;
+    bairro: string;
+    cidade: string;
+    fotoUrl?: string | null;
+    createdAt: Date;
+    captacoes: Array<{
+      createdAt: Date;
+      valorPretendido: unknown;
+      funilEtapa: { label: string };
+      responsavel: { name: string };
+    }>;
+    vendaUsado: {
+      status: string;
+      precoVenda: unknown;
+      responsavel: { name: string };
+      vinculos: Array<{ id: string; interesse: string }>;
+      visitas: Array<{ id: string }>;
+      propostas: Array<{ id: string; status: VendaUsadoPropostaStatus }>;
+    } | null;
+  }) {
+    const captacao = row.captacoes[0] ?? null;
+    const venda = row.vendaUsado;
+    const propostasAbertas =
+      venda?.propostas.filter((p) =>
+        p.status === VendaUsadoPropostaStatus.enviada ||
+          p.status === VendaUsadoPropostaStatus.em_analise,
+      ).length ?? 0;
+    const situacao: SituacaoPortal = situacaoImovel({
+      temCaptacao: Boolean(captacao),
+      vendaStatus: venda?.status,
+      propostasAbertas,
+    });
+    return {
+      id: row.id,
+      identificacao: tituloImovel(row),
+      tipo: row.tipo,
+      endereco: [row.logradouro, row.numero].filter(Boolean).join(', '),
+      bairro: row.bairro,
+      cidade: row.cidade,
+      fotoUrl: row.fotoUrl ?? null,
+      valor: money(venda?.precoVenda) ?? money(captacao?.valorPretendido),
+      situacao,
+      statusOperacao: venda?.status ?? (captacao ? 'captacao' : null),
+      responsavel:
+        venda?.responsavel.name ?? captacao?.responsavel.name ?? null,
+      dataCaptacao: captacao?.createdAt ?? row.createdAt,
+      interessados: venda?.vinculos.length ?? 0,
+      visitas: venda?.visitas.length ?? 0,
+      propostas:
+        venda?.propostas.filter((p) => PROPOSTAS_VISIVEIS.includes(p.status))
+          .length ?? 0,
+    };
+  }
+
+  private resumoInteresse(
+    vinculos: Array<{ interesse: string }>,
+  ): Record<string, number> {
+    const resumo: Record<string, number> = {};
+    for (const item of vinculos) {
+      resumo[item.interesse] = (resumo[item.interesse] ?? 0) + 1;
+    }
+    return resumo;
+  }
+
+  private async requireImovel(
+    imovelId: string,
+    session: PortalProprietarioSession,
+  ) {
+    const row = await this.prisma.imovel.findFirst({
+      where: {
+        id: imovelId,
+        tenantId: session.tenantId,
+        proprietarioId: session.proprietarioId,
+      },
+      include: {
+        captacoes: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            funilEtapa: { select: { label: true } },
+            responsavel: { select: { name: true } },
+          },
+        },
+        vendaUsado: {
+          include: {
+            responsavel: { select: { name: true } },
+            funilEtapa: { select: { label: true } },
+            vinculos: { select: { interesse: true } },
+            visitas: { select: { id: true } },
+            propostas: { select: { status: true } },
+          },
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Imóvel não encontrado.');
+    return row;
+  }
+
+  private async requireVenda(
+    imovelId: string,
+    session: PortalProprietarioSession,
+  ) {
+    const row = await this.requireImovel(imovelId, session);
+    return row.vendaUsado;
+  }
+}

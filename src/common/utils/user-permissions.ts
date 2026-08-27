@@ -455,6 +455,7 @@ export function modulesForApiPath(rawPath: string): string[] {
   if (path.startsWith('metas')) return ['metas'];
   if (path.startsWith('catalog')) return ['configuracoes'];
   if (path.startsWith('construtoras')) return ['construtoras'];
+  if (path.startsWith('portal-proprietario')) return [];
   if (path.startsWith('imoveis-usados')) return ['imoveisUsados'];
   if (
     path.startsWith('empreendimentos') ||

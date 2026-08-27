@@ -27,6 +27,7 @@ import {
   UpdateVinculoDto,
   VincularInteressadoDto,
 } from './dto/imoveis-usados.dto';
+import { UpdateImovelDto } from '../captacao/dto/imovel.dto';
 import {
   CreateNegociacaoMovimentoDto,
   CreatePropostaUsadoDto,
@@ -125,6 +126,16 @@ export class ImoveisUsadosController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.create(dto, user);
+  }
+
+  @Patch(':id/imovel')
+  @Roles(...IMOVEIS_USADOS_ROLES)
+  updateImovel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateImovelDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.updateImovelFicha(id, dto, user);
   }
 
   @Patch(':id')

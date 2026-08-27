@@ -186,6 +186,8 @@ model Tenant {
   imovelChaveMovimentos          ImovelChaveMovimento[]
   vendaUsadoPosVendas            VendaUsadoPosVenda[]
   vendaUsadoPosVendaPendencias   VendaUsadoPosVendaPendencia[]
+  proprietarioPortalAcessos      ProprietarioPortalAcesso[]
+  equipeFunis                    EquipeFunil[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -419,6 +421,9 @@ model Equipe {
   agendamentosAlvo Agendamento[] @relation("AgendamentoAlvoEquipe")
 
   comissoes FinanceiroComissao[]
+
+  /// Funis de operação configurados para esta equipe (no máximo um por tipo).
+  funis EquipeFunil[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1248,6 +1253,7 @@ model Funil {
   etapas FunilEtapa[]
   captacoes Captacao[]
   vendasUsado VendaUsado[]
+  equipeFunis EquipeFunil[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1289,6 +1295,28 @@ model FunilEtapa {
   @@map("funil_etapas")
 }
 
+/// Vínculo equipe → funil (um funil por tipo de operação em cada equipe).
+model EquipeFunil {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  equipeId String
+  equipe   Equipe @relation(fields: [equipeId], references: [id], onDelete: Cascade)
+  funilId  String
+  funil    Funil  @relation(fields: [funilId], references: [id], onDelete: Cascade)
+  /// Cópia do tipo do funil para garantir um vínculo por operação.
+  tipo     FunilTipo
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, equipeId, funilId])
+  @@unique([equipeId, tipo])
+  @@index([tenantId, equipeId])
+  @@index([funilId])
+  @@map("equipe_funis")
+}
+
 enum PessoaTipo {
   fisica
   juridica
@@ -1328,9 +1356,10 @@ model Proprietario {
   email       String     @default("")
   observacoes String     @default("")
 
-  imoveis   Imovel[]
-  captacoes Captacao[]
-  posVendas VendaUsadoPosVenda[]
+  imoveis      Imovel[]
+  captacoes    Captacao[]
+  posVendas    VendaUsadoPosVenda[]
+  portalAcesso ProprietarioPortalAcesso?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1338,6 +1367,33 @@ model Proprietario {
   @@index([tenantId])
   @@index([tenantId, nome])
   @@map("proprietarios")
+}
+
+enum ProprietarioPortalStatus {
+  ativo
+  inativo
+}
+
+/// Credenciais do Portal do Proprietário (não mistura com User interno).
+model ProprietarioPortalAcesso {
+  id                   String                   @id @default(uuid())
+  tenantId             String
+  tenant               Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  proprietarioId       String                   @unique
+  proprietario         Proprietario             @relation(fields: [proprietarioId], references: [id], onDelete: Cascade)
+  password             String
+  hashedRefreshToken   String?
+  status               ProprietarioPortalStatus @default(inativo)
+  lastLoginAt          DateTime?
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("proprietario_portal_acessos")
 }
 
 /// Imóvel individual vinculado a um proprietário do tenant.
@@ -1361,7 +1417,20 @@ model Imovel {
   suites          Int?
   banheiros       Int?
   vagas           Int?
+  /// Texto de anúncio (captação e venda de usados).
+  descricao       String             @default("")
+  /// Lazer e características da unidade (rooftop, vestíbulo, etc.).
+  comodidadesUnidade     String[]    @default([])
+  /// Infraestrutura do condomínio/empreendimento.
+  comodidadesCondominio  String[]    @default([])
   observacoes     String             @default("")
+  /// Ex.: Condomínio (visão geral, distinto do tipo do imóvel).
+  tipoEmpreendimento String          @default("")
+  aptsPorAndar    Int?
+  andares         Int?
+  torres          Int?
+  fotoUrl         String?
+  fotoPublicId    String?
 
   captacoes Captacao[]
   vendaUsado VendaUsado?

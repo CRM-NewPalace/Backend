@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   FunilTipo,
@@ -20,9 +21,16 @@ import {
   VendaUsadoVisitaStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { FunilResolverService } from '../funis/funil-resolver.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
-import { pickFirstActiveEtapa, moneyEqual, toMoneyNumber } from '../captacao/captacao.util';
+import {
+  pickFirstActiveEtapa,
+  moneyEqual,
+  toMoneyNumber,
+  mergeFunilPorEtapa,
+  normalizeComodidades,
+} from '../captacao/captacao.util';
 import { imovelTitulo } from '../captacao/captacao.constants';
 import {
   CreateInteressadoUsadoDto,
@@ -33,6 +41,7 @@ import {
   UpdateVinculoDto,
   VincularInteressadoDto,
 } from './dto/imoveis-usados.dto';
+import { UpdateImovelDto } from '../captacao/dto/imovel.dto';
 import {
   formatBrlHistorico,
   interessadoCompativel,
@@ -55,7 +64,10 @@ const vendaInclude = {
 
 @Injectable()
 export class ImoveisUsadosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly funilResolver?: FunilResolverService,
+  ) {}
 
   async resumo(user: AuthenticatedUser) {
     const tenantId = requireTenantId(user);
@@ -77,6 +89,8 @@ export class ImoveisUsadosService {
       pendenciasAtrasadas,
       chavesRetiradas,
       chavesPerdidas,
+      porEtapa,
+      funil,
     ] = await Promise.all([
       this.prisma.vendaUsado.count({
         where: { tenantId, status: VendaUsadoStatus.disponivel },
@@ -182,7 +196,48 @@ export class ImoveisUsadosService {
       this.prisma.imovelChave.count({
         where: { tenantId, status: ImovelChaveStatus.perdida },
       }),
+      this.prisma.vendaUsado.groupBy({
+        by: ['funilEtapaId'],
+        where: { tenantId },
+        _count: { _all: true },
+      }),
+      this.prisma.funil.findFirst({
+        where: { tenantId, tipo: FunilTipo.venda_usados, ativo: true },
+        include: {
+          etapas: {
+            where: { active: true },
+            orderBy: { sortOrder: 'asc' },
+          },
+        },
+      }),
     ]);
+    const etapasAvulsas = funil?.etapas.length
+      ? []
+      : await this.prisma.funilEtapa.findMany({
+          where: { id: { in: porEtapa.map((r) => r.funilEtapaId) } },
+          select: {
+            id: true,
+            label: true,
+            papel: true,
+            sortOrder: true,
+            color: true,
+          },
+        });
+    const porEtapaOut = funil?.etapas.length
+      ? mergeFunilPorEtapa(funil.etapas, porEtapa)
+      : porEtapa
+          .map((row) => {
+            const etapa = etapasAvulsas.find((e) => e.id === row.funilEtapaId);
+            return {
+              funilEtapaId: row.funilEtapaId,
+              label: etapa?.label ?? 'Etapa',
+              papel: etapa?.papel ?? null,
+              color: etapa?.color ?? null,
+              sortOrder: etapa?.sortOrder ?? 0,
+              total: row._count._all,
+            };
+          })
+          .sort((a, b) => a.sortOrder - b.sortOrder);
     return {
       disponiveis,
       reservados,
@@ -201,6 +256,7 @@ export class ImoveisUsadosService {
       pendenciasAtrasadas,
       chavesRetiradas,
       chavesPerdidas,
+      porEtapa: porEtapaOut,
     };
   }
 
@@ -286,6 +342,67 @@ export class ImoveisUsadosService {
     return this.exposeVenda(item);
   }
 
+  async updateImovelFicha(
+    vendaId: string,
+    dto: UpdateImovelDto,
+    user: AuthenticatedUser,
+  ) {
+    const tenantId = requireTenantId(user);
+    const venda = await this.prisma.vendaUsado.findFirst({
+      where: { id: vendaId, tenantId },
+      select: { id: true, imovelId: true },
+    });
+    if (!venda) throw new NotFoundException('Venda de usado não encontrada.');
+    await this.prisma.imovel.update({
+      where: { id: venda.imovelId },
+      data: {
+        ...(dto.tipo ? { tipo: dto.tipo } : {}),
+        ...(dto.cep != null ? { cep: dto.cep.trim() } : {}),
+        ...(dto.logradouro != null ? { logradouro: dto.logradouro.trim() } : {}),
+        ...(dto.numero != null ? { numero: dto.numero.trim() } : {}),
+        ...(dto.complemento != null
+          ? { complemento: dto.complemento.trim() }
+          : {}),
+        ...(dto.bairro != null ? { bairro: dto.bairro.trim() } : {}),
+        ...(dto.cidade != null ? { cidade: dto.cidade.trim() } : {}),
+        ...(dto.estado != null
+          ? { estado: dto.estado.trim().toUpperCase() }
+          : {}),
+        ...(dto.area !== undefined ? { area: dto.area } : {}),
+        ...(dto.areaConstruida !== undefined
+          ? { areaConstruida: dto.areaConstruida }
+          : {}),
+        ...(dto.quartos !== undefined ? { quartos: dto.quartos } : {}),
+        ...(dto.suites !== undefined ? { suites: dto.suites } : {}),
+        ...(dto.banheiros !== undefined ? { banheiros: dto.banheiros } : {}),
+        ...(dto.vagas !== undefined ? { vagas: dto.vagas } : {}),
+        ...(dto.tipoEmpreendimento != null
+          ? { tipoEmpreendimento: dto.tipoEmpreendimento.trim() }
+          : {}),
+        ...(dto.aptsPorAndar !== undefined
+          ? { aptsPorAndar: dto.aptsPorAndar }
+          : {}),
+        ...(dto.andares !== undefined ? { andares: dto.andares } : {}),
+        ...(dto.torres !== undefined ? { torres: dto.torres } : {}),
+        ...(dto.descricao != null ? { descricao: dto.descricao.trim() } : {}),
+        ...(dto.comodidadesUnidade !== undefined
+          ? { comodidadesUnidade: normalizeComodidades(dto.comodidadesUnidade) }
+          : {}),
+        ...(dto.comodidadesCondominio !== undefined
+          ? {
+              comodidadesCondominio: normalizeComodidades(
+                dto.comodidadesCondominio,
+              ),
+            }
+          : {}),
+        ...(dto.observacoes != null
+          ? { observacoes: dto.observacoes.trim() }
+          : {}),
+      },
+    });
+    return this.get(vendaId, user);
+  }
+
   async create(dto: CreateVendaUsadoDto, user: AuthenticatedUser) {
     const tenantId = requireTenantId(user);
     const imovel = await this.prisma.imovel.findFirst({
@@ -311,7 +428,11 @@ export class ImoveisUsadosService {
       throw new ConflictException('Este imóvel já está na venda de usados.');
     }
     await this.requireResponsavel(dto.responsavelId, tenantId);
-    const funil = await this.resolveFunil(tenantId, dto.funilId);
+    const funil = await this.resolveFunil(
+      tenantId,
+      dto.funilId,
+      dto.responsavelId,
+    );
     const etapa = pickFirstActiveEtapa(funil.etapas);
     if (!etapa) {
       throw new BadRequestException(
@@ -672,7 +793,19 @@ export class ImoveisUsadosService {
     return item;
   }
 
-  private async resolveFunil(tenantId: string, funilId?: string) {
+  private async resolveFunil(
+    tenantId: string,
+    funilId?: string,
+    userId?: string,
+  ) {
+    if (this.funilResolver) {
+      return this.funilResolver.resolve({
+        tenantId,
+        tipo: FunilTipo.venda_usados,
+        funilId,
+        userId,
+      });
+    }
     if (funilId) {
       const funil = await this.prisma.funil.findFirst({
         where: { id: funilId, tenantId },

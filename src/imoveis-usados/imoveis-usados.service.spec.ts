@@ -251,4 +251,19 @@ describe('ImoveisUsadosService', () => {
       NotFoundException,
     );
   });
+
+  it('não atualiza ficha de venda de outro tenant', async () => {
+    const service = new ImoveisUsadosService({
+      vendaUsado: { findFirst: async () => null },
+    } as never);
+    await assert.rejects(
+      () =>
+        service.updateImovelFicha(
+          'v-x',
+          { descricao: 'texto' },
+          user({ tenantId: 't2' }),
+        ),
+      NotFoundException,
+    );
+  });
 });

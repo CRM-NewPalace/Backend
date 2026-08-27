@@ -57,6 +57,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (!payload?.sub) {
       throw new UnauthorizedException('Token inválido.');
     }
+    if ((payload as { kind?: string }).kind === 'portal_proprietario') {
+      throw new UnauthorizedException('Sessão inválida.');
+    }
 
     const row = await this.prisma.user.findUnique({
       where: { id: payload.sub },

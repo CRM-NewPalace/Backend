@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -73,5 +75,15 @@ export class CaptacoesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.captacao.updateCaptacao(id, dto, user);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @Roles(...CAPTACAO_ROLES)
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.captacao.deleteCaptacao(id, user);
   }
 }

@@ -23,6 +23,7 @@ function prismaMock(extra: Record<string, unknown> = {}) {
       findFirst: async () => null,
       create: async (args: { data: unknown }) => args.data,
       update: async (args: { data: unknown }) => args.data,
+      delete: async () => ({}),
       count: async () => 0,
     },
     imovel: {
@@ -33,12 +34,15 @@ function prismaMock(extra: Record<string, unknown> = {}) {
         proprietario: { id: 'p1', nome: 'João' },
         captacoes: [],
       }),
+      delete: async () => ({}),
       count: async () => 0,
     },
     captacao: {
       findMany: async () => [],
       findFirst: async () => null,
       create: async () => ({}),
+      delete: async () => ({}),
+      deleteMany: async () => ({ count: 0 }),
       count: async () => 0,
       groupBy: async () => [],
     },
@@ -268,5 +272,117 @@ describe('CaptacaoService — isolamento e validações', () => {
         return true;
       },
     );
+  });
+});
+
+describe('CaptacaoService — ficha do imóvel', () => {
+  it('grava descrição e comodidades na criação', async () => {
+    const saved: { data?: Record<string, unknown> } = {};
+    const service = new CaptacaoService(
+      prismaMock({
+        proprietario: { findFirst: async () => ({ id: 'p1', tenantId: 't1' }) },
+        imovel: {
+          create: async (args: { data: Record<string, unknown> }) => {
+            saved.data = args.data;
+            return {
+              ...args.data,
+              proprietario: { id: 'p1', nome: 'João' },
+              captacoes: [],
+            };
+          },
+        },
+      }) as never,
+    );
+    await service.createImovel(
+      {
+        proprietarioId: 'p1',
+        tipo: 'apartamento',
+        descricao: 'Excelente apartamento em Muro Alto.',
+        comodidadesUnidade: ['Rooftop', 'Piscina privativa'],
+        comodidadesCondominio: ['Academia', 'Portaria 24h'],
+        suites: 1,
+        vagas: 2,
+      },
+      user(),
+    );
+    assert.equal(saved.data?.descricao, 'Excelente apartamento em Muro Alto.');
+    assert.deepEqual(saved.data?.comodidadesUnidade, [
+      'Rooftop',
+      'Piscina privativa',
+    ]);
+    assert.equal(saved.data?.suites, 1);
+    assert.equal(saved.data?.vagas, 2);
+  });
+});
+
+describe('CaptacaoService — exclusão', () => {
+  it('não exclui proprietário com imóveis', async () => {
+    const service = new CaptacaoService(
+      prismaMock({
+        proprietario: {
+          findFirst: async () => ({
+            id: 'p1',
+            _count: { imoveis: 1, captacoes: 0, posVendas: 0 },
+          }),
+        },
+      }) as never,
+    );
+    await assert.rejects(
+      () => service.deleteProprietario('p1', user()),
+      (err: unknown) => {
+        assert.equal((err as Error).name, 'ConflictException');
+        return true;
+      },
+    );
+  });
+
+  it('não exclui imóvel em venda de usados', async () => {
+    const service = new CaptacaoService(
+      prismaMock({
+        imovel: {
+          findFirst: async () => ({
+            id: 'i1',
+            vendaUsado: { id: 'v1' },
+            _count: { captacoes: 0, posVendas: 0 },
+          }),
+        },
+      }) as never,
+    );
+    await assert.rejects(
+      () => service.deleteImovel('i1', user()),
+      (err: unknown) => {
+        assert.equal((err as Error).name, 'ConflictException');
+        return true;
+      },
+    );
+  });
+
+  it('exclui captações do imóvel e depois o imóvel', async () => {
+    let captacoesRemoved = false;
+    let imovelRemoved = false;
+    const service = new CaptacaoService(
+      prismaMock({
+        imovel: {
+          findFirst: async () => ({
+            id: 'i1',
+            vendaUsado: null,
+            _count: { captacoes: 1, posVendas: 0 },
+          }),
+          delete: async () => {
+            imovelRemoved = true;
+            return {};
+          },
+        },
+        captacao: {
+          deleteMany: async () => {
+            captacoesRemoved = true;
+            return { count: 1 };
+          },
+        },
+      }) as never,
+    );
+    await service.deleteImovel('i1', user());
+    assert.equal(captacoesRemoved, true);
+    assert.equal(imovelRemoved, true);
   });
 });

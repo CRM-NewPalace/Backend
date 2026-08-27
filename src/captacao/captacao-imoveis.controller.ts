@@ -1,13 +1,17 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -15,6 +19,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { CaptacaoService } from './captacao.service';
 import { CAPTACAO_ROLES } from './captacao.roles';
+import { imageUploadInterceptor } from '../media/media.constants';
 import {
   CreateImovelDto,
   QueryImoveisDto,
@@ -50,6 +55,17 @@ export class CaptacaoImoveisController {
     return this.captacao.createImovel(dto, user);
   }
 
+  @Post(':id/foto')
+  @Roles(...CAPTACAO_ROLES)
+  @UseInterceptors(imageUploadInterceptor())
+  uploadFoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.captacao.uploadFoto(id, file, user);
+  }
+
   @Patch(':id')
   @Roles(...CAPTACAO_ROLES)
   update(
@@ -58,5 +74,24 @@ export class CaptacaoImoveisController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.captacao.updateImovel(id, dto, user);
+  }
+
+  @Delete(':id/foto')
+  @Roles(...CAPTACAO_ROLES)
+  removeFoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.captacao.removeFoto(id, user);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @Roles(...CAPTACAO_ROLES)
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.captacao.deleteImovel(id, user);
   }
 }

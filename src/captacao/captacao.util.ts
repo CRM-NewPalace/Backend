@@ -1,6 +1,38 @@
 import { PessoaTipo } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 
+export type FunilEtapaResumo = {
+  funilEtapaId: string;
+  label: string;
+  papel: string | null;
+  color: string | null;
+  sortOrder: number;
+  total: number;
+};
+
+export function mergeFunilPorEtapa(
+  etapas: Array<{
+    id: string;
+    label: string;
+    papel: string | null;
+    color: string | null;
+    sortOrder: number;
+  }>,
+  counts: Array<{ funilEtapaId: string; _count: { _all: number } }>,
+): FunilEtapaResumo[] {
+  const countMap = new Map(
+    counts.map((row) => [row.funilEtapaId, row._count._all]),
+  );
+  return etapas.map((etapa) => ({
+    funilEtapaId: etapa.id,
+    label: etapa.label,
+    papel: etapa.papel,
+    color: etapa.color,
+    sortOrder: etapa.sortOrder,
+    total: countMap.get(etapa.id) ?? 0,
+  }));
+}
+
 export function pickFirstActiveEtapa<
   T extends { id: string; sortOrder: number; active: boolean },
 >(etapas: T[]): T | null {
@@ -53,4 +85,25 @@ export function assertCpfCnpj(digits: string, tipo: PessoaTipo): void {
   if (tipo === PessoaTipo.fisica && digits.length !== 11) {
     throw new BadRequestException('Informe um CPF com 11 dígitos.');
   }
+}
+
+const COMODIDADE_MAX = 40;
+const COMODIDADE_LEN = 80;
+
+/** Deduplica e limita tags de lazer/características. */
+export function normalizeComodidades(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of values) {
+    if (typeof raw !== 'string') continue;
+    const item = raw.trim().slice(0, COMODIDADE_LEN);
+    if (!item) continue;
+    const key = item.toLocaleLowerCase('pt-BR');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= COMODIDADE_MAX) break;
+  }
+  return out;
 }

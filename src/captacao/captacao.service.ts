@@ -1,7 +1,10 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   CaptacaoHistoricoTipo,
@@ -11,6 +14,8 @@ import {
   UserStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { FunilResolverService } from '../funis/funil-resolver.service';
+import { MediaService } from '../media/media.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { requireTenantId } from '../common/utils/tenant';
 import { imovelTitulo } from './captacao.constants';
@@ -20,6 +25,8 @@ import {
   toMoneyNumber,
   normalizeCpfCnpj,
   assertCpfCnpj,
+  mergeFunilPorEtapa,
+  normalizeComodidades,
 } from './captacao.util';
 import {
   textoCriacao,
@@ -59,6 +66,7 @@ const proprietarioSelect = {
   observacoes: true,
   createdAt: true,
   updatedAt: true,
+  portalAcesso: { select: { status: true, lastLoginAt: true } },
   _count: { select: { imoveis: true, captacoes: true } },
 } as const;
 
@@ -97,7 +105,11 @@ const captacaoInclude = {
 
 @Injectable()
 export class CaptacaoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly funilResolver?: FunilResolverService,
+    @Optional() private readonly media?: MediaService,
+  ) {}
 
   listProprietarios(query: QueryProprietariosDto, user: AuthenticatedUser) {
     const tenantId = requireTenantId(user);
@@ -114,7 +126,18 @@ export class CaptacaoService {
       where,
       select: proprietarioSelect,
       orderBy: { nome: 'asc' },
-    });
+    }).then((items) =>
+      items.map((item) => {
+        const { portalAcesso, ...rest } = item;
+        return {
+          ...rest,
+          portalAcesso: {
+            ativo: portalAcesso?.status === 'ativo',
+            lastLoginAt: portalAcesso?.lastLoginAt ?? null,
+          },
+        };
+      }),
+    );
   }
 
   async getProprietario(id: string, user: AuthenticatedUser) {
@@ -122,6 +145,7 @@ export class CaptacaoService {
     const item = await this.prisma.proprietario.findFirst({
       where: { id, tenantId },
       include: {
+        portalAcesso: { select: { status: true, lastLoginAt: true } },
         imoveis: {
           orderBy: { createdAt: 'desc' },
           include: imovelInclude,
@@ -130,8 +154,13 @@ export class CaptacaoService {
       },
     });
     if (!item) throw new NotFoundException('Proprietário não encontrado.');
+    const { portalAcesso, ...rest } = item;
     return {
-      ...item,
+      ...rest,
+      portalAcesso: {
+        ativo: portalAcesso?.status === 'ativo',
+        lastLoginAt: portalAcesso?.lastLoginAt ?? null,
+      },
       imoveis: item.imoveis.map((imovel) => this.exposeImovel(imovel)),
     };
   }
@@ -181,6 +210,24 @@ export class CaptacaoService {
       },
       select: proprietarioSelect,
     });
+  }
+
+  async deleteProprietario(id: string, user: AuthenticatedUser) {
+    const tenantId = requireTenantId(user);
+    const item = await this.prisma.proprietario.findFirst({
+      where: { id, tenantId },
+      select: {
+        id: true,
+        _count: { select: { imoveis: true, captacoes: true, posVendas: true } },
+      },
+    });
+    if (!item) throw new NotFoundException('Proprietário não encontrado.');
+    if (item._count.imoveis || item._count.captacoes || item._count.posVendas) {
+      throw new ConflictException(
+        'Este proprietário ainda tem imóveis, captações ou pós-venda. Exclua-os antes.',
+      );
+    }
+    await this.prisma.proprietario.delete({ where: { id } });
   }
 
   async listImoveis(query: QueryImoveisDto, user: AuthenticatedUser) {
@@ -247,6 +294,15 @@ export class CaptacaoService {
         suites: dto.suites,
         banheiros: dto.banheiros,
         vagas: dto.vagas,
+        tipoEmpreendimento: dto.tipoEmpreendimento?.trim() ?? '',
+        aptsPorAndar: dto.aptsPorAndar,
+        andares: dto.andares,
+        torres: dto.torres,
+        descricao: dto.descricao?.trim() ?? '',
+        comodidadesUnidade: normalizeComodidades(dto.comodidadesUnidade),
+        comodidadesCondominio: normalizeComodidades(
+          dto.comodidadesCondominio,
+        ),
         observacoes: dto.observacoes?.trim() ?? '',
       },
       include: imovelInclude,
@@ -287,10 +343,104 @@ export class CaptacaoService {
         ...(dto.suites !== undefined ? { suites: dto.suites } : {}),
         ...(dto.banheiros !== undefined ? { banheiros: dto.banheiros } : {}),
         ...(dto.vagas !== undefined ? { vagas: dto.vagas } : {}),
+        ...(dto.tipoEmpreendimento != null
+          ? { tipoEmpreendimento: dto.tipoEmpreendimento.trim() }
+          : {}),
+        ...(dto.aptsPorAndar !== undefined
+          ? { aptsPorAndar: dto.aptsPorAndar }
+          : {}),
+        ...(dto.andares !== undefined ? { andares: dto.andares } : {}),
+        ...(dto.torres !== undefined ? { torres: dto.torres } : {}),
+        ...(dto.descricao != null ? { descricao: dto.descricao.trim() } : {}),
+        ...(dto.comodidadesUnidade !== undefined
+          ? { comodidadesUnidade: normalizeComodidades(dto.comodidadesUnidade) }
+          : {}),
+        ...(dto.comodidadesCondominio !== undefined
+          ? {
+              comodidadesCondominio: normalizeComodidades(
+                dto.comodidadesCondominio,
+              ),
+            }
+          : {}),
         ...(dto.observacoes != null
           ? { observacoes: dto.observacoes.trim() }
           : {}),
       },
+      include: imovelInclude,
+    });
+    return this.exposeImovel(updated);
+  }
+
+  async deleteImovel(id: string, user: AuthenticatedUser) {
+    const tenantId = requireTenantId(user);
+    const item = await this.prisma.imovel.findFirst({
+      where: { id, tenantId },
+      select: {
+        id: true,
+        fotoPublicId: true,
+        vendaUsado: { select: { id: true } },
+        _count: { select: { captacoes: true, posVendas: true } },
+      },
+    });
+    if (!item) throw new NotFoundException('Imóvel não encontrado.');
+    if (item.vendaUsado) {
+      throw new ConflictException(
+        'Este imóvel está na venda de usados. Remova a venda antes de excluir o imóvel.',
+      );
+    }
+    if (item._count.posVendas) {
+      throw new ConflictException(
+        'Este imóvel tem pós-venda vinculada e não pode ser excluído.',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.captacao.deleteMany({ where: { imovelId: id, tenantId } });
+      await tx.imovel.delete({ where: { id } });
+    });
+    await this.media?.destroy(item.fotoPublicId);
+  }
+
+  async uploadFoto(
+    id: string,
+    rawFile: Express.Multer.File | undefined,
+    user: AuthenticatedUser,
+  ) {
+    const media = this.requireMedia();
+    const tenantId = requireTenantId(user);
+    const current = await this.prisma.imovel.findFirst({
+      where: { id, tenantId },
+      select: { id: true, fotoPublicId: true },
+    });
+    if (!current) throw new NotFoundException('Imóvel não encontrado.');
+    const file = media.requireFile(rawFile);
+    const uploaded = await media.uploadImage({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      folder: media.folder(tenantId, 'imoveis', id),
+      maxWidth: 1600,
+      maxHeight: 1200,
+      fit: 'cover',
+    });
+    await media.destroy(current.fotoPublicId);
+    const updated = await this.prisma.imovel.update({
+      where: { id },
+      data: { fotoUrl: uploaded.url, fotoPublicId: uploaded.publicId },
+      include: imovelInclude,
+    });
+    return this.exposeImovel(updated);
+  }
+
+  async removeFoto(id: string, user: AuthenticatedUser) {
+    const tenantId = requireTenantId(user);
+    const current = await this.prisma.imovel.findFirst({
+      where: { id, tenantId },
+      select: { id: true, fotoPublicId: true },
+    });
+    if (!current) throw new NotFoundException('Imóvel não encontrado.');
+    await this.media?.destroy(current.fotoPublicId);
+    const updated = await this.prisma.imovel.update({
+      where: { id },
+      data: { fotoUrl: null, fotoPublicId: null },
       include: imovelInclude,
     });
     return this.exposeImovel(updated);
@@ -360,7 +510,11 @@ export class CaptacaoService {
       );
     }
     await this.requireResponsavel(dto.responsavelId, tenantId);
-    const funil = await this.resolveFunilCaptacao(tenantId, dto.funilId);
+    const funil = await this.resolveFunilCaptacao(
+      tenantId,
+      dto.funilId,
+      dto.responsavelId,
+    );
     const etapa = await this.resolveEtapa(funil, dto.funilEtapaId);
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -517,6 +671,16 @@ export class CaptacaoService {
     return this.getCaptacao(id, user);
   }
 
+  async deleteCaptacao(id: string, user: AuthenticatedUser) {
+    const tenantId = requireTenantId(user);
+    const item = await this.prisma.captacao.findFirst({
+      where: { id, tenantId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('Captação não encontrada.');
+    await this.prisma.captacao.delete({ where: { id } });
+  }
+
   async resumo(user: AuthenticatedUser) {
     const tenantId = requireTenantId(user);
     const [proprietarios, imoveis, captacoes, porEtapa] = await Promise.all([
@@ -529,6 +693,40 @@ export class CaptacaoService {
         _count: { _all: true },
       }),
     ]);
+    let funil: {
+      etapas: Array<{
+        id: string;
+        label: string;
+        papel: string | null;
+        color: string | null;
+        sortOrder: number;
+        active: boolean;
+      }>;
+    } | null = null;
+    try {
+      funil =
+        (await this.funilResolver?.resolve({
+          tenantId,
+          tipo: FunilTipo.captacao,
+          userId: user.id,
+        })) ??
+        (await this.prisma.funil.findFirst({
+          where: { tenantId, tipo: FunilTipo.captacao, ativo: true },
+          include: {
+            etapas: { orderBy: { sortOrder: 'asc' } },
+          },
+        }));
+    } catch {
+      funil = await this.prisma.funil.findFirst({
+        where: { tenantId, tipo: FunilTipo.captacao, ativo: true },
+        include: {
+          etapas: { orderBy: { sortOrder: 'asc' } },
+        },
+      });
+    }
+    const etapasAtivas = (funil?.etapas ?? [])
+      .filter((etapa) => etapa.active)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
     const etapas = await this.prisma.funilEtapa.findMany({
       where: { id: { in: porEtapa.map((r) => r.funilEtapaId) } },
       select: { id: true, label: true, papel: true, sortOrder: true, color: true },
@@ -536,22 +734,27 @@ export class CaptacaoService {
     const etapaMap = new Map(etapas.map((e) => [e.id, e]));
     let ativas = 0;
     let captados = 0;
-    const porEtapaOut = porEtapa
-      .map((row) => {
-        const etapa = etapaMap.get(row.funilEtapaId);
-        const count = row._count._all;
-        if (etapa?.papel === 'venda') captados += count;
-        else if (etapa?.papel !== 'perdido') ativas += count;
-        return {
-          funilEtapaId: row.funilEtapaId,
-          label: etapa?.label ?? 'Etapa',
-          papel: etapa?.papel ?? null,
-          color: etapa?.color ?? null,
-          sortOrder: etapa?.sortOrder ?? 0,
-          total: count,
-        };
-      })
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const row of porEtapa) {
+      const etapa = etapaMap.get(row.funilEtapaId);
+      const count = row._count._all;
+      if (etapa?.papel === 'venda') captados += count;
+      else if (etapa?.papel !== 'perdido') ativas += count;
+    }
+    const porEtapaOut = etapasAtivas.length
+      ? mergeFunilPorEtapa(etapasAtivas, porEtapa)
+      : porEtapa
+          .map((row) => {
+            const etapa = etapaMap.get(row.funilEtapaId);
+            return {
+              funilEtapaId: row.funilEtapaId,
+              label: etapa?.label ?? 'Etapa',
+              papel: etapa?.papel ?? null,
+              color: etapa?.color ?? null,
+              sortOrder: etapa?.sortOrder ?? 0,
+              total: row._count._all,
+            };
+          })
+          .sort((a, b) => a.sortOrder - b.sortOrder);
     return {
       proprietarios,
       imoveis,
@@ -605,7 +808,19 @@ export class CaptacaoService {
     return item;
   }
 
-  private async resolveFunilCaptacao(tenantId: string, funilId?: string) {
+  private async resolveFunilCaptacao(
+    tenantId: string,
+    funilId?: string,
+    userId?: string,
+  ) {
+    if (this.funilResolver) {
+      return this.funilResolver.resolve({
+        tenantId,
+        tipo: FunilTipo.captacao,
+        funilId,
+        userId,
+      });
+    }
     if (funilId) {
       const funil = await this.prisma.funil.findFirst({
         where: { id: funilId, tenantId },
@@ -649,6 +864,15 @@ export class CaptacaoService {
     return first;
   }
 
+  private requireMedia() {
+    if (!this.media) {
+      throw new ServiceUnavailableException(
+        'Upload de imagens indisponível no momento.',
+      );
+    }
+    return this.media;
+  }
+
   private exposeImovel(item: {
     tipo: Prisma.ImovelGetPayload<{ include: typeof imovelInclude }>['tipo'];
     logradouro: string;
@@ -665,8 +889,9 @@ export class CaptacaoService {
     [key: string]: unknown;
   }) {
     const ultima = item.captacoes?.[0];
+    const { fotoPublicId: _fotoPublicId, ...rest } = item;
     return {
-      ...item,
+      ...rest,
       area: toMoneyNumber(item.area as never),
       areaConstruida: toMoneyNumber(item.areaConstruida as never),
       titulo: imovelTitulo(item),
@@ -691,15 +916,17 @@ export class CaptacaoService {
       cidade: string;
       area: unknown;
       areaConstruida: unknown;
+      fotoPublicId?: string | null;
     };
     [key: string]: unknown;
   }) {
+    const { fotoPublicId: _fotoPublicId, ...imovelRest } = item.imovel;
     return {
       ...item,
       valorPretendido: toMoneyNumber(item.valorPretendido as never),
       valorAvaliacao: toMoneyNumber(item.valorAvaliacao as never),
       imovel: {
-        ...item.imovel,
+        ...imovelRest,
         area: toMoneyNumber(item.imovel.area as never),
         areaConstruida: toMoneyNumber(item.imovel.areaConstruida as never),
         titulo: imovelTitulo(item.imovel),
