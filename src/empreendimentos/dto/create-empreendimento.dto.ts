@@ -116,6 +116,12 @@ export class CreateEmpreendimentoDto {
   valorReferencia?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  rendaAPartirDe?: number;
+
+  @IsOptional()
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
     if (value === null || value === '') return null;

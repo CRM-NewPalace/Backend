@@ -109,6 +109,12 @@ export class UpdateEmpreendimentoDto {
   valorReferencia?: number | null;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  rendaAPartirDe?: number | null;
+
+  @IsOptional()
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
     if (value === null || value === '') return null;
