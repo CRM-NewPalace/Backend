@@ -13,18 +13,28 @@ import {
   FinanceiroParceiroTipo,
   FinanceiroTituloStatus,
   FinanceiroTituloTipo,
+  CaptacaoHistoricoTipo,
+  CaptacaoImovelTipo,
   FunilEtapaPapel,
   FunilTipo,
+  InteresseUsadoStatus,
   MetaEscopo,
   MetaOrigem,
   MetaPeriodo,
   MetaTipo,
   NotificacaoTipo,
+  PessoaTipo,
   Prisma,
+  ProprietarioPortalStatus,
   PropostaStatus,
   Role,
+  TenantPlano,
   TriagemOrigem,
   UserStatus,
+  VendaUsadoHistoricoTipo,
+  VendaUsadoPropostaStatus,
+  VendaUsadoStatus,
+  VendaUsadoVisitaStatus,
 } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
@@ -45,8 +55,12 @@ import {
 } from '../catalog/catalog.defaults';
 import { slugify } from '../catalog/catalog.util';
 import { isStatusVendido } from '../common/utils/documentacao-status';
+import { applyPlanoModules } from './tenant-plan';
+import { mergeOperationModules } from './tenant-operation.util';
 import {
+  DEMO_CAPTATION_IMOVEIS,
   DEMO_CATALOG,
+  DEMO_INTERESSADOS_USADOS,
   DEMO_CONSTRUTORAS,
   DEMO_DESPESA_TIPOS,
   DEMO_EMPREENDIMENTOS,
@@ -84,6 +98,11 @@ export type DemoDataCounts = {
   notificacoes: number;
   treinamentos: number;
   financeiro: number;
+  proprietarios: number;
+  imoveis: number;
+  captacoes: number;
+  interessadosUsados: number;
+  vendasUsados: number;
 };
 
 type DemoDocumentacaoResumo = {
@@ -131,6 +150,8 @@ export class TenantDemoDataService {
         id: true,
         name: true,
         slug: true,
+        plano: true,
+        modules: true,
         maxUsuarios: true,
         usuariosExtras: true,
       },
@@ -159,7 +180,14 @@ export class TenantDemoDataService {
       notificacoes: 0,
       treinamentos: 0,
       financeiro: 0,
+      proprietarios: 0,
+      imoveis: 0,
+      captacoes: 0,
+      interessadosUsados: 0,
+      vendasUsados: 0,
     };
+
+    await this.enableCaptacaoOperations(tenantId, tenant.plano, tenant.modules);
 
     counts.catalogItems = await this.seedCatalogAndFunil(tenantId);
 
@@ -171,6 +199,7 @@ export class TenantDemoDataService {
     const usuariosExtrasLiberados = await this.ensureUserQuota(tenantId);
 
     counts.equipes = await this.seedEquipes(tenantId, userIdByKey);
+    await this.seedEquipeFunis(tenantId);
 
     const localidadeIds = await this.seedLocalidades(tenantId);
     counts.localidades = localidadeIds.length;
@@ -243,6 +272,13 @@ export class TenantDemoDataService {
       equipeIdBySlot,
     });
 
+    const captacao = await this.seedCaptacaoEUsados(tenantId, userIdByKey);
+    counts.proprietarios = captacao.proprietarios;
+    counts.imoveis = captacao.imoveis;
+    counts.captacoes = captacao.captacoes;
+    counts.interessadosUsados = captacao.interessadosUsados;
+    counts.vendasUsados = captacao.vendasUsados;
+
     return {
       tenantId,
       tenantName: tenant.name,
@@ -298,6 +334,27 @@ export class TenantDemoDataService {
         await tx.financeiroDespesa.deleteMany({ where: { tenantId } });
         await tx.financeiroDespesaTipo.deleteMany({ where: { tenantId } });
         await tx.financeiroParceiro.deleteMany({ where: { tenantId } });
+
+        await tx.vendaUsadoPosVendaPendencia.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoPosVenda.deleteMany({ where: { tenantId } });
+        await tx.imovelChaveMovimento.deleteMany({ where: { tenantId } });
+        await tx.imovelChave.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoDocumento.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoContrato.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoFechamento.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoProposta.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoVisita.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoNegociacaoMovimento.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoNegociacao.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoVinculo.deleteMany({ where: { tenantId } });
+        await tx.vendaUsadoHistorico.deleteMany({ where: { tenantId } });
+        await tx.vendaUsado.deleteMany({ where: { tenantId } });
+        await tx.interessadoUsado.deleteMany({ where: { tenantId } });
+        await tx.captacaoHistorico.deleteMany({ where: { tenantId } });
+        await tx.captacao.deleteMany({ where: { tenantId } });
+        await tx.proprietarioPortalAcesso.deleteMany({ where: { tenantId } });
+        await tx.imovel.deleteMany({ where: { tenantId } });
+        await tx.proprietario.deleteMany({ where: { tenantId } });
 
         await tx.notificacao.deleteMany({ where: { tenantId } });
         await tx.agendamento.deleteMany({ where: { tenantId } });
@@ -558,6 +615,313 @@ export class TenantDemoDataService {
     }
 
     return criadas;
+  }
+
+  private async enableCaptacaoOperations(
+    tenantId: string,
+    plano: TenantPlano,
+    modules: Prisma.JsonValue,
+  ) {
+    const current = applyPlanoModules(plano, modules);
+    const next = applyPlanoModules(
+      plano,
+      mergeOperationModules(current, {
+        captacao: true,
+        imoveisUsados: true,
+      }),
+    );
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { modules: next as Prisma.InputJsonValue },
+    });
+  }
+
+  private async seedEquipeFunis(tenantId: string) {
+    const equipes = await this.prisma.equipe.findMany({
+      where: { tenantId },
+      select: { id: true },
+    });
+    const funis = await this.prisma.funil.findMany({
+      where: { tenantId, ativo: true },
+      select: { id: true, tipo: true },
+    });
+    for (const equipe of equipes) {
+      for (const funil of funis) {
+        await this.prisma.equipeFunil.upsert({
+          where: {
+            equipeId_tipo: { equipeId: equipe.id, tipo: funil.tipo },
+          },
+          create: {
+            tenantId,
+            equipeId: equipe.id,
+            funilId: funil.id,
+            tipo: funil.tipo,
+          },
+          update: { funilId: funil.id },
+        });
+      }
+    }
+  }
+
+  private async loadFunilComEtapas(tenantId: string, tipo: FunilTipo) {
+    return this.prisma.funil.findFirst({
+      where: { tenantId, tipo, ativo: true },
+      include: {
+        etapas: {
+          where: { active: true },
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+  }
+
+  private async seedCaptacaoEUsados(
+    tenantId: string,
+    userIdByKey: Map<DemoUserKey, string>,
+  ) {
+    const counts = {
+      proprietarios: 0,
+      imoveis: 0,
+      captacoes: 0,
+      interessadosUsados: 0,
+      vendasUsados: 0,
+    };
+    const funilCaptacao = await this.loadFunilComEtapas(
+      tenantId,
+      FunilTipo.captacao,
+    );
+    const funilUsados = await this.loadFunilComEtapas(
+      tenantId,
+      FunilTipo.venda_usados,
+    );
+    if (!funilCaptacao?.etapas.length) return counts;
+
+    const etapaCapBySlug = new Map(
+      funilCaptacao.etapas.map((e) => [e.slug, e]),
+    );
+    const etapaUsadoBySlug = new Map(
+      (funilUsados?.etapas ?? []).map((e) => [e.slug, e]),
+    );
+    const fallbackCap = funilCaptacao.etapas[0]!;
+    const fallbackUsado = funilUsados?.etapas[0];
+    const passwordHash = await bcrypt.hash(DEMO_PASSWORD, SALT_ROUNDS);
+    const fallbackUser =
+      userIdByKey.get('corretor1') ??
+      userIdByKey.get('gerente') ??
+      (await this.prisma.user.findFirst({
+        where: { tenantId, status: UserStatus.ativo },
+        select: { id: true },
+      }))?.id;
+    if (!fallbackUser) return counts;
+
+    const vendaImovelIds: string[] = [];
+
+    for (const def of DEMO_CAPTATION_IMOVEIS) {
+      const existente = await this.prisma.proprietario.findFirst({
+        where: { tenantId, email: def.email },
+        select: { id: true },
+      });
+      if (existente) continue;
+
+      const responsavelId =
+        userIdByKey.get(def.corretor) ?? fallbackUser;
+      const etapa =
+        etapaCapBySlug.get(def.etapaSlug) ?? fallbackCap;
+      const tipoPessoa =
+        def.cpfCnpj.replace(/\D/g, '').length > 11
+          ? PessoaTipo.juridica
+          : PessoaTipo.fisica;
+
+      const proprietario = await this.prisma.proprietario.create({
+        data: {
+          tenantId,
+          nome: def.proprietario,
+          tipoPessoa,
+          cpfCnpj: def.cpfCnpj,
+          telefone: def.telefone,
+          email: def.email,
+        },
+        select: { id: true },
+      });
+      counts.proprietarios += 1;
+
+      if (def.portal) {
+        await this.prisma.proprietarioPortalAcesso.create({
+          data: {
+            tenantId,
+            proprietarioId: proprietario.id,
+            password: passwordHash,
+            status: ProprietarioPortalStatus.ativo,
+          },
+        });
+      }
+
+      const imovel = await this.prisma.imovel.create({
+        data: {
+          tenantId,
+          proprietarioId: proprietario.id,
+          tipo: def.tipo as CaptacaoImovelTipo,
+          cep: def.cep,
+          logradouro: def.logradouro,
+          numero: def.numero,
+          bairro: def.bairro,
+          cidade: def.cidade,
+          estado: def.estado,
+          area: def.area,
+          quartos: def.quartos ?? null,
+          suites: def.suites ?? null,
+          banheiros: def.banheiros ?? null,
+          vagas: def.vagas ?? null,
+          descricao: def.descricao,
+        },
+        select: { id: true },
+      });
+      counts.imoveis += 1;
+
+      await this.prisma.captacao.create({
+        data: {
+          tenantId,
+          proprietarioId: proprietario.id,
+          imovelId: imovel.id,
+          responsavelId,
+          origem: def.origem,
+          exclusividade: def.exclusivo === true,
+          valorPretendido: def.pretendido,
+          valorAvaliacao: def.avaliacao,
+          funilId: funilCaptacao.id,
+          funilEtapaId: etapa.id,
+          historicos: {
+            create: {
+              tenantId,
+              tipo: CaptacaoHistoricoTipo.criacao,
+              texto: `Captação de demonstração em ${etapa.label}.`,
+              autorId: responsavelId,
+            },
+          },
+        },
+        select: { id: true },
+      });
+      counts.captacoes += 1;
+
+      if (def.vendaUsado && funilUsados && fallbackUsado) {
+        const etapaVenda =
+          etapaUsadoBySlug.get(def.vendaUsado.etapaSlug) ?? fallbackUsado;
+        const venda = await this.prisma.vendaUsado.create({
+          data: {
+            tenantId,
+            imovelId: imovel.id,
+            responsavelId,
+            funilId: funilUsados.id,
+            funilEtapaId: etapaVenda.id,
+            status: def.vendaUsado.status as VendaUsadoStatus,
+            precoVenda: def.vendaUsado.preco,
+            observacoes: 'Listagem de demonstração.',
+            historicos: {
+              create: {
+                tenantId,
+                tipo: VendaUsadoHistoricoTipo.disponibilizacao,
+                texto: `Imóvel disponibilizado no funil de usados (${etapaVenda.label}).`,
+                autorId: responsavelId,
+              },
+            },
+          },
+          select: { id: true },
+        });
+        counts.vendasUsados += 1;
+        vendaImovelIds.push(venda.id);
+      }
+    }
+
+    const interessadoIds: string[] = [];
+    for (const def of DEMO_INTERESSADOS_USADOS) {
+      const jaTem = await this.prisma.interessadoUsado.findFirst({
+        where: { tenantId, email: def.email },
+        select: { id: true },
+      });
+      if (jaTem) {
+        interessadoIds.push(jaTem.id);
+        continue;
+      }
+      const row = await this.prisma.interessadoUsado.create({
+        data: {
+          tenantId,
+          nome: def.nome,
+          telefone: def.telefone,
+          email: def.email,
+          cidade: def.cidade,
+          tipoDesejado: def.tipoDesejado as CaptacaoImovelTipo,
+          precoMax: def.precoMax,
+          quartosMin: def.quartosMin,
+        },
+        select: { id: true },
+      });
+      interessadoIds.push(row.id);
+      counts.interessadosUsados += 1;
+    }
+
+    const vendas = await this.prisma.vendaUsado.findMany({
+      where: { tenantId, id: { in: vendaImovelIds } },
+      select: { id: true, responsavelId: true, precoVenda: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (vendas[0] && interessadoIds[0]) {
+      await this.prisma.vendaUsadoVinculo.upsert({
+        where: {
+          vendaUsadoId_interessadoId: {
+            vendaUsadoId: vendas[0].id,
+            interessadoId: interessadoIds[0],
+          },
+        },
+        create: {
+          tenantId,
+          vendaUsadoId: vendas[0].id,
+          interessadoId: interessadoIds[0],
+          interesse: InteresseUsadoStatus.interessado,
+        },
+        update: {},
+      });
+      await this.prisma.vendaUsadoVisita.create({
+        data: {
+          tenantId,
+          vendaUsadoId: vendas[0].id,
+          interessadoId: interessadoIds[0],
+          responsavelId: vendas[0].responsavelId,
+          dataHora: new Date(Date.now() + DAY_MS),
+          status: VendaUsadoVisitaStatus.agendada,
+          observacoes: 'Visita de demonstração.',
+        },
+      });
+    }
+    if (vendas[1] && interessadoIds[1]) {
+      await this.prisma.vendaUsadoVinculo.upsert({
+        where: {
+          vendaUsadoId_interessadoId: {
+            vendaUsadoId: vendas[1].id,
+            interessadoId: interessadoIds[1],
+          },
+        },
+        create: {
+          tenantId,
+          vendaUsadoId: vendas[1].id,
+          interessadoId: interessadoIds[1],
+          interesse: InteresseUsadoStatus.em_contato,
+        },
+        update: {},
+      });
+      await this.prisma.vendaUsadoProposta.create({
+        data: {
+          tenantId,
+          vendaUsadoId: vendas[1].id,
+          interessadoId: interessadoIds[1],
+          responsavelId: vendas[1].responsavelId,
+          valor: vendas[1].precoVenda ?? 900000,
+          status: VendaUsadoPropostaStatus.enviada,
+          observacoes: 'Proposta de demonstração.',
+        },
+      });
+    }
+
+    return counts;
   }
 
   private async loadEquipeIds(
