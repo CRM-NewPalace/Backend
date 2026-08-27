@@ -455,14 +455,18 @@ export function modulesForApiPath(rawPath: string): string[] {
   if (path.startsWith('metas')) return ['metas'];
   if (path.startsWith('catalog')) return ['configuracoes'];
   if (path.startsWith('construtoras')) return ['construtoras'];
-  if (path.startsWith('empreendimentos') || path.startsWith('imoveis')) {
+  if (path.startsWith('imoveis-usados')) return ['imoveisUsados'];
+  if (
+    path.startsWith('empreendimentos') ||
+    path === 'imoveis' ||
+    path.startsWith('imoveis/')
+  ) {
     return ['imoveis', 'construtoras'];
   }
   if (path.startsWith('treinamento')) return ['treinamento'];
   if (path.startsWith('triagem')) return ['triagem'];
   if (path.startsWith('localidades')) return ['imoveis', 'construtoras'];
   if (path.startsWith('captacao')) return ['captacao'];
-  if (path.startsWith('imoveis-usados')) return ['imoveisUsados'];
   if (path.startsWith('locacao')) return ['locacao'];
   return [];
 }

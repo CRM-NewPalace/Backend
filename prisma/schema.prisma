@@ -171,6 +171,10 @@ model Tenant {
   imoveisCaptacao         Imovel[]
   captacoes               Captacao[]
   captacaoHistoricos      CaptacaoHistorico[]
+  vendasUsado             VendaUsado[]
+  interessadosUsado       InteressadoUsado[]
+  vendaUsadoVinculos      VendaUsadoVinculo[]
+  vendaUsadoHistoricos    VendaUsadoHistorico[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -334,6 +338,8 @@ model User {
 
   captacoesResponsavel Captacao[] @relation("CaptacaoResponsavel")
   captacaoHistoricos   CaptacaoHistorico[] @relation("CaptacaoHistoricoAutor")
+  vendasUsadoResponsavel VendaUsado[] @relation("VendaUsadoResponsavel")
+  vendaUsadoHistoricos   VendaUsadoHistorico[] @relation("VendaUsadoHistoricoAutor")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1220,6 +1226,7 @@ model Funil {
 
   etapas FunilEtapa[]
   captacoes Captacao[]
+  vendasUsado VendaUsado[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1249,6 +1256,7 @@ model FunilEtapa {
   alertaAntecedenciaPercent Int @default(20)
 
   captacoes Captacao[]
+  vendasUsado VendaUsado[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1334,6 +1342,7 @@ model Imovel {
   observacoes     String             @default("")
 
   captacoes Captacao[]
+  vendaUsado VendaUsado?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1396,6 +1405,130 @@ model CaptacaoHistorico {
   @@index([tenantId, captacaoId])
   @@index([captacaoId, createdAt])
   @@map("captacao_historicos")
+}
+
+enum VendaUsadoStatus {
+  disponivel
+  reservado
+  vendido
+  indisponivel
+}
+
+enum InteresseUsadoStatus {
+  novo
+  em_contato
+  interessado
+  sem_interesse
+  descartado
+}
+
+enum VendaUsadoHistoricoTipo {
+  disponibilizacao
+  responsavel
+  status
+  preco
+  etapa
+  interessado_vinculo
+  interessado_remocao
+  edicao
+}
+
+/// Comprador de imóveis usados (não é o Lead comercial de lançamentos).
+model InteressadoUsado {
+  id            String              @id @default(uuid())
+  tenantId      String
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nome          String
+  telefone      String              @default("")
+  email         String              @default("")
+  observacoes   String              @default("")
+  tipoDesejado  CaptacaoImovelTipo?
+  cidade        String              @default("")
+  bairros       String              @default("")
+  precoMin      Decimal?            @db.Decimal(14, 2)
+  precoMax      Decimal?            @db.Decimal(14, 2)
+  quartosMin    Int?
+  banheirosMin  Int?
+  vagasMin      Int?
+  areaMin       Decimal?            @db.Decimal(12, 2)
+
+  vinculos VendaUsadoVinculo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, nome])
+  @@map("interessados_usado")
+}
+
+/// Operação de comercialização do mesmo Imovel da captação.
+model VendaUsado {
+  id                   String           @id @default(uuid())
+  tenantId             String
+  tenant               Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  imovelId             String           @unique
+  imovel               Imovel           @relation(fields: [imovelId], references: [id], onDelete: Restrict)
+  responsavelId        String
+  responsavel          User             @relation("VendaUsadoResponsavel", fields: [responsavelId], references: [id], onDelete: Restrict)
+  funilId              String
+  funil                Funil            @relation(fields: [funilId], references: [id], onDelete: Restrict)
+  funilEtapaId         String
+  funilEtapa           FunilEtapa       @relation(fields: [funilEtapaId], references: [id], onDelete: Restrict)
+  status               VendaUsadoStatus @default(disponivel)
+  precoVenda           Decimal?         @db.Decimal(14, 2)
+  dataDisponibilizacao DateTime         @default(now())
+  observacoes          String           @default("")
+
+  vinculos   VendaUsadoVinculo[]
+  historicos VendaUsadoHistorico[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, responsavelId])
+  @@index([tenantId, funilEtapaId])
+  @@map("vendas_usado")
+}
+
+model VendaUsadoVinculo {
+  id             String               @id @default(uuid())
+  tenantId       String
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendaUsadoId   String
+  vendaUsado     VendaUsado           @relation(fields: [vendaUsadoId], references: [id], onDelete: Cascade)
+  interessadoId  String
+  interessado    InteressadoUsado     @relation(fields: [interessadoId], references: [id], onDelete: Restrict)
+  interesse      InteresseUsadoStatus @default(novo)
+  observacoes    String               @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([vendaUsadoId, interessadoId])
+  @@index([tenantId])
+  @@index([tenantId, interessadoId])
+  @@map("venda_usado_vinculos")
+}
+
+model VendaUsadoHistorico {
+  id           String                   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vendaUsadoId String
+  vendaUsado   VendaUsado               @relation(fields: [vendaUsadoId], references: [id], onDelete: Cascade)
+  tipo         VendaUsadoHistoricoTipo
+  texto        String
+  autorId      String?
+  autor        User?                    @relation("VendaUsadoHistoricoAutor", fields: [autorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, vendaUsadoId])
+  @@index([vendaUsadoId, createdAt])
+  @@map("venda_usado_historicos")
 }
 
 /// Item de catálogo (etapa do funil, origem, motivo de perda, tag).

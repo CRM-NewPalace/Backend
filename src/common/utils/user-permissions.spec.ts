@@ -20,6 +20,15 @@ describe('permissões por usuário', () => {
     assert.equal(defaultsFromRole(Role.admin).modules.captacao, false);
     assert.equal(defaultsFromRole(Role.admin).modules.imoveisUsados, false);
     assert.equal(defaultsFromRole(Role.admin).modules.locacao, false);
+    assert.equal(hasUserModule(Role.corretor, null, 'imoveisUsados'), false);
+    assert.equal(
+      hasUserModule(
+        Role.corretor,
+        { modules: { imoveisUsados: true }, actions: {} },
+        'imoveisUsados',
+      ),
+      true,
+    );
   });
 
   it('analista vê dashboard quando o módulo é concedido', () => {
@@ -56,7 +65,10 @@ describe('permissões por usuário', () => {
       'financeiro',
     ]);
     assert.deepEqual(modulesForApiPath('/captacao/proprietarios'), ['captacao']);
-    assert.deepEqual(modulesForApiPath('/captacao'), ['captacao']);
+    assert.deepEqual(modulesForApiPath('/imoveis-usados'), ['imoveisUsados']);
+    assert.deepEqual(modulesForApiPath('/imoveis-usados/interessados'), [
+      'imoveisUsados',
+    ]);
   });
 
   it('não libera escrita sensível só com módulo', () => {
