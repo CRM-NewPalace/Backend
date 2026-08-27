@@ -169,3 +169,36 @@ export const CONTRATO_STATUS_LABEL: Record<string, string> = {
   assinado: 'Assinado',
   cancelado: 'Cancelado',
 };
+
+export const CHAVE_STATUS_LABEL: Record<string, string> = {
+  disponivel: 'Disponível',
+  retirada: 'Retirada',
+  devolvida: 'Devolvida',
+  perdida: 'Perdida',
+  inativa: 'Inativa',
+};
+
+export const CHAVE_LOCALIZACAO_LABEL: Record<string, string> = {
+  imobiliaria: 'Imobiliária',
+  corretor: 'Corretor',
+  proprietario: 'Proprietário',
+  comprador: 'Comprador',
+  portaria: 'Portaria',
+  caixa: 'Caixa de chaves',
+  outro: 'Outro',
+};
+
+export const POS_VENDA_STATUS_LABEL: Record<string, string> = {
+  pendente: 'Pendente',
+  em_andamento: 'Em andamento',
+  aguardando_pendencia: 'Aguardando pendência',
+  concluido: 'Concluído',
+  cancelado: 'Cancelado',
+};
+
+export const POS_VENDA_PENDENCIA_STATUS_LABEL: Record<string, string> = {
+  pendente: 'Pendente',
+  em_andamento: 'Em andamento',
+  concluida: 'Concluída',
+  cancelada: 'Cancelada',
+};

@@ -764,6 +764,8 @@ describe('VendaUsadoFechamentoService — conclusão', () => {
               id: 'f1',
               status: fechamentoStatus,
               propostaId: 'p1',
+              interessadoId: 'n1',
+              responsavelId: 'u1',
             };
           },
           update: async (args: {
@@ -794,6 +796,14 @@ describe('VendaUsadoFechamentoService — conclusão', () => {
             historico += 1;
             return {};
           },
+        },
+        vendaUsadoPosVenda: {
+          findFirst: async () => null,
+          create: async () => ({ id: 'pv1' }),
+        },
+        vendaUsadoPosVendaPendencia: { createMany: async () => ({ count: 4 }) },
+        imovel: {
+          findFirst: async () => ({ proprietarioId: 'pr1' }),
         },
       }) as never,
     );

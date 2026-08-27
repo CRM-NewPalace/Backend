@@ -8,10 +8,13 @@ import {
   FunilTipo,
   Prisma,
   UserStatus,
+  ImovelChaveStatus,
   VendaUsadoContratoStatus,
   VendaUsadoDocumentoStatus,
   VendaUsadoFechamentoStatus,
   VendaUsadoHistoricoTipo,
+  VendaUsadoPosVendaPendenciaStatus,
+  VendaUsadoPosVendaStatus,
   VendaUsadoPropostaStatus,
   VendaUsadoStatus,
   VendaUsadoVisitaStatus,
@@ -69,6 +72,11 @@ export class ImoveisUsadosService {
       fechamentosAndamento,
       documentacaoPendente,
       contratosAguardandoAssinatura,
+      posVendasAndamento,
+      posVendasPendentes,
+      pendenciasAtrasadas,
+      chavesRetiradas,
+      chavesPerdidas,
     ] = await Promise.all([
       this.prisma.vendaUsado.count({
         where: { tenantId, status: VendaUsadoStatus.disponivel },
@@ -139,6 +147,41 @@ export class ImoveisUsadosService {
           },
         },
       }),
+      this.prisma.vendaUsadoPosVenda.count({
+        where: {
+          tenantId,
+          status: VendaUsadoPosVendaStatus.em_andamento,
+        },
+      }),
+      this.prisma.vendaUsadoPosVenda.count({
+        where: { tenantId, status: VendaUsadoPosVendaStatus.pendente },
+      }),
+      this.prisma.vendaUsadoPosVendaPendencia.count({
+        where: {
+          tenantId,
+          prazo: { lt: new Date() },
+          status: {
+            in: [
+              VendaUsadoPosVendaPendenciaStatus.pendente,
+              VendaUsadoPosVendaPendenciaStatus.em_andamento,
+            ],
+          },
+          posVenda: {
+            status: {
+              notIn: [
+                VendaUsadoPosVendaStatus.concluido,
+                VendaUsadoPosVendaStatus.cancelado,
+              ],
+            },
+          },
+        },
+      }),
+      this.prisma.imovelChave.count({
+        where: { tenantId, status: ImovelChaveStatus.retirada },
+      }),
+      this.prisma.imovelChave.count({
+        where: { tenantId, status: ImovelChaveStatus.perdida },
+      }),
     ]);
     return {
       disponiveis,
@@ -153,6 +196,11 @@ export class ImoveisUsadosService {
       fechamentosAndamento,
       documentacaoPendente,
       contratosAguardandoAssinatura,
+      posVendasAndamento,
+      posVendasPendentes,
+      pendenciasAtrasadas,
+      chavesRetiradas,
+      chavesPerdidas,
     };
   }
 
