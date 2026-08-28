@@ -237,14 +237,44 @@ export class LeadMonitoramentoService {
     kind: 'triagem' | 'tarefa' | 'atividade',
     now = new Date(),
   ) {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: {
+        tenantId: true,
+        stage: true,
+        stageEnteredAt: true,
+        lastTriagemAt: true,
+        lastAtividadeAt: true,
+        lastTarefaAt: true,
+        lastMovementAt: true,
+        prazoAdiado: true,
+      },
+    });
+    if (!lead) return;
+
+    const data: Prisma.LeadUpdateInput = {
+      lastMovementAt: now,
+      ...(kind === 'triagem' ? { lastTriagemAt: now } : {}),
+      ...(kind === 'tarefa' ? { lastTarefaAt: now } : {}),
+      ...(kind === 'atividade' ? { lastAtividadeAt: now } : {}),
+    };
+
+    if (!lead.prazoAdiado) {
+      const ctx = await this.loadFunilContext(lead.tenantId);
+      const etapa = ctx.etapasBySlug.get(lead.stage) ?? null;
+      const anchor = this.slaAnchor(
+        lead.stageEnteredAt,
+        kind === 'triagem' ? now : lead.lastTriagemAt,
+        kind === 'atividade' ? now : lead.lastAtividadeAt,
+        kind === 'tarefa' ? now : lead.lastTarefaAt,
+        now,
+      );
+      Object.assign(data, this.prazoFieldsForEtapa(anchor, etapa));
+    }
+
     await this.prisma.lead.update({
       where: { id: leadId },
-      data: {
-        lastMovementAt: now,
-        ...(kind === 'triagem' ? { lastTriagemAt: now } : {}),
-        ...(kind === 'tarefa' ? { lastTarefaAt: now } : {}),
-        ...(kind === 'atividade' ? { lastAtividadeAt: now } : {}),
-      },
+      data,
     });
   }
 
@@ -273,12 +303,25 @@ export class LeadMonitoramentoService {
         perdidoAt: null,
         prazoAdiado: false,
       },
-      select: { id: true, stageEnteredAt: true, lastTriagemAt: true },
+      select: {
+        id: true,
+        stageEnteredAt: true,
+        lastTriagemAt: true,
+        lastAtividadeAt: true,
+        lastTarefaAt: true,
+        lastMovementAt: true,
+      },
     });
 
     for (const lead of leads) {
       const prazo = this.prazoFieldsForEtapa(
-        this.slaAnchor(lead.stageEnteredAt, lead.lastTriagemAt),
+        this.slaAnchor(
+          lead.stageEnteredAt,
+          lead.lastTriagemAt,
+          lead.lastAtividadeAt,
+          lead.lastTarefaAt,
+          lead.lastMovementAt,
+        ),
         etapa,
       );
       await this.prisma.lead.update({
@@ -1114,11 +1157,23 @@ export class LeadMonitoramentoService {
     return created;
   }
 
-  private slaAnchor(enteredAt: Date, lastTriagemAt: Date | null): Date {
-    if (lastTriagemAt && lastTriagemAt.getTime() > enteredAt.getTime()) {
-      return lastTriagemAt;
+  private slaAnchor(
+    enteredAt: Date,
+    lastTriagemAt: Date | null,
+    lastAtividadeAt: Date | null = null,
+    lastTarefaAt: Date | null = null,
+    lastMovementAt: Date | null = null,
+  ): Date {
+    let latest = enteredAt;
+    for (const d of [
+      lastTriagemAt,
+      lastAtividadeAt,
+      lastTarefaAt,
+      lastMovementAt,
+    ]) {
+      if (d && d.getTime() > latest.getTime()) latest = d;
     }
-    return enteredAt;
+    return latest;
   }
 
   private prazoFieldsForEtapa(
@@ -1155,7 +1210,13 @@ export class LeadMonitoramentoService {
     const enteredAt = lead.stageEnteredAt ?? lead.createdAt;
     const lastMovementAt = lead.lastMovementAt ?? lead.createdAt;
     const computed = this.prazoFieldsForEtapa(
-      this.slaAnchor(enteredAt, lead.lastTriagemAt),
+      this.slaAnchor(
+        enteredAt,
+        lead.lastTriagemAt,
+        lead.lastAtividadeAt,
+        lead.lastTarefaAt,
+        lastMovementAt,
+      ),
       etapa,
     );
     const dueAt =
@@ -1180,7 +1241,7 @@ export class LeadMonitoramentoService {
       });
     }
 
-    if (!terminal && idleMs >= ctx.inatividadeMs) {
+    if (!terminal && ctx.inatividadeMs > 0 && idleMs >= ctx.inatividadeMs) {
       const motivos = this.motivosSemMovimentacao(lead, now, ctx.inatividadeMs);
       problemas.push({
         tipo: 'sem_movimentacao',
