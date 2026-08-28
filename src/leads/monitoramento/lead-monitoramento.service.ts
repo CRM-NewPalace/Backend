@@ -234,47 +234,29 @@ export class LeadMonitoramentoService {
 
   async recordMovement(
     leadId: string,
-    kind: 'triagem' | 'tarefa' | 'atividade',
+    kind: 'triagem' | 'tarefa' | 'atividade' | 'edicao',
     now = new Date(),
   ) {
     const lead = await this.prisma.lead.findUnique({
       where: { id: leadId },
-      select: {
-        tenantId: true,
-        stage: true,
-        stageEnteredAt: true,
-        lastTriagemAt: true,
-        lastAtividadeAt: true,
-        lastTarefaAt: true,
-        lastMovementAt: true,
-        prazoAdiado: true,
-      },
+      select: { tenantId: true, stage: true },
     });
     if (!lead) return;
 
-    const data: Prisma.LeadUpdateInput = {
-      lastMovementAt: now,
-      ...(kind === 'triagem' ? { lastTriagemAt: now } : {}),
-      ...(kind === 'tarefa' ? { lastTarefaAt: now } : {}),
-      ...(kind === 'atividade' ? { lastAtividadeAt: now } : {}),
-    };
-
-    if (!lead.prazoAdiado) {
-      const ctx = await this.loadFunilContext(lead.tenantId);
-      const etapa = ctx.etapasBySlug.get(lead.stage) ?? null;
-      const anchor = this.slaAnchor(
-        lead.stageEnteredAt,
-        kind === 'triagem' ? now : lead.lastTriagemAt,
-        kind === 'atividade' ? now : lead.lastAtividadeAt,
-        kind === 'tarefa' ? now : lead.lastTarefaAt,
-        now,
-      );
-      Object.assign(data, this.prazoFieldsForEtapa(anchor, etapa));
-    }
+    const ctx = await this.loadFunilContext(lead.tenantId);
+    const etapa = ctx.etapasBySlug.get(lead.stage) ?? null;
+    const prazo = this.prazoFieldsForEtapa(now, etapa);
 
     await this.prisma.lead.update({
       where: { id: leadId },
-      data,
+      data: {
+        lastMovementAt: now,
+        prazoAdiado: false,
+        ...prazo,
+        ...(kind === 'triagem' ? { lastTriagemAt: now } : {}),
+        ...(kind === 'tarefa' ? { lastTarefaAt: now } : {}),
+        ...(kind === 'atividade' ? { lastAtividadeAt: now } : {}),
+      },
     });
   }
 
@@ -507,6 +489,8 @@ export class LeadMonitoramentoService {
           prazoDueAt: novoDue,
           alertaProximoAt: alertaAt,
           prazoAdiado: true,
+          lastMovementAt: new Date(),
+          lastTriagemAt: new Date(),
         },
       }),
       this.prisma.leadPrazoAdiamento.create({
@@ -534,8 +518,6 @@ export class LeadMonitoramentoService {
         },
       }),
     ]);
-
-    await this.recordMovement(lead.id, 'triagem');
 
     const updated = await this.prisma.lead.findFirstOrThrow({
       where: { id: lead.id },
@@ -1209,23 +1191,26 @@ export class LeadMonitoramentoService {
     const terminal = isEtapaTerminal(etapa?.papel);
     const enteredAt = lead.stageEnteredAt ?? lead.createdAt;
     const lastMovementAt = lead.lastMovementAt ?? lead.createdAt;
-    const computed = this.prazoFieldsForEtapa(
-      this.slaAnchor(
-        enteredAt,
-        lead.lastTriagemAt,
-        lead.lastAtividadeAt,
-        lead.lastTarefaAt,
-        lastMovementAt,
-      ),
-      etapa,
+    const slaStart = this.slaAnchor(
+      enteredAt,
+      lead.lastTriagemAt,
+      lead.lastAtividadeAt,
+      lead.lastTarefaAt,
+      lastMovementAt,
     );
+    const computed = this.prazoFieldsForEtapa(slaStart, etapa);
+    const computedDue = computed.prazoDueAt ?? lead.prazoDueAt;
+    const adiadoDue =
+      lead.prazoAdiado && lead.prazoDueAt ? lead.prazoDueAt : null;
     const dueAt =
-      lead.prazoAdiado && lead.prazoDueAt
-        ? lead.prazoDueAt
-        : (computed.prazoDueAt ?? lead.prazoDueAt);
+      adiadoDue &&
+      computedDue &&
+      adiadoDue.getTime() > computedDue.getTime()
+        ? adiadoDue
+        : computedDue;
     const nearAt =
-      lead.prazoAdiado && lead.alertaProximoAt
-        ? lead.alertaProximoAt
+      dueAt === adiadoDue
+        ? (lead.alertaProximoAt ?? computed.alertaProximoAt)
         : (computed.alertaProximoAt ?? lead.alertaProximoAt);
 
     const permanenciaMs = Math.max(0, now.getTime() - enteredAt.getTime());

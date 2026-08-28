@@ -1032,6 +1032,9 @@ export class LeadsService {
       },
       select: leadSelect,
     });
+    if (!stageChanged) {
+      await this.monitoramento.recordMovement(id, 'edicao');
+    }
     return this.decorateOne(updated, requester);
   }
 
@@ -1585,23 +1588,28 @@ export class LeadsService {
     requester: AuthenticatedUser,
   ): Promise<LeadWithMonitoramento> {
     const tenantId = requireTenantId(requester);
+    const fresh =
+      (await this.prisma.lead.findFirst({
+        where: { id: lead.id, tenantId },
+        select: leadSelect,
+      })) ?? lead;
     const ctx = await this.monitoramento.loadFunilContext(tenantId);
     const decorated = await this.monitoramento.decorateLeadWithTarefas(
-      lead,
+      fresh,
       ctx,
       requester,
     );
     const latest = await this.prisma.documentacao.findFirst({
-      where: { tenantId, leadId: lead.id },
+      where: { tenantId, leadId: fresh.id },
       orderBy: { updatedAt: 'desc' },
       select: { status1: true, status2: true },
     });
     return {
       ...decorated,
       documentacaoStatus1:
-        latest?.status1 ?? lead.documentacoes?.[0]?.status1 ?? null,
+        latest?.status1 ?? fresh.documentacoes?.[0]?.status1 ?? null,
       documentacaoStatus2:
-        latest?.status2 ?? lead.documentacoes?.[0]?.status2 ?? null,
+        latest?.status2 ?? fresh.documentacoes?.[0]?.status2 ?? null,
     };
   }
 }
