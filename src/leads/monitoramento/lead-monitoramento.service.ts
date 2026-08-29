@@ -295,25 +295,27 @@ export class LeadMonitoramentoService {
       },
     });
 
-    for (const lead of leads) {
-      const prazo = this.prazoFieldsForEtapa(
-        this.slaAnchor(
-          lead.stageEnteredAt,
-          lead.lastTriagemAt,
-          lead.lastAtividadeAt,
-          lead.lastTarefaAt,
-          lead.lastMovementAt,
-        ),
-        etapa,
-      );
-      await this.prisma.lead.update({
-        where: { id: lead.id },
-        data: {
-          prazoDueAt: prazo.prazoDueAt,
-          alertaProximoAt: prazo.alertaProximoAt,
-        },
-      });
-    }
+    await Promise.all(
+      leads.map((lead) => {
+        const prazo = this.prazoFieldsForEtapa(
+          this.slaAnchor(
+            lead.stageEnteredAt,
+            lead.lastTriagemAt,
+            lead.lastAtividadeAt,
+            lead.lastTarefaAt,
+            lead.lastMovementAt,
+          ),
+          etapa,
+        );
+        return this.prisma.lead.update({
+          where: { id: lead.id },
+          data: {
+            prazoDueAt: prazo.prazoDueAt,
+            alertaProximoAt: prazo.alertaProximoAt,
+          },
+        });
+      }),
+    );
   }
 
   monitoramentoWhere(

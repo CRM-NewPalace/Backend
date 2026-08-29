@@ -338,7 +338,7 @@ export class FunisService {
     requester: AuthenticatedUser,
   ) {
     const tenantId = requireTenantId(requester);
-    await this.ensureOwned(funilId, tenantId);
+    const owned = await this.ensureOwned(funilId, tenantId);
     const etapa = await this.prisma.funilEtapa.findFirst({
       where: { id: etapaId, funilId },
     });
@@ -416,9 +416,10 @@ export class FunisService {
     });
 
     if (
-      dto.prazoValor !== undefined ||
-      dto.prazoUnidade !== undefined ||
-      dto.alertaAntecedenciaPercent !== undefined
+      owned.tipo === FunilTipo.comercial &&
+      (dto.prazoValor !== undefined ||
+        dto.prazoUnidade !== undefined ||
+        dto.alertaAntecedenciaPercent !== undefined)
     ) {
       await this.monitoramento.recalculateStagePrazos(tenantId, etapa.slug);
     }
