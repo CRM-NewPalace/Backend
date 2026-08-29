@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CatalogType, FunilTipo, Prisma, Role, TenantPlano, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
@@ -46,6 +47,7 @@ import {
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { TenantLogoColorService } from './tenant-logo-color.service';
 import { TenantDemoDataService } from './tenant-demo-data.service';
+import { encryptSecret, metaTokenKey } from '../meta/meta-token.crypto';
 import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
 import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
 
@@ -72,6 +74,9 @@ const metaConnectionSelect = {
   tenantId: true,
   pageId: true,
   pageAccessToken: true,
+  pageName: true,
+  adAccountId: true,
+  adAccountName: true,
   ativo: true,
   createdAt: true,
   updatedAt: true,
@@ -108,6 +113,7 @@ export class TenantsService {
     private readonly prisma: PrismaService,
     private readonly tenantLogoColor: TenantLogoColorService,
     private readonly demoDataService: TenantDemoDataService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -638,7 +644,10 @@ export class TenantsService {
   async createMetaConnection(tenantId: string, dto: CreateMetaConnectionDto) {
     await this.ensureExists(tenantId);
     const pageId = dto.pageId.trim();
-    const pageAccessToken = dto.pageAccessToken.trim();
+    const pageAccessToken = encryptSecret(
+      dto.pageAccessToken.trim(),
+      metaTokenKey(this.config),
+    );
     await this.ensurePageIdAvailable(pageId);
 
     try {
@@ -671,7 +680,12 @@ export class TenantsService {
       where: { id: connectionId },
       data: {
         ...(dto.pageAccessToken !== undefined
-          ? { pageAccessToken: dto.pageAccessToken.trim() }
+          ? {
+              pageAccessToken: encryptSecret(
+                dto.pageAccessToken.trim(),
+                metaTokenKey(this.config),
+              ),
+            }
           : {}),
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },

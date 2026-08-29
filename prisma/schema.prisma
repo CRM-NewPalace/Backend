@@ -198,12 +198,17 @@ model Tenant {
 
 /// Página Meta Lead Ads vinculada a um tenant (roteamento por pageId).
 model TenantMetaConnection {
-  id               String  @id @default(uuid())
-  tenantId         String
-  tenant           Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  pageId           String  @unique
-  pageAccessToken  String
-  ativo            Boolean @default(true)
+  id                String    @id @default(uuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pageId            String    @unique
+  pageAccessToken   String
+  pageName          String?
+  adAccountId       String?
+  adAccountName     String?
+  connectedByUserId String?
+  tokenExpiresAt    DateTime?
+  ativo             Boolean   @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
