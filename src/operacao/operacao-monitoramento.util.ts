@@ -12,9 +12,10 @@ import {
 import type { LeadMonitoramento } from '../leads/monitoramento/lead-monitoramento.types';
 
 export type OperacaoEtapaPrazo = {
-  papel: FunilEtapaPapel | null;
-  prazoValor: number | null;
-  prazoUnidade: PrazoUnidade;
+  id?: string;
+  papel?: FunilEtapaPapel | null;
+  prazoValor?: number | null;
+  prazoUnidade?: PrazoUnidade | null;
   alertaAntecedenciaPercent?: number | null;
 };
 
@@ -46,7 +47,11 @@ export function prazoFieldsForEtapa(
   ) {
     return { prazoDueAt: null, alertaProximoAt: null };
   }
-  const due = addPrazo(enteredAt, etapa.prazoValor, etapa.prazoUnidade);
+  const due = addPrazo(
+    enteredAt,
+    etapa.prazoValor,
+    etapa.prazoUnidade ?? 'horas',
+  );
   return {
     prazoDueAt: due,
     alertaProximoAt: alertaProximoAt(
@@ -188,7 +193,10 @@ export function computeOperacaoMonitoramento(
     prazoDueAt: dueAt ? dueAt.toISOString() : null,
     prazoConfigurado:
       etapa?.prazoValor && !isEtapaTerminal(etapa.papel)
-        ? { valor: etapa.prazoValor, unidade: etapa.prazoUnidade }
+        ? {
+            valor: etapa.prazoValor,
+            unidade: etapa.prazoUnidade ?? 'horas',
+          }
         : null,
     prazoAdiado: Boolean(input.prazoAdiado),
     lastMovementAt: lastMovementAt.toISOString(),
