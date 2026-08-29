@@ -166,12 +166,12 @@ export class LeadMonitoramentoService {
 
     const funil =
       (await this.prisma.funil.findFirst({
-        where: { tenantId, ativo: true },
+        where: { tenantId, tipo: 'comercial', ativo: true },
         orderBy: { updatedAt: 'desc' },
         select: funilSelect,
       })) ??
       (await this.prisma.funil.findFirst({
-        where: { tenantId },
+        where: { tenantId, tipo: 'comercial' },
         orderBy: { updatedAt: 'desc' },
         select: funilSelect,
       }));
@@ -295,25 +295,27 @@ export class LeadMonitoramentoService {
       },
     });
 
-    for (const lead of leads) {
-      const prazo = this.prazoFieldsForEtapa(
-        this.slaAnchor(
-          lead.stageEnteredAt,
-          lead.lastTriagemAt,
-          lead.lastAtividadeAt,
-          lead.lastTarefaAt,
-          lead.lastMovementAt,
-        ),
-        etapa,
-      );
-      await this.prisma.lead.update({
-        where: { id: lead.id },
-        data: {
-          prazoDueAt: prazo.prazoDueAt,
-          alertaProximoAt: prazo.alertaProximoAt,
-        },
-      });
-    }
+    await Promise.all(
+      leads.map((lead) => {
+        const prazo = this.prazoFieldsForEtapa(
+          this.slaAnchor(
+            lead.stageEnteredAt,
+            lead.lastTriagemAt,
+            lead.lastAtividadeAt,
+            lead.lastTarefaAt,
+            lead.lastMovementAt,
+          ),
+          etapa,
+        );
+        return this.prisma.lead.update({
+          where: { id: lead.id },
+          data: {
+            prazoDueAt: prazo.prazoDueAt,
+            alertaProximoAt: prazo.alertaProximoAt,
+          },
+        });
+      }),
+    );
   }
 
   monitoramentoWhere(

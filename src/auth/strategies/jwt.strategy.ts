@@ -8,6 +8,7 @@ import { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { COOKIE } from '../../common/utils/auth-cookies';
 import type { UserPermissions } from '../../common/utils/user-permissions';
 import { sanitizeUserPermissions } from '../../common/utils/user-permissions';
+import { applyPlanoModules } from '../../tenants/tenant-plan';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface JwtPayload {
@@ -56,6 +57,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (!payload?.sub) {
       throw new UnauthorizedException('Token inválido.');
     }
+    if ((payload as { kind?: string }).kind === 'portal_proprietario') {
+      throw new UnauthorizedException('Sessão inválida.');
+    }
 
     const row = await this.prisma.user.findUnique({
       where: { id: payload.sub },
@@ -71,6 +75,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         financeiroCanEdit: true,
         financeiroCanDelete: true,
         permissions: true,
+        tenant: { select: { plano: true, modules: true } },
       },
     });
 
@@ -91,6 +96,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         delete: row.financeiroCanDelete !== false,
       },
       permissions: sanitizeUserPermissions(row.permissions),
+      tenantModules: row.tenant
+        ? applyPlanoModules(row.tenant.plano, row.tenant.modules)
+        : null,
     };
   }
 }

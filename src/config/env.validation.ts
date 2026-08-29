@@ -82,6 +82,22 @@ export function validateEnv(config: Record<string, unknown>) {
     }
   }
 
+  const metaOauthPartial = Boolean(
+    config.META_APP_ID ||
+      config.META_OAUTH_REDIRECT_URI ||
+      config.META_OAUTH_REDIRECT_URIS,
+  );
+  if (metaOauthPartial && !config.META_APP_ID) {
+    errors.push(
+      'META_APP_ID é obrigatório quando META_OAUTH_REDIRECT_URI(S) está definido.',
+    );
+  }
+  if (metaOauthPartial && !config.META_APP_SECRET) {
+    errors.push(
+      'META_APP_SECRET é obrigatório quando o OAuth Meta está parcialmente configurado.',
+    );
+  }
+
   const cloudinaryName = String(config.CLOUDINARY_CLOUD_NAME ?? '').trim();
   const cloudinaryKey = String(config.CLOUDINARY_API_KEY ?? '').trim();
   const cloudinarySecret = String(config.CLOUDINARY_API_SECRET ?? '').trim();

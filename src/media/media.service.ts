@@ -138,7 +138,7 @@ export class MediaService {
 
   folder(
     tenantId: string,
-    kind: 'empreendimentos' | 'construtoras' | 'avatars',
+    kind: 'empreendimentos' | 'construtoras' | 'avatars' | 'imoveis',
     id: string,
   ) {
     return `crm/${tenantId}/${kind}/${id}`;

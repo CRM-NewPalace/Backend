@@ -16,6 +16,21 @@ describe('permissões por usuário', () => {
     assert.equal(defaultsFromRole(Role.analista).modules.dashboard, false);
   });
 
+  it('captação, imóveis usados e locação ficam desligados por padrão (fundação)', () => {
+    assert.equal(defaultsFromRole(Role.admin).modules.captacao, false);
+    assert.equal(defaultsFromRole(Role.admin).modules.imoveisUsados, false);
+    assert.equal(defaultsFromRole(Role.admin).modules.locacao, false);
+    assert.equal(hasUserModule(Role.corretor, null, 'imoveisUsados'), false);
+    assert.equal(
+      hasUserModule(
+        Role.corretor,
+        { modules: { imoveisUsados: true }, actions: {} },
+        'imoveisUsados',
+      ),
+      true,
+    );
+  });
+
   it('analista vê dashboard quando o módulo é concedido', () => {
     const stored = {
       modules: { dashboard: true },
@@ -49,10 +64,12 @@ describe('permissões por usuário', () => {
       'comissao',
       'financeiro',
     ]);
-    assert.deepEqual(modulesForApiPath('/documentacao'), [
-      'documentacao',
-      'vendas',
+    assert.deepEqual(modulesForApiPath('/captacao/proprietarios'), ['captacao']);
+    assert.deepEqual(modulesForApiPath('/imoveis-usados'), ['imoveisUsados']);
+    assert.deepEqual(modulesForApiPath('/imoveis-usados/interessados'), [
+      'imoveisUsados',
     ]);
+    assert.deepEqual(modulesForApiPath('/portal-proprietario/imoveis'), []);
   });
 
   it('não libera escrita sensível só com módulo', () => {

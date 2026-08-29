@@ -21,7 +21,6 @@ import { CreateMetaConnectionDto } from './dto/create-meta-connection.dto';
 import { UpdateMetaConnectionDto } from './dto/update-meta-connection.dto';
 import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
-import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
 import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
 import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
 
@@ -43,14 +42,6 @@ export class TenantsController {
   @Post()
   create(@Body() dto: CreateTenantDto) {
     return this.tenantsService.create(dto);
-  }
-
-  @Post(':id/duplicate')
-  duplicate(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: DuplicateTenantDto = {},
-  ) {
-    return this.tenantsService.duplicate(id, dto ?? {});
   }
 
   /** Popula o tenant com dados fictícios variados (demonstração). */

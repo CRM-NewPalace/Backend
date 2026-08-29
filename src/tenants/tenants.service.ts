@@ -5,7 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CatalogType, Prisma, Role, TenantPlano, UserStatus } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { CatalogType, FunilTipo, Prisma, Role, TenantPlano, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,11 +24,21 @@ import {
 } from '../common/utils/tenant-branding';
 import { publicUserSelect } from '../common/utils/user-select';
 import { SALT_ROUNDS } from '../config/security.constants';
-import { DEFAULT_FUNNEL_STAGES } from '../catalog/catalog.defaults';
+import {
+  DEFAULT_FUNIL_NAME,
+  DEFAULT_FUNNEL_STAGES,
+  funilEtapasCreateData,
+} from '../catalog/catalog.defaults';
 import {
   PLANO_MAX_USUARIOS,
+  applyPlanoModules,
   resolvePlanoFields,
 } from './tenant-plan';
+import {
+  mergeOperationModules,
+  pickOperationModules,
+} from './tenant-operation.util';
+import { UpdateTenantOperationModulesDto } from './dto/update-tenant-operation-modules.dto';
 import { CreateTenantUserDto } from './dto/create-tenant-user.dto';
 import {
   PLATFORM_TENANT_ID,
@@ -35,10 +46,9 @@ import {
 } from '../common/utils/tenant';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { TenantLogoColorService } from './tenant-logo-color.service';
-import { TenantCloneService } from './tenant-clone.service';
 import { TenantDemoDataService } from './tenant-demo-data.service';
+import { encryptSecret, metaTokenKey } from '../meta/meta-token.crypto';
 import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
-import { DuplicateTenantDto } from './dto/duplicate-tenant.dto';
 import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
 
 const tenantSelect = tenantAdminSelect;
@@ -64,6 +74,9 @@ const metaConnectionSelect = {
   tenantId: true,
   pageId: true,
   pageAccessToken: true,
+  pageName: true,
+  adAccountId: true,
+  adAccountName: true,
   ativo: true,
   createdAt: true,
   updatedAt: true,
@@ -99,8 +112,8 @@ export class TenantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantLogoColor: TenantLogoColorService,
-    private readonly cloneService: TenantCloneService,
     private readonly demoDataService: TenantDemoDataService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -429,16 +442,6 @@ export class TenantsService {
   }
 
   /**
-   * Cria um tenant novo e independente com cópia dos dados operacionais.
-   * Não reutiliza IDs, conexões Meta/OZap nem contratos da plataforma.
-   */
-  async duplicate(id: string, dto: DuplicateTenantDto = {}) {
-    const created = await this.cloneService.duplicate(id, dto);
-    const tenant = await this.findOne(created.id);
-    return { ...tenant, copied: created.copied };
-  }
-
-  /**
    * Remove o tenant e todos os dados vinculados (cascade).
    * Equipes são apagadas antes por causa do FK Restrict em gerenteId → User.
    */
@@ -641,7 +644,10 @@ export class TenantsService {
   async createMetaConnection(tenantId: string, dto: CreateMetaConnectionDto) {
     await this.ensureExists(tenantId);
     const pageId = dto.pageId.trim();
-    const pageAccessToken = dto.pageAccessToken.trim();
+    const pageAccessToken = encryptSecret(
+      dto.pageAccessToken.trim(),
+      metaTokenKey(this.config),
+    );
     await this.ensurePageIdAvailable(pageId);
 
     try {
@@ -674,7 +680,12 @@ export class TenantsService {
       where: { id: connectionId },
       data: {
         ...(dto.pageAccessToken !== undefined
-          ? { pageAccessToken: dto.pageAccessToken.trim() }
+          ? {
+              pageAccessToken: encryptSecret(
+                dto.pageAccessToken.trim(),
+                metaTokenKey(this.config),
+              ),
+            }
           : {}),
         ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
       },
@@ -781,6 +792,7 @@ export class TenantsService {
         data: {
           tenantId,
           name: 'Funil padrão',
+          tipo: FunilTipo.comercial,
           ativo: true,
           etapas: {
             create: DEFAULT_FUNNEL_STAGES.map((stage) => ({
@@ -791,6 +803,28 @@ export class TenantsService {
               active: true,
             })),
           },
+        },
+      });
+    }
+
+    for (const tipo of [FunilTipo.captacao, FunilTipo.venda_usados] as const) {
+      const exists = await tx.funil.findFirst({
+        where: { tenantId, tipo },
+        select: { id: true },
+      });
+      if (exists) continue;
+      const baseName = DEFAULT_FUNIL_NAME[tipo];
+      const clash = await tx.funil.findUnique({
+        where: { tenantId_name: { tenantId, name: baseName } },
+        select: { id: true },
+      });
+      await tx.funil.create({
+        data: {
+          tenantId,
+          name: clash ? `${baseName} (padrão)` : baseName,
+          tipo,
+          ativo: true,
+          etapas: { create: funilEtapasCreateData(tipo) },
         },
       });
     }
@@ -903,6 +937,54 @@ export class TenantsService {
       },
       select: tenantBrandingSelect,
     });
+  }
+
+  async getOperationModules(requester: AuthenticatedUser) {
+    const tenantId = requireTenantId(requester);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plano: true, modules: true },
+    });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+    const modules = applyPlanoModules(tenant.plano, tenant.modules);
+    return { modules, operations: pickOperationModules(modules) };
+  }
+
+  async updateOperationModules(
+    requester: AuthenticatedUser,
+    dto: UpdateTenantOperationModulesDto,
+  ) {
+    if (requester.role !== Role.admin) {
+      throw new ForbiddenException(
+        'Somente o administrador pode alterar as operações da imobiliária.',
+      );
+    }
+    const tenantId = requireTenantId(requester);
+    if (tenantId === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser alterado por aqui.',
+      );
+    }
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plano: true, modules: true },
+    });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado.');
+
+    const current = applyPlanoModules(tenant.plano, tenant.modules);
+    const merged = mergeOperationModules(current, {
+      captacao: dto.captacao,
+      imoveisUsados: dto.imoveisUsados,
+      locacao: dto.locacao,
+    });
+    const modules = applyPlanoModules(tenant.plano, merged);
+
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { modules: modules as Prisma.InputJsonValue },
+    });
+
+    return { modules, operations: pickOperationModules(modules) };
   }
 
   /** Mantém só dígitos do CPF/CNPJ (até 14). */

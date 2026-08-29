@@ -11,6 +11,7 @@ import {
   extractLeadgenEvents,
   type LeadgenEvent,
 } from './meta-webhook.parser';
+import { decryptPageAccessToken, metaTokenKey } from './meta-token.crypto';
 
 type TenantMetaConn = {
   tenantId: string;
@@ -101,7 +102,10 @@ export class MetaService {
 
     const totals = { created: 0, skipped: 0, failed: 0 };
     for (const connection of connections) {
-      const result = await this.syncConnection(connection);
+      const result = await this.syncConnection({
+        ...connection,
+        pageAccessToken: this.decryptToken(connection.pageAccessToken),
+      });
       totals.created += result.created;
       totals.skipped += result.skipped;
       totals.failed += result.failed;
@@ -249,7 +253,7 @@ export class MetaService {
         this.logger.log(
           `Teste dummy da Meta roteado para a única Página ativa page_id=${actives[0].pageId} tenantId=${actives[0].tenantId}`,
         );
-        return actives[0];
+        return this.withDecryptedToken(actives[0]);
       }
       this.logger.warn(
         'Ignorando leadgen dummy (444444444444): defina META_PAGE_ID ou mantenha só uma Página Meta ativa no CRM.',
@@ -263,7 +267,7 @@ export class MetaService {
       where: { pageId, ativo: true },
       select: { tenantId: true, pageAccessToken: true },
     });
-    if (active) return active;
+    if (active) return this.withDecryptedToken(active);
 
     const inactive = await this.prisma.tenantMetaConnection.findFirst({
       where: { pageId },
@@ -574,5 +578,13 @@ export class MetaService {
         value.toLowerCase().includes('<test lead:'),
       ),
     );
+  }
+
+  private decryptToken(stored: string) {
+    return decryptPageAccessToken(stored, metaTokenKey(this.config));
+  }
+
+  private withDecryptedToken<T extends { pageAccessToken: string }>(row: T): T {
+    return { ...row, pageAccessToken: this.decryptToken(row.pageAccessToken) };
   }
 }

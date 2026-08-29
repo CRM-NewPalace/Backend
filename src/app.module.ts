@@ -17,6 +17,9 @@ import { NotificacoesModule } from './notificacoes/notificacoes.module';
 import { AgendaModule } from './agenda/agenda.module';
 import { GoogleCalendarModule } from './google-calendar/google-calendar.module';
 import { TenantsModule } from './tenants/tenants.module';
+import { CaptacaoModule } from './captacao/captacao.module';
+import { ImoveisUsadosModule } from './imoveis-usados/imoveis-usados.module';
+import { PortalProprietarioModule } from './portal-proprietario/portal-proprietario.module';
 import { ConstrutorasModule } from './construtoras/construtoras.module';
 import { ContratosModule } from './contratos/contratos.module';
 import { LocalidadesModule } from './localidades/localidades.module';
@@ -68,6 +71,9 @@ import { THROTTLE } from './config/security.constants';
     AgendaModule,
     GoogleCalendarModule,
     TenantsModule,
+    CaptacaoModule,
+    ImoveisUsadosModule,
+    PortalProprietarioModule,
   ],
   controllers: [AppController],
   providers: [
