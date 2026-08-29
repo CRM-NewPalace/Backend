@@ -52,6 +52,11 @@ import {
   QueryCaptacoesDto,
   UpdateCaptacaoDto,
 } from './dto/captacao.dto';
+import {
+  computeOperacaoMonitoramento,
+  followUpTiming,
+  stageChangeTiming,
+} from '../operacao/operacao-monitoramento.util';
 
 const SEM_FUNIL =
   'Não existe um funil de Captação ativo para este Tenant.';
@@ -89,7 +94,16 @@ const captacaoInclude = {
   },
   imovel: true,
   responsavel: { select: { id: true, name: true, email: true } },
-  funil: { select: { id: true, name: true, tipo: true, ativo: true } },
+  funil: {
+    select: {
+      id: true,
+      name: true,
+      tipo: true,
+      ativo: true,
+      inatividadeValor: true,
+      inatividadeUnidade: true,
+    },
+  },
   funilEtapa: {
     select: {
       id: true,
@@ -99,6 +113,9 @@ const captacaoInclude = {
       sortOrder: true,
       papel: true,
       active: true,
+      prazoValor: true,
+      prazoUnidade: true,
+      alertaAntecedenciaPercent: true,
     },
   },
 } as const;
@@ -530,6 +547,7 @@ export class CaptacaoService {
           valorAvaliacao: dto.valorAvaliacao,
           funilId: funil.id,
           funilEtapaId: etapa.id,
+          ...stageChangeTiming(new Date(), etapa),
         },
         include: captacaoInclude,
       });
@@ -638,6 +656,19 @@ export class CaptacaoService {
       });
     }
 
+    const etapaChanged = Boolean(
+      dto.funilEtapaId && dto.funilEtapaId !== current.funilEtapaId,
+    );
+    const nextEtapa =
+      current.funil.etapas.find((e) => e.id === nextEtapaId) ??
+      current.funilEtapa;
+    const now = new Date();
+    const timing = etapaChanged
+      ? stageChangeTiming(now, nextEtapa)
+      : historicos.length
+        ? followUpTiming(now, nextEtapa)
+        : {};
+
     await this.prisma.$transaction(async (tx) => {
       await tx.captacao.update({
         where: { id },
@@ -654,6 +685,7 @@ export class CaptacaoService {
             ? { valorAvaliacao: dto.valorAvaliacao }
             : {}),
           funilEtapaId: nextEtapaId,
+          ...timing,
         },
       });
       if (historicos.length) {
@@ -921,6 +953,20 @@ export class CaptacaoService {
     [key: string]: unknown;
   }) {
     const { fotoPublicId: _fotoPublicId, ...imovelRest } = item.imovel;
+    const funil = item.funil as
+      | {
+          inatividadeValor?: number;
+          inatividadeUnidade?: 'minutos' | 'horas' | 'dias';
+        }
+      | undefined;
+    const etapa = item.funilEtapa as
+      | {
+          papel: 'inicial' | 'analise' | 'venda' | 'perdido' | null;
+          prazoValor: number | null;
+          prazoUnidade: 'minutos' | 'horas' | 'dias';
+          alertaAntecedenciaPercent?: number | null;
+        }
+      | undefined;
     return {
       ...item,
       valorPretendido: toMoneyNumber(item.valorPretendido as never),
@@ -931,6 +977,20 @@ export class CaptacaoService {
         areaConstruida: toMoneyNumber(item.imovel.areaConstruida as never),
         titulo: imovelTitulo(item.imovel),
       },
+      monitoramento: computeOperacaoMonitoramento({
+        createdAt: item.createdAt as Date,
+        stageEnteredAt: item.stageEnteredAt as Date | undefined,
+        lastStageChangeAt: item.lastStageChangeAt as Date | undefined,
+        lastMovementAt: item.lastMovementAt as Date | undefined,
+        lastHistoricoAt: item.lastHistoricoAt as Date | null | undefined,
+        prazoDueAt: item.prazoDueAt as Date | null | undefined,
+        alertaProximoAt: item.alertaProximoAt as Date | null | undefined,
+        prazoAdiado: item.prazoAdiado as boolean | undefined,
+        etapa: etapa ?? null,
+        inatividadeValor: funil?.inatividadeValor,
+        inatividadeUnidade: funil?.inatividadeUnidade,
+        idleTitle: 'Captação sem movimentação',
+      }),
     };
   }
 }

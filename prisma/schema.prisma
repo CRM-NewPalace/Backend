@@ -1470,6 +1470,14 @@ model Captacao {
   funilEtapaId     String
   funilEtapa       FunilEtapa @relation(fields: [funilEtapaId], references: [id], onDelete: Restrict)
 
+  stageEnteredAt    DateTime @default(now())
+  lastStageChangeAt DateTime @default(now())
+  lastMovementAt    DateTime @default(now())
+  lastHistoricoAt   DateTime?
+  prazoDueAt        DateTime?
+  alertaProximoAt   DateTime?
+  prazoAdiado       Boolean  @default(false)
+
   historicos CaptacaoHistorico[]
 
   createdAt DateTime @default(now())
@@ -1481,6 +1489,8 @@ model Captacao {
   @@index([tenantId, responsavelId])
   @@index([tenantId, funilEtapaId])
   @@index([tenantId, createdAt])
+  @@index([tenantId, lastMovementAt])
+  @@index([tenantId, prazoDueAt])
   @@map("captacoes")
 }
 
@@ -1680,6 +1690,14 @@ model VendaUsado {
   dataDisponibilizacao DateTime         @default(now())
   observacoes          String           @default("")
 
+  stageEnteredAt    DateTime @default(now())
+  lastStageChangeAt DateTime @default(now())
+  lastMovementAt    DateTime @default(now())
+  lastHistoricoAt   DateTime?
+  prazoDueAt        DateTime?
+  alertaProximoAt   DateTime?
+  prazoAdiado       Boolean  @default(false)
+
   vinculos   VendaUsadoVinculo[]
   historicos VendaUsadoHistorico[]
   visitas    VendaUsadoVisita[]
@@ -1695,6 +1713,8 @@ model VendaUsado {
   @@index([tenantId, status])
   @@index([tenantId, responsavelId])
   @@index([tenantId, funilEtapaId])
+  @@index([tenantId, lastMovementAt])
+  @@index([tenantId, prazoDueAt])
   @@map("vendas_usado")
 }
 

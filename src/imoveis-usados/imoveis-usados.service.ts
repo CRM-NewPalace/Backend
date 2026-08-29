@@ -48,6 +48,11 @@ import {
   INTERESSE_STATUS_LABEL,
   VENDA_STATUS_LABEL,
 } from './venda-usado.matching';
+import {
+  computeOperacaoMonitoramento,
+  followUpTiming,
+  stageChangeTiming,
+} from '../operacao/operacao-monitoramento.util';
 
 const SEM_FUNIL =
   'Não existe um funil de Venda de Usados ativo para este Tenant.';
@@ -55,9 +60,26 @@ const SEM_FUNIL =
 const vendaInclude = {
   imovel: { include: { proprietario: { select: { id: true, nome: true, telefone: true } } } },
   responsavel: { select: { id: true, name: true, email: true } },
-  funil: { select: { id: true, name: true, tipo: true } },
+  funil: {
+    select: {
+      id: true,
+      name: true,
+      tipo: true,
+      inatividadeValor: true,
+      inatividadeUnidade: true,
+    },
+  },
   funilEtapa: {
-    select: { id: true, label: true, slug: true, color: true, papel: true },
+    select: {
+      id: true,
+      label: true,
+      slug: true,
+      color: true,
+      papel: true,
+      prazoValor: true,
+      prazoUnidade: true,
+      alertaAntecedenciaPercent: true,
+    },
   },
   _count: { select: { vinculos: true } },
 } as const;
@@ -453,6 +475,7 @@ export class ImoveisUsadosService {
           funilId: funil.id,
           funilEtapaId: etapa.id,
           precoVenda: preco,
+          ...stageChangeTiming(new Date(), etapa),
           observacoes: dto.observacoes?.trim() ?? '',
         },
       });
@@ -529,6 +552,19 @@ export class ImoveisUsadosService {
       });
     }
 
+    const etapaChanged = Boolean(
+      dto.funilEtapaId && dto.funilEtapaId !== current.funilEtapaId,
+    );
+    const nextEtapa =
+      current.funil.etapas.find((e) => e.id === nextEtapaId) ??
+      current.funilEtapa;
+    const now = new Date();
+    const timing = etapaChanged
+      ? stageChangeTiming(now, nextEtapa)
+      : historicos.length
+        ? followUpTiming(now, nextEtapa)
+        : {};
+
     await this.prisma.$transaction(async (tx) => {
       await tx.vendaUsado.update({
         where: { id },
@@ -540,6 +576,7 @@ export class ImoveisUsadosService {
             ? { observacoes: dto.observacoes.trim() }
             : {}),
           funilEtapaId: nextEtapaId,
+          ...timing,
         },
       });
       if (historicos.length) {
@@ -870,6 +907,20 @@ export class ImoveisUsadosService {
     vinculos?: Array<{ interessado: Record<string, unknown> & { precoMin: unknown; precoMax: unknown; areaMin: unknown } }>;
     [key: string]: unknown;
   }) {
+    const funil = item.funil as
+      | {
+          inatividadeValor?: number;
+          inatividadeUnidade?: 'minutos' | 'horas' | 'dias';
+        }
+      | undefined;
+    const etapa = item.funilEtapa as
+      | {
+          papel: 'inicial' | 'analise' | 'venda' | 'perdido' | null;
+          prazoValor: number | null;
+          prazoUnidade: 'minutos' | 'horas' | 'dias';
+          alertaAntecedenciaPercent?: number | null;
+        }
+      | undefined;
     return {
       ...item,
       precoVenda: toMoneyNumber(item.precoVenda as never),
@@ -878,6 +929,20 @@ export class ImoveisUsadosService {
         ...v,
         interessado: this.exposeInteressado(v.interessado),
       })),
+      monitoramento: computeOperacaoMonitoramento({
+        createdAt: item.createdAt as Date,
+        stageEnteredAt: item.stageEnteredAt as Date | undefined,
+        lastStageChangeAt: item.lastStageChangeAt as Date | undefined,
+        lastMovementAt: item.lastMovementAt as Date | undefined,
+        lastHistoricoAt: item.lastHistoricoAt as Date | null | undefined,
+        prazoDueAt: item.prazoDueAt as Date | null | undefined,
+        alertaProximoAt: item.alertaProximoAt as Date | null | undefined,
+        prazoAdiado: item.prazoAdiado as boolean | undefined,
+        etapa: etapa ?? null,
+        inatividadeValor: funil?.inatividadeValor,
+        inatividadeUnidade: funil?.inatividadeUnidade,
+        idleTitle: 'Venda sem movimentação',
+      }),
     };
   }
 }
