@@ -23,6 +23,7 @@ import {
   metaOAuthConfigured,
   parseMetaAllowedRedirectUris,
   pickMetaRedirectUri,
+  resolveMetaAppId,
 } from './meta-oauth.util';
 
 const SCOPES = [
@@ -354,6 +355,6 @@ export class MetaOAuthService {
   }
 
   private appId() {
-    return this.config.get<string>('META_APP_ID')!.trim();
+    return resolveMetaAppId(this.config);
   }
 }
