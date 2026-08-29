@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { resolveMetaAppId } from './meta-oauth.util';
 
 export type MetaLeadField = {
   name: string;
@@ -243,11 +244,7 @@ export class MetaGraphApiService {
   }
 
   private appId() {
-    const value = this.config.get<string>('META_APP_ID')?.trim();
-    if (!value) {
-      throw new ServiceUnavailableException('META_APP_ID não configurado.');
-    }
-    return value;
+    return resolveMetaAppId(this.config);
   }
 
   private appSecret() {
