@@ -92,11 +92,19 @@ export class OruloSyncService implements OnModuleInit {
         await this.upsertBuilding(connection.tenantId, token, buildingId, true);
       }
 
-      if (full || connection.lastReconcileAt) {
-        const after = this.updatedAfter(connection.lastReconcileAt);
-        const removedIds = await this.collectRemovedIds(token, after);
-        for (const buildingId of removedIds) {
-          await this.softRemove(connection.tenantId, buildingId);
+      if (connection.lastReconcileAt) {
+        try {
+          const after = this.updatedAfter(connection.lastReconcileAt);
+          const removedIds = await this.collectRemovedIds(token, after);
+          for (const buildingId of removedIds) {
+            await this.softRemove(connection.tenantId, buildingId);
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Órulo ids/removed ignorado: ${
+              error instanceof Error ? error.message : error
+            }`,
+          );
         }
       }
 
@@ -339,8 +347,14 @@ export class OruloSyncService implements OnModuleInit {
     const now = Date.now();
     const maxWindow = 89 * 24 * 60 * 60 * 1000;
     const from = last?.getTime() ?? now - 7 * 24 * 60 * 60 * 1000;
-    const safe = Math.max(from, now - maxWindow);
-    return new Date(safe).toISOString();
+    const safe = new Date(Math.max(from, now - maxWindow));
+    const dd = String(safe.getUTCDate()).padStart(2, '0');
+    const mm = String(safe.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = safe.getUTCFullYear();
+    const hh = String(safe.getUTCHours()).padStart(2, '0');
+    const min = String(safe.getUTCMinutes()).padStart(2, '0');
+    const ss = String(safe.getUTCSeconds()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${min}:${ss}`;
   }
 
   private async connectionsForEvent(clientId?: string) {
