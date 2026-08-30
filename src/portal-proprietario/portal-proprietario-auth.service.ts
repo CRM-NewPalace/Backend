@@ -278,7 +278,10 @@ export class PortalProprietarioAuthService {
       }
       let senha = dto.senha?.trim();
       let senhaTemporaria: string | undefined;
-      if (!senha && !proprietario.portalAcesso) {
+      if (dto.gerarSenhaTemporaria) {
+        senhaTemporaria = this.generateTempPassword();
+        senha = senhaTemporaria;
+      } else if (!senha && !proprietario.portalAcesso) {
         senhaTemporaria = this.generateTempPassword();
         senha = senhaTemporaria;
       }

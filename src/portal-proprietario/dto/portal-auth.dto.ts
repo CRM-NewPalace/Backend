@@ -65,4 +65,9 @@ export class UpdateProprietarioPortalDto {
   @MaxLength(72)
   @Matches(PASSWORD_REGEX, { message: PASSWORD_RULE_MESSAGE })
   senha?: string;
+
+  /** Gera e devolve uma senha temporária (só nesta resposta). */
+  @IsOptional()
+  @IsBoolean()
+  gerarSenhaTemporaria?: boolean;
 }
