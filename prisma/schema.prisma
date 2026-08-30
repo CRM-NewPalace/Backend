@@ -1395,6 +1395,7 @@ model ProprietarioPortalAcesso {
   hashedRefreshToken   String?
   status               ProprietarioPortalStatus @default(inativo)
   lastLoginAt          DateTime?
+  novidadesLidasAt     DateTime?
   passwordResetToken   String?
   passwordResetExpires DateTime?
 

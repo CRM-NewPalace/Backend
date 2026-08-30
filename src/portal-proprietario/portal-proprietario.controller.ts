@@ -69,6 +69,11 @@ export class PortalProprietarioController {
     return this.imoveis.listNovidades(session);
   }
 
+  @Post('novidades/lidas')
+  marcarNovidadesLidas(@CurrentPortal() session: PortalProprietarioSession) {
+    return this.imoveis.marcarNovidadesLidas(session);
+  }
+
   @Patch('imoveis/:id')
   update(
     @Param('id', ParseUUIDPipe) id: string,

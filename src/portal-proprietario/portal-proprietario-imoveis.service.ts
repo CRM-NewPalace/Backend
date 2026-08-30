@@ -395,7 +395,23 @@ export class PortalProprietarioImoveisService {
       }
     }
     eventos.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    return eventos.slice(0, 30);
+    const acesso = await this.prisma.proprietarioPortalAcesso.findUnique({
+      where: { id: session.acessoId },
+      select: { novidadesLidasAt: true },
+    });
+    const lidasAt = acesso?.novidadesLidasAt?.getTime() ?? 0;
+    return eventos.slice(0, 30).map((item) => ({
+      ...item,
+      lida: item.createdAt.getTime() <= lidasAt,
+    }));
+  }
+
+  async marcarNovidadesLidas(session: PortalProprietarioSession) {
+    await this.prisma.proprietarioPortalAcesso.update({
+      where: { id: session.acessoId },
+      data: { novidadesLidasAt: new Date() },
+    });
+    return this.listNovidades(session);
   }
 
   async registrarAcao(
