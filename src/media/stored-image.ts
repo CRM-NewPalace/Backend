@@ -29,12 +29,18 @@ export function serializeStoredImages(
   return images.map(({ url, publicId }) => ({ url, publicId }));
 }
 
-export function resolveEmpreendimentoImages(row: {
-  imagens: Prisma.JsonValue;
-  imagemUrl: string | null;
-}): StoredImage[] {
+export function resolveEmpreendimentoImages(
+  row: {
+    imagens: Prisma.JsonValue;
+    imagemUrl: string | null;
+    oruloBuildingId?: number | null;
+  },
+  maxImages = EMPREENDIMENTO_MAX_IMAGES,
+): StoredImage[] {
+  const cap =
+    row.oruloBuildingId != null ? Math.max(maxImages, 40) : maxImages;
   const stored = parseStoredImages(row.imagens);
-  if (stored.length > 0) return stored.slice(0, EMPREENDIMENTO_MAX_IMAGES);
+  if (stored.length > 0) return stored.slice(0, cap);
   const fallback = row.imagemUrl?.trim();
   return fallback ? [{ url: fallback, publicId: '' }] : [];
 }
