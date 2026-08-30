@@ -26,6 +26,11 @@ import {
 } from './portal-proprietario.mappers';
 import type { PortalProprietarioSession } from './portal-proprietario.types';
 
+const TEXTO_PORTAL_ACAO = {
+  vi_e_concordo: 'O proprietário registrou: vi e concordo.',
+  quero_falar: 'O proprietário pediu para falar com o corretor.',
+} as const;
+
 const PROPOSTAS_VISIVEIS: VendaUsadoPropostaStatus[] = [
   VendaUsadoPropostaStatus.enviada,
   VendaUsadoPropostaStatus.em_analise,
@@ -324,12 +329,20 @@ export class PortalProprietarioImoveisService {
     tipo: 'vi_e_concordo' | 'quero_falar',
   ) {
     const row = await this.requireImovel(imovelId, session);
-    const texto =
-      tipo === 'vi_e_concordo'
-        ? 'O proprietário registrou: vi e concordo.'
-        : 'O proprietário pediu para falar com o corretor.';
+    const texto = TEXTO_PORTAL_ACAO[tipo];
     const captacao = row.captacoes[0];
     if (captacao) {
+      const jaTem = await this.prisma.captacaoHistorico.findFirst({
+        where: {
+          captacaoId: captacao.id,
+          tipo: CaptacaoHistoricoTipo.portal_acao,
+          texto,
+        },
+        select: { id: true },
+      });
+      if (jaTem) {
+        return { ok: true, texto, jaRegistrado: true };
+      }
       await this.prisma.captacaoHistorico.create({
         data: {
           tenantId: session.tenantId,
@@ -339,6 +352,17 @@ export class PortalProprietarioImoveisService {
         },
       });
     } else if (row.vendaUsado) {
+      const jaTem = await this.prisma.vendaUsadoHistorico.findFirst({
+        where: {
+          vendaUsadoId: row.vendaUsado.id,
+          tipo: VendaUsadoHistoricoTipo.portal_acao,
+          texto,
+        },
+        select: { id: true },
+      });
+      if (jaTem) {
+        return { ok: true, texto, jaRegistrado: true };
+      }
       await this.prisma.vendaUsadoHistorico.create({
         data: {
           tenantId: session.tenantId,
@@ -352,7 +376,7 @@ export class PortalProprietarioImoveisService {
         'Não há operação em andamento para registrar esta ação.',
       );
     }
-    return { ok: true, texto };
+    return { ok: true, texto, jaRegistrado: false };
   }
 
   async listImoveis(session: PortalProprietarioSession) {
@@ -465,6 +489,7 @@ export class PortalProprietarioImoveisService {
             interessadosResumo: this.resumoInteresse(venda.vinculos),
           }
         : null,
+      acoes: await this.acoesPortalRegistradas(row, session.tenantId),
     };
   }
 
@@ -892,6 +917,41 @@ export class PortalProprietarioImoveisService {
       resumo[item.interesse] = (resumo[item.interesse] ?? 0) + 1;
     }
     return resumo;
+  }
+
+  private async acoesPortalRegistradas(
+    row: { captacoes: Array<{ id: string }>; vendaUsado: { id: string } | null },
+    tenantId: string,
+  ) {
+    const textos: string[] = [];
+    const captacao = row.captacoes[0];
+    if (captacao) {
+      const items = await this.prisma.captacaoHistorico.findMany({
+        where: {
+          captacaoId: captacao.id,
+          tenantId,
+          tipo: CaptacaoHistoricoTipo.portal_acao,
+          texto: { in: Object.values(TEXTO_PORTAL_ACAO) },
+        },
+        select: { texto: true },
+      });
+      textos.push(...items.map((item) => item.texto));
+    } else if (row.vendaUsado) {
+      const items = await this.prisma.vendaUsadoHistorico.findMany({
+        where: {
+          vendaUsadoId: row.vendaUsado.id,
+          tenantId,
+          tipo: VendaUsadoHistoricoTipo.portal_acao,
+          texto: { in: Object.values(TEXTO_PORTAL_ACAO) },
+        },
+        select: { texto: true },
+      });
+      textos.push(...items.map((item) => item.texto));
+    }
+    return {
+      vi_e_concordo: textos.includes(TEXTO_PORTAL_ACAO.vi_e_concordo),
+      quero_falar: textos.includes(TEXTO_PORTAL_ACAO.quero_falar),
+    };
   }
 
   private async requireImovel(
