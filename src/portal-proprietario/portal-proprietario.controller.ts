@@ -15,7 +15,10 @@ import {
   ChangePortalPasswordDto,
   PortalAcaoDto,
 } from './dto/portal-auth.dto';
-import { CreatePortalImovelDto } from './dto/portal-imovel.dto';
+import {
+  CreatePortalImovelDto,
+  UpdatePortalImovelDto,
+} from './dto/portal-imovel.dto';
 import { PortalProprietarioAuthGuard } from './guards/portal-proprietario-auth.guard';
 import { PortalProprietarioAuthService } from './portal-proprietario-auth.service';
 import { PortalProprietarioImoveisService } from './portal-proprietario-imoveis.service';
@@ -60,6 +63,23 @@ export class PortalProprietarioController {
   @Get('novidades')
   novidades(@CurrentPortal() session: PortalProprietarioSession) {
     return this.imoveis.listNovidades(session);
+  }
+
+  @Patch('imoveis/:id')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePortalImovelDto,
+    @CurrentPortal() session: PortalProprietarioSession,
+  ) {
+    return this.imoveis.updateImovel(id, session, dto);
+  }
+
+  @Post('imoveis/:id/cancelar-captacao')
+  cancelarCaptacao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentPortal() session: PortalProprietarioSession,
+  ) {
+    return this.imoveis.cancelarCaptacao(id, session);
   }
 
   @Get('imoveis/:id')

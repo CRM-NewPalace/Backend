@@ -11,6 +11,8 @@ export const CAPTACAO_HISTORICO_PORTAL: CaptacaoHistoricoTipo[] = [
   CaptacaoHistoricoTipo.valor,
   CaptacaoHistoricoTipo.exclusividade,
   CaptacaoHistoricoTipo.portal_acao,
+  CaptacaoHistoricoTipo.edicao,
+  CaptacaoHistoricoTipo.cancelamento,
 ];
 
 export const VENDA_HISTORICO_PORTAL: VendaUsadoHistoricoTipo[] = [
@@ -75,7 +77,11 @@ export function proximoPasso(opts: {
   etapaCaptacao?: string | null;
   exclusividade?: boolean;
   etapaVenda?: string | null;
+  canceladoPeloProprietario?: boolean;
 }): string {
+  if (opts.canceladoPeloProprietario) {
+    return 'Você cancelou o anúncio. A imobiliária pode entrar em contato ou registrar a perda.';
+  }
   if (opts.situacao === 'captacao') {
     const etapa = opts.etapaCaptacao ? ` (${opts.etapaCaptacao})` : '';
     if (!opts.exclusividade) {

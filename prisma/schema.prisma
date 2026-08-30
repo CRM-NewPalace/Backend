@@ -1351,6 +1351,7 @@ enum CaptacaoHistoricoTipo {
   exclusividade
   edicao
   portal_acao
+  cancelamento
 }
 
 /// Pessoa ou empresa dona do imóvel. Base do futuro Portal do Proprietário.
@@ -1489,6 +1490,9 @@ model Captacao {
   origem           String    @default("")
   /// Imóvel sugerido pelo dono no portal (card com tag no funil).
   sugestaoProprietario Boolean @default(false)
+  /// Dono desistiu de anunciar pelo portal; o corretor dá perda ou tenta negociar.
+  canceladoPeloProprietario Boolean @default(false)
+  motivoPerda String @default("")
   exclusividade    Boolean   @default(false)
   valorPretendido  Decimal?  @db.Decimal(14, 2)
   valorAvaliacao   Decimal?  @db.Decimal(14, 2)

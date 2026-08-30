@@ -707,6 +707,22 @@ export class CaptacaoService {
     const etapaChanged = Boolean(
       dto.funilEtapaId && dto.funilEtapaId !== current.funilEtapaId,
     );
+    const nextEtapaFull =
+      current.funil.etapas.find((e) => e.id === nextEtapaId) ??
+      current.funilEtapa;
+    if (etapaChanged && nextEtapaFull.papel === 'perdido') {
+      const motivo = dto.motivoPerda?.trim() ?? '';
+      if (!motivo) {
+        throw new BadRequestException(
+          'Selecione o motivo da perda para mover para Perdido.',
+        );
+      }
+      historicos.push({
+        tipo: CaptacaoHistoricoTipo.etapa,
+        texto: `Perda registrada por ${user.name}: ${motivo}`,
+        autorId: user.id,
+      });
+    }
     const nextEtapa =
       current.funil.etapas.find((e) => e.id === nextEtapaId) ??
       current.funilEtapa;
@@ -731,6 +747,9 @@ export class CaptacaoService {
             : {}),
           ...(dto.valorAvaliacao !== undefined
             ? { valorAvaliacao: dto.valorAvaliacao }
+            : {}),
+          ...(dto.motivoPerda != null
+            ? { motivoPerda: dto.motivoPerda.trim() }
             : {}),
           funilEtapaId: nextEtapaId,
           ...timing,

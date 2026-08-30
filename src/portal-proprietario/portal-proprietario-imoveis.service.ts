@@ -11,7 +11,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { pickFirstActiveEtapa } from '../captacao/captacao.util';
 import { stageChangeTiming } from '../operacao/operacao-monitoramento.util';
-import type { CreatePortalImovelDto } from './dto/portal-imovel.dto';
+import type {
+  CreatePortalImovelDto,
+  UpdatePortalImovelDto,
+} from './dto/portal-imovel.dto';
 import {
   CAPTACAO_HISTORICO_PORTAL,
   VENDA_HISTORICO_PORTAL,
@@ -150,6 +153,88 @@ export class PortalProprietarioImoveisService {
     });
 
     return this.getImovel(created, session);
+  }
+
+  async updateImovel(
+    imovelId: string,
+    session: PortalProprietarioSession,
+    dto: UpdatePortalImovelDto,
+  ) {
+    const row = await this.requireImovel(imovelId, session);
+    await this.prisma.imovel.update({
+      where: { id: row.id },
+      data: {
+        ...(dto.tipo ? { tipo: dto.tipo } : {}),
+        ...(dto.cep != null ? { cep: dto.cep.trim() } : {}),
+        ...(dto.logradouro != null ? { logradouro: dto.logradouro.trim() } : {}),
+        ...(dto.numero != null ? { numero: dto.numero.trim() } : {}),
+        ...(dto.complemento != null ? { complemento: dto.complemento.trim() } : {}),
+        ...(dto.bairro != null ? { bairro: dto.bairro.trim() } : {}),
+        ...(dto.cidade != null ? { cidade: dto.cidade.trim() } : {}),
+        ...(dto.estado != null ? { estado: dto.estado.trim().toUpperCase() } : {}),
+        ...(dto.descricao != null ? { descricao: dto.descricao.trim() } : {}),
+        ...(dto.area !== undefined ? { area: dto.area } : {}),
+        ...(dto.quartos !== undefined ? { quartos: dto.quartos } : {}),
+        ...(dto.suites !== undefined ? { suites: dto.suites } : {}),
+        ...(dto.banheiros !== undefined ? { banheiros: dto.banheiros } : {}),
+        ...(dto.vagas !== undefined ? { vagas: dto.vagas } : {}),
+      },
+    });
+    const captacao = row.captacoes[0];
+    if (captacao && dto.valorPretendido !== undefined) {
+      await this.prisma.captacao.update({
+        where: { id: captacao.id },
+        data: { valorPretendido: dto.valorPretendido },
+      });
+      await this.prisma.captacaoHistorico.create({
+        data: {
+          tenantId: session.tenantId,
+          captacaoId: captacao.id,
+          tipo: CaptacaoHistoricoTipo.valor,
+          texto: 'O proprietário atualizou o valor pretendido pelo portal.',
+        },
+      });
+    } else if (captacao) {
+      await this.prisma.captacaoHistorico.create({
+        data: {
+          tenantId: session.tenantId,
+          captacaoId: captacao.id,
+          tipo: CaptacaoHistoricoTipo.edicao,
+          texto: 'O proprietário atualizou os dados do imóvel pelo portal.',
+        },
+      });
+    }
+    return this.getImovel(imovelId, session);
+  }
+
+  async cancelarCaptacao(
+    imovelId: string,
+    session: PortalProprietarioSession,
+  ) {
+    const row = await this.requireImovel(imovelId, session);
+    const captacao = row.captacoes[0];
+    if (!captacao) {
+      throw new BadRequestException('Este imóvel não está em captação.');
+    }
+    if (captacao.canceladoPeloProprietario) {
+      throw new BadRequestException('Esta captação já foi cancelada.');
+    }
+    if (captacao.funilEtapa?.papel === 'perdido') {
+      throw new BadRequestException('Esta captação já foi encerrada.');
+    }
+    await this.prisma.captacao.update({
+      where: { id: captacao.id },
+      data: { canceladoPeloProprietario: true },
+    });
+    await this.prisma.captacaoHistorico.create({
+      data: {
+        tenantId: session.tenantId,
+        captacaoId: captacao.id,
+        tipo: CaptacaoHistoricoTipo.cancelamento,
+        texto: 'O proprietário cancelou o anúncio pelo portal.',
+      },
+    });
+    return this.getImovel(imovelId, session);
   }
 
   async listNovidades(session: PortalProprietarioSession) {
@@ -340,6 +425,7 @@ export class PortalProprietarioImoveisService {
         etapaCaptacao: captacao?.funilEtapa.label,
         exclusividade: captacao?.exclusividade,
         etapaVenda: venda?.funilEtapa.label,
+        canceladoPeloProprietario: captacao?.canceladoPeloProprietario,
       }),
       contato: {
         imobiliaria: {
@@ -362,6 +448,7 @@ export class PortalProprietarioImoveisService {
             origem: captacao.origem,
             exclusividade: captacao.exclusividade,
             responsavel: captacao.responsavel.name,
+            canceladoPeloProprietario: captacao.canceladoPeloProprietario,
           }
         : null,
       comercializacao: venda
@@ -694,7 +781,7 @@ export class PortalProprietarioImoveisService {
         orderBy: { createdAt: 'desc' as const },
         take: 1,
         include: {
-          funilEtapa: { select: { label: true } },
+          funilEtapa: { select: { label: true, papel: true } },
           responsavel: { select: { name: true, phone: true, whatsapp: true } },
         },
       },
@@ -725,6 +812,7 @@ export class PortalProprietarioImoveisService {
       createdAt: Date;
       valorPretendido: unknown;
       exclusividade?: boolean;
+      canceladoPeloProprietario?: boolean;
       funilEtapa: { label: string };
       responsavel: { name: string; phone?: string | null; whatsapp?: string | null };
     }>;
@@ -766,7 +854,9 @@ export class PortalProprietarioImoveisService {
         etapaCaptacao: captacao?.funilEtapa.label,
         exclusividade: captacao?.exclusividade,
         etapaVenda: venda?.funilEtapa?.label,
+        canceladoPeloProprietario: captacao?.canceladoPeloProprietario,
       }),
+      canceladoPeloProprietario: Boolean(captacao?.canceladoPeloProprietario),
       contato: {
         imobiliaria: {
           nome: row.tenant?.name ?? '',
@@ -823,7 +913,7 @@ export class PortalProprietarioImoveisService {
         captacoes: {
           orderBy: { createdAt: 'desc' },
           include: {
-            funilEtapa: { select: { label: true } },
+            funilEtapa: { select: { label: true, papel: true } },
             responsavel: { select: { name: true, phone: true, whatsapp: true } },
           },
         },
