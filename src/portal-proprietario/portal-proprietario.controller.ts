@@ -15,6 +15,7 @@ import {
   ChangePortalPasswordDto,
   PortalAcaoDto,
 } from './dto/portal-auth.dto';
+import { CreatePortalImovelDto } from './dto/portal-imovel.dto';
 import { PortalProprietarioAuthGuard } from './guards/portal-proprietario-auth.guard';
 import { PortalProprietarioAuthService } from './portal-proprietario-auth.service';
 import { PortalProprietarioImoveisService } from './portal-proprietario-imoveis.service';
@@ -46,6 +47,14 @@ export class PortalProprietarioController {
   @Get('imoveis')
   list(@CurrentPortal() session: PortalProprietarioSession) {
     return this.imoveis.dashboard(session);
+  }
+
+  @Post('imoveis')
+  create(
+    @Body() dto: CreatePortalImovelDto,
+    @CurrentPortal() session: PortalProprietarioSession,
+  ) {
+    return this.imoveis.createSugestao(session, dto);
   }
 
   @Get('novidades')

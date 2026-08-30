@@ -1487,6 +1487,8 @@ model Captacao {
   responsavel      User      @relation("CaptacaoResponsavel", fields: [responsavelId], references: [id], onDelete: Restrict)
   /// Label do catálogo de origens (mesmo padrão de Lead.origem).
   origem           String    @default("")
+  /// Imóvel sugerido pelo dono no portal (card com tag no funil).
+  sugestaoProprietario Boolean @default(false)
   exclusividade    Boolean   @default(false)
   valorPretendido  Decimal?  @db.Decimal(14, 2)
   valorAvaliacao   Decimal?  @db.Decimal(14, 2)

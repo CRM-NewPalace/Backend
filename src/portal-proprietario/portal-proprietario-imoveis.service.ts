@@ -1,11 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CaptacaoHistoricoTipo,
+  FunilTipo,
+  Role,
+  UserStatus,
   VendaUsadoHistoricoTipo,
   VendaUsadoPropostaStatus,
   VendaUsadoVisitaStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { pickFirstActiveEtapa } from '../captacao/captacao.util';
+import { stageChangeTiming } from '../operacao/operacao-monitoramento.util';
+import type { CreatePortalImovelDto } from './dto/portal-imovel.dto';
 import {
   CAPTACAO_HISTORICO_PORTAL,
   VENDA_HISTORICO_PORTAL,
@@ -45,6 +51,105 @@ export class PortalProprietarioImoveisService {
       else if (item.situacao === 'captacao') counts.captacao += 1;
     }
     return { resumo: counts, imoveis, novidades: await this.listNovidades(session) };
+  }
+
+  async createSugestao(
+    session: PortalProprietarioSession,
+    dto: CreatePortalImovelDto,
+  ) {
+    const logradouro = dto.logradouro.trim();
+    if (!logradouro) {
+      throw new BadRequestException('Informe o endereço do imóvel.');
+    }
+
+    const funil = await this.prisma.funil.findFirst({
+      where: {
+        tenantId: session.tenantId,
+        tipo: FunilTipo.captacao,
+        ativo: true,
+      },
+      include: { etapas: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!funil) {
+      throw new BadRequestException(
+        'A imobiliária ainda não tem um funil de captação ativo.',
+      );
+    }
+    const etapa = pickFirstActiveEtapa(funil.etapas);
+    if (!etapa) {
+      throw new BadRequestException(
+        'O funil de captação não possui etapas.',
+      );
+    }
+
+    const ultima = await this.prisma.captacao.findFirst({
+      where: {
+        tenantId: session.tenantId,
+        proprietarioId: session.proprietarioId,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { responsavelId: true },
+    });
+    let responsavelId = ultima?.responsavelId;
+    if (!responsavelId) {
+      const user = await this.prisma.user.findFirst({
+        where: {
+          tenantId: session.tenantId,
+          status: UserStatus.ativo,
+          role: { in: [Role.admin, Role.gerente, Role.corretor] },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      responsavelId = user?.id;
+    }
+    if (!responsavelId) {
+      throw new BadRequestException(
+        'Não há corretor na imobiliária para receber a sugestão.',
+      );
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const imovel = await tx.imovel.create({
+        data: {
+          tenantId: session.tenantId,
+          proprietarioId: session.proprietarioId,
+          tipo: dto.tipo,
+          cep: dto.cep?.trim() ?? '',
+          logradouro,
+          numero: dto.numero?.trim() ?? '',
+          bairro: dto.bairro?.trim() ?? '',
+          cidade: dto.cidade?.trim() ?? '',
+          estado: dto.estado?.trim().toUpperCase() ?? '',
+          descricao: dto.descricao?.trim() ?? '',
+        },
+      });
+      const captacao = await tx.captacao.create({
+        data: {
+          tenantId: session.tenantId,
+          proprietarioId: session.proprietarioId,
+          imovelId: imovel.id,
+          responsavelId,
+          origem: 'Portal do proprietário',
+          sugestaoProprietario: true,
+          valorPretendido: dto.valorPretendido,
+          funilId: funil.id,
+          funilEtapaId: etapa.id,
+          ...stageChangeTiming(new Date(), etapa),
+        },
+      });
+      await tx.captacaoHistorico.create({
+        data: {
+          tenantId: session.tenantId,
+          captacaoId: captacao.id,
+          tipo: CaptacaoHistoricoTipo.criacao,
+          texto: 'O proprietário sugeriu este imóvel pelo portal.',
+        },
+      });
+      return imovel.id;
+    });
+
+    return this.getImovel(created, session);
   }
 
   async listNovidades(session: PortalProprietarioSession) {
