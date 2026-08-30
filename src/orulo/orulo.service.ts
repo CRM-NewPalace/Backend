@@ -59,11 +59,15 @@ export class OruloService {
       this.config.get<string>('BACKEND_PUBLIC_URL')?.replace(/\/$/, '') ||
       this.config.get<string>('API_PUBLIC_URL')?.replace(/\/$/, '') ||
       '';
+    const buildingCount = await this.prisma.empreendimento.count({
+      where: { tenantId, oruloBuildingId: { not: null } },
+    });
     return {
       connected: Boolean(connection?.ativo),
       connection: connection ? this.presentConnection(connection) : null,
       webhookUrl: webhookBase ? `${webhookBase}/webhooks/orulo` : null,
       oauthRedirectUri: this.redirectUri(),
+      buildingCount,
     };
   }
 
