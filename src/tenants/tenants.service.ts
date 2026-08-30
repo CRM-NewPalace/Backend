@@ -947,7 +947,11 @@ export class TenantsService {
     });
     if (!tenant) throw new NotFoundException('Tenant não encontrado.');
     const modules = applyPlanoModules(tenant.plano, tenant.modules);
-    return { modules, operations: pickOperationModules(modules) };
+    return {
+      modules,
+      operations: pickOperationModules(modules),
+      hideClientesNav: modules.hideClientesNav === true,
+    };
   }
 
   async updateOperationModules(
@@ -977,6 +981,9 @@ export class TenantsService {
       imoveisUsados: dto.imoveisUsados,
       locacao: dto.locacao,
     });
+    if (typeof dto.hideClientesNav === 'boolean') {
+      merged.hideClientesNav = dto.hideClientesNav;
+    }
     const modules = applyPlanoModules(tenant.plano, merged);
 
     await this.prisma.tenant.update({
@@ -984,7 +991,11 @@ export class TenantsService {
       data: { modules: modules as Prisma.InputJsonValue },
     });
 
-    return { modules, operations: pickOperationModules(modules) };
+    return {
+      modules,
+      operations: pickOperationModules(modules),
+      hideClientesNav: modules.hideClientesNav === true,
+    };
   }
 
   /** Mantém só dígitos do CPF/CNPJ (até 14). */
