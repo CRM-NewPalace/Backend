@@ -1,14 +1,18 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { imageUploadInterceptor } from '../media/media.constants';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentPortal } from './decorators/current-portal.decorator';
 import {
@@ -72,6 +76,25 @@ export class PortalProprietarioController {
     @CurrentPortal() session: PortalProprietarioSession,
   ) {
     return this.imoveis.updateImovel(id, session, dto);
+  }
+
+  @Post('imoveis/:id/fotos')
+  @UseInterceptors(imageUploadInterceptor())
+  uploadFoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentPortal() session: PortalProprietarioSession,
+  ) {
+    return this.imoveis.uploadFoto(id, session, file);
+  }
+
+  @Delete('imoveis/:id/fotos/:fotoId')
+  removeFoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('fotoId', ParseUUIDPipe) fotoId: string,
+    @CurrentPortal() session: PortalProprietarioSession,
+  ) {
+    return this.imoveis.removeFoto(id, session, fotoId);
   }
 
   @Post('imoveis/:id/cancelar-captacao')

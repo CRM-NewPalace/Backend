@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import {
   CaptacaoHistoricoTipo,
   FunilTipo,
@@ -25,6 +31,7 @@ import {
   type SituacaoPortal,
 } from './portal-proprietario.mappers';
 import type { PortalProprietarioSession } from './portal-proprietario.types';
+import { MediaService } from '../media/media.service';
 
 const TEXTO_PORTAL_ACAO = {
   vi_e_concordo: 'O proprietário registrou: vi e concordo.',
@@ -41,7 +48,10 @@ const PROPOSTAS_VISIVEIS: VendaUsadoPropostaStatus[] = [
 
 @Injectable()
 export class PortalProprietarioImoveisService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly media?: MediaService,
+  ) {}
 
   async dashboard(session: PortalProprietarioSession) {
     const imoveis = await this.listImoveis(session);
@@ -239,6 +249,71 @@ export class PortalProprietarioImoveisService {
         texto: 'O proprietário cancelou o anúncio pelo portal.',
       },
     });
+    return this.getImovel(imovelId, session);
+  }
+
+  async uploadFoto(
+    imovelId: string,
+    session: PortalProprietarioSession,
+    rawFile: Express.Multer.File | undefined,
+  ) {
+    const media = this.requireMedia();
+    const row = await this.requireImovel(imovelId, session);
+    const count = await this.prisma.imovelFoto.count({
+      where: { imovelId: row.id, tenantId: session.tenantId },
+    });
+    if (count >= 4) {
+      throw new BadRequestException(
+        'O imóvel já tem 4 fotos. Remova uma para enviar outra.',
+      );
+    }
+    const file = media.requireFile(rawFile);
+    const uploaded = await media.uploadImage({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      folder: media.folder(session.tenantId, 'imoveis', row.id),
+      maxWidth: 1600,
+      maxHeight: 1200,
+      fit: 'cover',
+    });
+    await this.prisma.imovelFoto.create({
+      data: {
+        tenantId: session.tenantId,
+        imovelId: row.id,
+        url: uploaded.url,
+        publicId: uploaded.publicId,
+        sortOrder: count,
+      },
+    });
+    await this.syncCapa(row.id);
+    return this.getImovel(imovelId, session);
+  }
+
+  async removeFoto(
+    imovelId: string,
+    session: PortalProprietarioSession,
+    fotoId: string,
+  ) {
+    const row = await this.requireImovel(imovelId, session);
+    const target = await this.prisma.imovelFoto.findFirst({
+      where: { id: fotoId, imovelId: row.id, tenantId: session.tenantId },
+    });
+    if (!target) throw new NotFoundException('Foto não encontrada.');
+    await this.media?.destroy(target.publicId);
+    await this.prisma.imovelFoto.delete({ where: { id: target.id } });
+    const remaining = await this.prisma.imovelFoto.findMany({
+      where: { imovelId: row.id, tenantId: session.tenantId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    for (let i = 0; i < remaining.length; i += 1) {
+      if (remaining[i]!.sortOrder !== i) {
+        await this.prisma.imovelFoto.update({
+          where: { id: remaining[i]!.id },
+          data: { sortOrder: i },
+        });
+      }
+    }
+    await this.syncCapa(row.id);
     return this.getImovel(imovelId, session);
   }
 
@@ -952,6 +1027,29 @@ export class PortalProprietarioImoveisService {
       vi_e_concordo: textos.includes(TEXTO_PORTAL_ACAO.vi_e_concordo),
       quero_falar: textos.includes(TEXTO_PORTAL_ACAO.quero_falar),
     };
+  }
+
+  private requireMedia() {
+    if (!this.media) {
+      throw new ServiceUnavailableException(
+        'Upload de imagens indisponível no momento.',
+      );
+    }
+    return this.media;
+  }
+
+  private async syncCapa(imovelId: string) {
+    const capa = await this.prisma.imovelFoto.findFirst({
+      where: { imovelId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    await this.prisma.imovel.update({
+      where: { id: imovelId },
+      data: {
+        fotoUrl: capa?.url ?? null,
+        fotoPublicId: capa?.publicId ?? null,
+      },
+    });
   }
 
   private async requireImovel(
