@@ -77,6 +77,7 @@ const proprietarioSelect = {
 
 const imovelInclude = {
   proprietario: { select: { id: true, nome: true, telefone: true, email: true } },
+  fotos: { orderBy: { sortOrder: 'asc' as const } },
   captacoes: {
     select: {
       id: true,
@@ -410,10 +411,17 @@ export class CaptacaoService {
         'Este imóvel tem pós-venda vinculada e não pode ser excluído.',
       );
     }
+    const fotos = await this.prisma.imovelFoto.findMany({
+      where: { imovelId: id, tenantId },
+      select: { publicId: true },
+    });
     await this.prisma.$transaction(async (tx) => {
       await tx.captacao.deleteMany({ where: { imovelId: id, tenantId } });
       await tx.imovel.delete({ where: { id } });
     });
+    for (const foto of fotos) {
+      await this.media?.destroy(foto.publicId);
+    }
     await this.media?.destroy(item.fotoPublicId);
   }
 
@@ -426,9 +434,12 @@ export class CaptacaoService {
     const tenantId = requireTenantId(user);
     const current = await this.prisma.imovel.findFirst({
       where: { id, tenantId },
-      select: { id: true, fotoPublicId: true },
+      select: { id: true, _count: { select: { fotos: true } } },
     });
     if (!current) throw new NotFoundException('Imóvel não encontrado.');
+    if (current._count.fotos >= 4) {
+      throw new BadRequestException('O imóvel já tem 4 fotos. Remova uma para enviar outra.');
+    }
     const file = media.requireFile(rawFile);
     const uploaded = await media.uploadImage({
       buffer: file.buffer,
@@ -438,26 +449,63 @@ export class CaptacaoService {
       maxHeight: 1200,
       fit: 'cover',
     });
-    await media.destroy(current.fotoPublicId);
-    const updated = await this.prisma.imovel.update({
-      where: { id },
-      data: { fotoUrl: uploaded.url, fotoPublicId: uploaded.publicId },
-      include: imovelInclude,
+    const sortOrder = current._count.fotos;
+    await this.prisma.imovelFoto.create({
+      data: {
+        tenantId,
+        imovelId: id,
+        url: uploaded.url,
+        publicId: uploaded.publicId,
+        sortOrder,
+      },
     });
-    return this.exposeImovel(updated);
+    return this.reloadImovel(id);
   }
 
-  async removeFoto(id: string, user: AuthenticatedUser) {
+  async removeFoto(id: string, user: AuthenticatedUser, fotoId?: string) {
     const tenantId = requireTenantId(user);
     const current = await this.prisma.imovel.findFirst({
       where: { id, tenantId },
-      select: { id: true, fotoPublicId: true },
+      select: { id: true },
     });
     if (!current) throw new NotFoundException('Imóvel não encontrado.');
-    await this.media?.destroy(current.fotoPublicId);
+    const target = fotoId
+      ? await this.prisma.imovelFoto.findFirst({
+          where: { id: fotoId, imovelId: id, tenantId },
+        })
+      : await this.prisma.imovelFoto.findFirst({
+          where: { imovelId: id, tenantId },
+          orderBy: { sortOrder: 'asc' },
+        });
+    if (!target) throw new NotFoundException('Foto não encontrada.');
+    await this.media?.destroy(target.publicId);
+    await this.prisma.imovelFoto.delete({ where: { id: target.id } });
+    const remaining = await this.prisma.imovelFoto.findMany({
+      where: { imovelId: id, tenantId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    for (let i = 0; i < remaining.length; i += 1) {
+      if (remaining[i]!.sortOrder !== i) {
+        await this.prisma.imovelFoto.update({
+          where: { id: remaining[i]!.id },
+          data: { sortOrder: i },
+        });
+      }
+    }
+    return this.reloadImovel(id);
+  }
+
+  private async reloadImovel(id: string) {
+    const capa = await this.prisma.imovelFoto.findFirst({
+      where: { imovelId: id },
+      orderBy: { sortOrder: 'asc' },
+    });
     const updated = await this.prisma.imovel.update({
       where: { id },
-      data: { fotoUrl: null, fotoPublicId: null },
+      data: {
+        fotoUrl: capa?.url ?? null,
+        fotoPublicId: capa?.publicId ?? null,
+      },
       include: imovelInclude,
     });
     return this.exposeImovel(updated);
@@ -921,9 +969,15 @@ export class CaptacaoService {
     [key: string]: unknown;
   }) {
     const ultima = item.captacoes?.[0];
-    const { fotoPublicId: _fotoPublicId, ...rest } = item;
+    const { fotoPublicId: _fotoPublicId, fotos, ...rest } = item;
+    const fotosPublicas = Array.isArray(fotos)
+      ? (fotos as Array<{ id: string; url: string; sortOrder: number; publicId?: string }>).map(
+          ({ publicId: _p, ...foto }) => foto,
+        )
+      : [];
     return {
       ...rest,
+      fotos: fotosPublicas,
       area: toMoneyNumber(item.area as never),
       areaConstruida: toMoneyNumber(item.areaConstruida as never),
       titulo: imovelTitulo(item),

@@ -194,6 +194,26 @@ export class PortalProprietarioAuthService {
     };
   }
 
+  async changePassword(
+    session: PortalProprietarioSession,
+    senhaAtual: string,
+    senhaNova: string,
+  ) {
+    const acesso = await this.prisma.proprietarioPortalAcesso.findFirst({
+      where: { id: session.acessoId, tenantId: session.tenantId },
+    });
+    if (!acesso) throw new UnauthorizedException(GENERIC_CREDENTIALS_ERROR);
+    const ok = await bcrypt.compare(senhaAtual, acesso.password);
+    if (!ok) {
+      throw new UnauthorizedException('Senha atual incorreta.');
+    }
+    const password = await bcrypt.hash(senhaNova, SALT_ROUNDS);
+    await this.prisma.proprietarioPortalAcesso.update({
+      where: { id: acesso.id },
+      data: { password, hashedRefreshToken: null },
+    });
+  }
+
   async forgotPassword(
     email: string,
     tenantSlug?: string,

@@ -58,7 +58,12 @@ const SEM_FUNIL =
   'Não existe um funil de Venda de Usados ativo para este Tenant.';
 
 const vendaInclude = {
-  imovel: { include: { proprietario: { select: { id: true, nome: true, telefone: true } } } },
+  imovel: {
+    include: {
+      proprietario: { select: { id: true, nome: true, telefone: true } },
+      fotos: { orderBy: { sortOrder: 'asc' as const } },
+    },
+  },
   responsavel: { select: { id: true, name: true, email: true } },
   funil: {
     select: {
@@ -874,8 +879,15 @@ export class ImoveisUsadosService {
     areaConstruida: unknown;
     [key: string]: unknown;
   }) {
+    const { fotos, ...rest } = item;
+    const fotosPublicas = Array.isArray(fotos)
+      ? (fotos as Array<{ publicId?: string; id: string; url: string; sortOrder: number }>).map(
+          ({ publicId: _p, ...foto }) => foto,
+        )
+      : [];
     return {
-      ...item,
+      ...rest,
+      fotos: fotosPublicas,
       area: toMoneyNumber(item.area as never),
       areaConstruida: toMoneyNumber(item.areaConstruida as never),
       titulo: imovelTitulo(item),

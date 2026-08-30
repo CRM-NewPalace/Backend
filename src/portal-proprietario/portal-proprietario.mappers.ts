@@ -1,4 +1,7 @@
-import { CaptacaoHistoricoTipo, VendaUsadoHistoricoTipo } from '@prisma/client';
+import {
+  CaptacaoHistoricoTipo,
+  VendaUsadoHistoricoTipo,
+} from '@prisma/client';
 import { imovelTitulo } from '../captacao/captacao.constants';
 import { toMoneyNumber } from '../captacao/captacao.util';
 
@@ -7,6 +10,7 @@ export const CAPTACAO_HISTORICO_PORTAL: CaptacaoHistoricoTipo[] = [
   CaptacaoHistoricoTipo.etapa,
   CaptacaoHistoricoTipo.valor,
   CaptacaoHistoricoTipo.exclusividade,
+  CaptacaoHistoricoTipo.portal_acao,
 ];
 
 export const VENDA_HISTORICO_PORTAL: VendaUsadoHistoricoTipo[] = [
@@ -26,6 +30,7 @@ export const VENDA_HISTORICO_PORTAL: VendaUsadoHistoricoTipo[] = [
   VendaUsadoHistoricoTipo.contrato,
   VendaUsadoHistoricoTipo.chave,
   VendaUsadoHistoricoTipo.pos_venda,
+  VendaUsadoHistoricoTipo.portal_acao,
 ];
 
 export type SituacaoPortal =
@@ -63,4 +68,36 @@ export function situacaoImovel(opts: {
   }
   if (opts.temCaptacao) return 'captacao';
   return 'sem_operacao';
+}
+
+export function proximoPasso(opts: {
+  situacao: SituacaoPortal;
+  etapaCaptacao?: string | null;
+  exclusividade?: boolean;
+  etapaVenda?: string | null;
+}): string {
+  if (opts.situacao === 'captacao') {
+    const etapa = opts.etapaCaptacao ? ` (${opts.etapaCaptacao})` : '';
+    if (!opts.exclusividade) {
+      return `Em captação${etapa} — a imobiliária está avaliando / aguardando exclusividade.`;
+    }
+    return `Em captação${etapa} — a imobiliária segue com a captação em exclusividade.`;
+  }
+  if (opts.situacao === 'disponivel') {
+    return opts.etapaVenda
+      ? `À venda (${opts.etapaVenda}) — a imobiliária está divulgando o imóvel.`
+      : 'À venda — a imobiliária está divulgando o imóvel.';
+  }
+  if (opts.situacao === 'negociacao') {
+    return opts.etapaVenda
+      ? `Em negociação (${opts.etapaVenda}) — há proposta ou reserva em andamento.`
+      : 'Em negociação — há proposta ou reserva em andamento.';
+  }
+  if (opts.situacao === 'vendido') {
+    return 'Vendido — acompanhe documentação, contrato e chaves nesta ficha.';
+  }
+  if (opts.situacao === 'indisponivel') {
+    return 'Indisponível no momento. Fale com o corretor se precisar de mais detalhes.';
+  }
+  return 'A imobiliária ainda não iniciou a operação deste imóvel.';
 }

@@ -1,5 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  CaptacaoHistoricoTipo,
+  VendaUsadoHistoricoTipo,
   VendaUsadoPropostaStatus,
   VendaUsadoVisitaStatus,
 } from '@prisma/client';
@@ -8,6 +10,7 @@ import {
   CAPTACAO_HISTORICO_PORTAL,
   VENDA_HISTORICO_PORTAL,
   money,
+  proximoPasso,
   situacaoImovel,
   tituloImovel,
   type SituacaoPortal,
@@ -41,7 +44,125 @@ export class PortalProprietarioImoveisService {
       else if (item.situacao === 'vendido') counts.vendidos += 1;
       else if (item.situacao === 'captacao') counts.captacao += 1;
     }
-    return { resumo: counts, imoveis };
+    return { resumo: counts, imoveis, novidades: await this.listNovidades(session) };
+  }
+
+  async listNovidades(session: PortalProprietarioSession) {
+    const since = new Date();
+    since.setDate(since.getDate() - 14);
+    const imoveis = await this.prisma.imovel.findMany({
+      where: {
+        tenantId: session.tenantId,
+        proprietarioId: session.proprietarioId,
+      },
+      select: {
+        id: true,
+        tipo: true,
+        logradouro: true,
+        numero: true,
+        bairro: true,
+        cidade: true,
+        captacoes: { select: { id: true } },
+        vendaUsado: { select: { id: true } },
+      },
+    });
+    const eventos: Array<{
+      id: string;
+      imovelId: string;
+      identificacao: string;
+      origem: 'captacao' | 'venda';
+      tipo: string;
+      texto: string;
+      createdAt: Date;
+    }> = [];
+    for (const imovel of imoveis) {
+      const identificacao = tituloImovel(imovel);
+      for (const captacao of imovel.captacoes) {
+        const historicos = await this.prisma.captacaoHistorico.findMany({
+          where: {
+            captacaoId: captacao.id,
+            tenantId: session.tenantId,
+            tipo: { in: CAPTACAO_HISTORICO_PORTAL },
+            createdAt: { gte: since },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, tipo: true, texto: true, createdAt: true },
+        });
+        for (const item of historicos) {
+          eventos.push({
+            id: item.id,
+            imovelId: imovel.id,
+            identificacao,
+            origem: 'captacao',
+            tipo: item.tipo,
+            texto: item.texto,
+            createdAt: item.createdAt,
+          });
+        }
+      }
+      if (imovel.vendaUsado) {
+        const historicos = await this.prisma.vendaUsadoHistorico.findMany({
+          where: {
+            vendaUsadoId: imovel.vendaUsado.id,
+            tenantId: session.tenantId,
+            tipo: { in: VENDA_HISTORICO_PORTAL },
+            createdAt: { gte: since },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, tipo: true, texto: true, createdAt: true },
+        });
+        for (const item of historicos) {
+          eventos.push({
+            id: item.id,
+            imovelId: imovel.id,
+            identificacao,
+            origem: 'venda',
+            tipo: item.tipo,
+            texto: item.texto,
+            createdAt: item.createdAt,
+          });
+        }
+      }
+    }
+    eventos.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return eventos.slice(0, 30);
+  }
+
+  async registrarAcao(
+    imovelId: string,
+    session: PortalProprietarioSession,
+    tipo: 'vi_e_concordo' | 'quero_falar',
+  ) {
+    const row = await this.requireImovel(imovelId, session);
+    const texto =
+      tipo === 'vi_e_concordo'
+        ? 'O proprietário registrou: vi e concordo.'
+        : 'O proprietário pediu para falar com o corretor.';
+    const captacao = row.captacoes[0];
+    if (captacao) {
+      await this.prisma.captacaoHistorico.create({
+        data: {
+          tenantId: session.tenantId,
+          captacaoId: captacao.id,
+          tipo: CaptacaoHistoricoTipo.portal_acao,
+          texto,
+        },
+      });
+    } else if (row.vendaUsado) {
+      await this.prisma.vendaUsadoHistorico.create({
+        data: {
+          tenantId: session.tenantId,
+          vendaUsadoId: row.vendaUsado.id,
+          tipo: VendaUsadoHistoricoTipo.portal_acao,
+          texto,
+        },
+      });
+    } else {
+      throw new BadRequestException(
+        'Não há operação em andamento para registrar esta ação.',
+      );
+    }
+    return { ok: true, texto };
   }
 
   async listImoveis(session: PortalProprietarioSession) {
@@ -91,6 +212,11 @@ export class PortalProprietarioImoveisService {
       comodidadesUnidade: row.comodidadesUnidade ?? [],
       comodidadesCondominio: row.comodidadesCondominio ?? [],
       fotoUrl: row.fotoUrl,
+      fotos: (row.fotos ?? []).map((foto) => ({
+        id: foto.id,
+        url: foto.url,
+        sortOrder: foto.sortOrder,
+      })),
       valorPretendido: money(captacao?.valorPretendido),
       valorAvaliacao: money(captacao?.valorAvaliacao),
       precoVenda: money(venda?.precoVenda),
@@ -100,6 +226,30 @@ export class PortalProprietarioImoveisService {
         vendaStatus: venda?.status,
         propostasAbertas,
       }),
+      proximoPasso: proximoPasso({
+        situacao: situacaoImovel({
+          temCaptacao: Boolean(captacao),
+          vendaStatus: venda?.status,
+          propostasAbertas,
+        }),
+        etapaCaptacao: captacao?.funilEtapa.label,
+        exclusividade: captacao?.exclusividade,
+        etapaVenda: venda?.funilEtapa.label,
+      }),
+      contato: {
+        imobiliaria: {
+          nome: row.tenant?.name ?? '',
+          telefone: row.tenant?.telefone ?? '',
+        },
+        corretor: (venda?.responsavel ?? captacao?.responsavel)
+          ? {
+              nome: (venda?.responsavel ?? captacao?.responsavel)!.name,
+              telefone: (venda?.responsavel ?? captacao?.responsavel)!.phone ?? null,
+              whatsapp:
+                (venda?.responsavel ?? captacao?.responsavel)!.whatsapp ?? null,
+            }
+          : null,
+      },
       captacao: captacao
         ? {
             id: captacao.id,
@@ -430,17 +580,22 @@ export class PortalProprietarioImoveisService {
 
   private imovelListInclude() {
     return {
+      fotos: {
+        orderBy: { sortOrder: 'asc' as const },
+        select: { id: true, url: true, sortOrder: true },
+      },
+      tenant: { select: { name: true, telefone: true } },
       captacoes: {
         orderBy: { createdAt: 'desc' as const },
         take: 1,
         include: {
           funilEtapa: { select: { label: true } },
-          responsavel: { select: { name: true } },
+          responsavel: { select: { name: true, phone: true, whatsapp: true } },
         },
       },
       vendaUsado: {
         include: {
-          responsavel: { select: { name: true } },
+          responsavel: { select: { name: true, phone: true, whatsapp: true } },
           funilEtapa: { select: { label: true } },
           vinculos: { select: { id: true, interesse: true } },
           visitas: { select: { id: true } },
@@ -458,17 +613,21 @@ export class PortalProprietarioImoveisService {
     bairro: string;
     cidade: string;
     fotoUrl?: string | null;
+    fotos?: Array<{ id: string; url: string; sortOrder: number }>;
+    tenant?: { name: string; telefone: string };
     createdAt: Date;
     captacoes: Array<{
       createdAt: Date;
       valorPretendido: unknown;
+      exclusividade?: boolean;
       funilEtapa: { label: string };
-      responsavel: { name: string };
+      responsavel: { name: string; phone?: string | null; whatsapp?: string | null };
     }>;
     vendaUsado: {
       status: string;
       precoVenda: unknown;
-      responsavel: { name: string };
+      responsavel: { name: string; phone?: string | null; whatsapp?: string | null };
+      funilEtapa?: { label: string };
       vinculos: Array<{ id: string; interesse: string }>;
       visitas: Array<{ id: string }>;
       propostas: Array<{ id: string; status: VendaUsadoPropostaStatus }>;
@@ -493,9 +652,31 @@ export class PortalProprietarioImoveisService {
       endereco: [row.logradouro, row.numero].filter(Boolean).join(', '),
       bairro: row.bairro,
       cidade: row.cidade,
-      fotoUrl: row.fotoUrl ?? null,
+      fotoUrl: row.fotoUrl ?? row.fotos?.[0]?.url ?? null,
+      fotos: row.fotos ?? [],
       valor: money(venda?.precoVenda) ?? money(captacao?.valorPretendido),
       situacao,
+      proximoPasso: proximoPasso({
+        situacao,
+        etapaCaptacao: captacao?.funilEtapa.label,
+        exclusividade: captacao?.exclusividade,
+        etapaVenda: venda?.funilEtapa?.label,
+      }),
+      contato: {
+        imobiliaria: {
+          nome: row.tenant?.name ?? '',
+          telefone: row.tenant?.telefone ?? '',
+        },
+        corretor: (venda?.responsavel ?? captacao?.responsavel)
+          ? {
+              nome: (venda?.responsavel ?? captacao?.responsavel)!.name,
+              telefone: (venda?.responsavel ?? captacao?.responsavel)!.phone ?? null,
+              whatsapp:
+                (venda?.responsavel ?? captacao?.responsavel)!.whatsapp ?? null,
+            }
+          : null,
+      },
+      temComercializacao: Boolean(venda),
       statusOperacao: venda?.status ?? (captacao ? 'captacao' : null),
       responsavel:
         venda?.responsavel.name ?? captacao?.responsavel.name ?? null,
@@ -529,16 +710,21 @@ export class PortalProprietarioImoveisService {
         proprietarioId: session.proprietarioId,
       },
       include: {
+        fotos: {
+          orderBy: { sortOrder: 'asc' },
+          select: { id: true, url: true, sortOrder: true },
+        },
+        tenant: { select: { name: true, telefone: true } },
         captacoes: {
           orderBy: { createdAt: 'desc' },
           include: {
             funilEtapa: { select: { label: true } },
-            responsavel: { select: { name: true } },
+            responsavel: { select: { name: true, phone: true, whatsapp: true } },
           },
         },
         vendaUsado: {
           include: {
-            responsavel: { select: { name: true } },
+            responsavel: { select: { name: true, phone: true, whatsapp: true } },
             funilEtapa: { select: { label: true } },
             vinculos: { select: { interesse: true } },
             visitas: { select: { id: true } },

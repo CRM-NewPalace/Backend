@@ -56,6 +56,26 @@ export class PortalResetPasswordDto {
   password!: string;
 }
 
+export class ChangePortalPasswordDto {
+  @IsString()
+  @MinLength(1, { message: 'A senha atual é obrigatória.' })
+  @MaxLength(72)
+  senhaAtual!: string;
+
+  @IsString()
+  @MaxLength(72, { message: 'A senha deve ter no máximo 72 caracteres.' })
+  @Matches(PASSWORD_REGEX, { message: PASSWORD_RULE_MESSAGE })
+  senhaNova!: string;
+}
+
+export class PortalAcaoDto {
+  @IsString()
+  @Matches(/^(vi_e_concordo|quero_falar)$/, {
+    message: 'Ação inválida.',
+  })
+  tipo!: 'vi_e_concordo' | 'quero_falar';
+}
+
 export class UpdateProprietarioPortalDto {
   @IsBoolean()
   ativo!: boolean;

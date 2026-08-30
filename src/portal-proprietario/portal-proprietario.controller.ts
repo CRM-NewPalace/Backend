@@ -1,6 +1,20 @@
-import { Controller, Get, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentPortal } from './decorators/current-portal.decorator';
+import {
+  ChangePortalPasswordDto,
+  PortalAcaoDto,
+} from './dto/portal-auth.dto';
 import { PortalProprietarioAuthGuard } from './guards/portal-proprietario-auth.guard';
 import { PortalProprietarioAuthService } from './portal-proprietario-auth.service';
 import { PortalProprietarioImoveisService } from './portal-proprietario-imoveis.service';
@@ -20,9 +34,23 @@ export class PortalProprietarioController {
     return this.auth.me(session);
   }
 
+  @Patch('me/senha')
+  @HttpCode(204)
+  changePassword(
+    @CurrentPortal() session: PortalProprietarioSession,
+    @Body() dto: ChangePortalPasswordDto,
+  ) {
+    return this.auth.changePassword(session, dto.senhaAtual, dto.senhaNova);
+  }
+
   @Get('imoveis')
   list(@CurrentPortal() session: PortalProprietarioSession) {
     return this.imoveis.dashboard(session);
+  }
+
+  @Get('novidades')
+  novidades(@CurrentPortal() session: PortalProprietarioSession) {
+    return this.imoveis.listNovidades(session);
   }
 
   @Get('imoveis/:id')
@@ -31,6 +59,15 @@ export class PortalProprietarioController {
     @CurrentPortal() session: PortalProprietarioSession,
   ) {
     return this.imoveis.getImovel(id, session);
+  }
+
+  @Post('imoveis/:id/acoes')
+  registrarAcao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PortalAcaoDto,
+    @CurrentPortal() session: PortalProprietarioSession,
+  ) {
+    return this.imoveis.registrarAcao(id, session, dto.tipo);
   }
 
   @Get('imoveis/:id/historico')

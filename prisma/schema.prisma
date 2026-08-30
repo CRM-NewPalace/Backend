@@ -169,6 +169,7 @@ model Tenant {
   treinamentoLinks        TreinamentoLink[]
   proprietarios           Proprietario[]
   imoveisCaptacao         Imovel[]
+  imovelFotos             ImovelFoto[]
   captacoes               Captacao[]
   captacaoHistoricos      CaptacaoHistorico[]
   vendasUsado             VendaUsado[]
@@ -1349,6 +1350,7 @@ enum CaptacaoHistoricoTipo {
   valor
   exclusividade
   edicao
+  portal_acao
 }
 
 /// Pessoa ou empresa dona do imóvel. Base do futuro Portal do Proprietário.
@@ -1438,6 +1440,7 @@ model Imovel {
   torres          Int?
   fotoUrl         String?
   fotoPublicId    String?
+  fotos           ImovelFoto[]
 
   captacoes Captacao[]
   vendaUsado VendaUsado?
@@ -1452,6 +1455,23 @@ model Imovel {
   @@index([tenantId, cidade])
   @@index([tenantId, tipo])
   @@map("imoveis")
+}
+
+/// Até 4 fotos por imóvel (capa = sortOrder 0). A imobiliária envia; o dono não.
+model ImovelFoto {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  imovelId  String
+  imovel    Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  url       String
+  publicId  String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([imovelId, sortOrder])
+  @@index([tenantId, imovelId])
+  @@map("imovel_fotos")
 }
 
 /// Processo de captação do imóvel para a imobiliária (funil tipo captacao).
@@ -1550,6 +1570,7 @@ enum VendaUsadoHistoricoTipo {
   contrato
   chave
   pos_venda
+  portal_acao
 }
 
 enum VendaUsadoVisitaStatus {
