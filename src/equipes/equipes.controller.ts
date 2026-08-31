@@ -36,7 +36,7 @@ export class EquipesController {
   ) {}
 
   @Get()
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   list(@CurrentUser() requester: AuthenticatedUser) {
     return this.equipesService.list(requester);
   }

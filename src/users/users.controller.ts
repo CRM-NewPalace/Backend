@@ -51,7 +51,7 @@ export class UsersController {
   }
 
   @Get()
-  @Roles(Role.admin, Role.gerente, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.super_admin)
   findAll(
     @Query() query: QueryUsersDto,
     @CurrentUser() requester: AuthenticatedUser,

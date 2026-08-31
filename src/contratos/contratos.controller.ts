@@ -20,7 +20,7 @@ export class ContratosController {
   constructor(private readonly contratosService: ContratosService) {}
 
   @Post('pdf')
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee, Role.super_admin)
   @Header('Content-Type', 'application/pdf')
   async generatePdf(
     @Body() dto: GenerateContratoDto,

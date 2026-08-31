@@ -27,6 +27,7 @@ export class DashboardController {
     Role.corretor,
     Role.treinee,
     Role.financeiro,
+    Role.super_admin,
   )
   listVendasCorretor(
     @Param('id', ParseUUIDPipe) corretorId: string,
@@ -48,6 +49,7 @@ export class DashboardController {
     Role.corretor,
     Role.treinee,
     Role.financeiro,
+    Role.super_admin,
   )
   esteiraCorretor(
     @Param('id', ParseUUIDPipe) corretorId: string,
@@ -75,6 +77,7 @@ export class DashboardController {
     Role.corretor,
     Role.treinee,
     Role.financeiro,
+    Role.super_admin,
   )
   resumoAdmin(
     @CurrentUser() requester: AuthenticatedUser,
@@ -91,6 +94,7 @@ export class DashboardController {
     Role.corretor,
     Role.treinee,
     Role.financeiro,
+    Role.super_admin,
   )
   ranking(
     @CurrentUser() requester: AuthenticatedUser,
