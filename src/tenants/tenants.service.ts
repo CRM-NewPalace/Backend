@@ -143,16 +143,30 @@ export class TenantsService {
             select: { id: true },
             take: 1,
           },
+          oruloConnections: {
+            where: { ativo: true },
+            select: { id: true },
+            take: 1,
+          },
         },
         orderBy: { name: 'asc' },
       })
       .then((rows) =>
-        rows.map(({ users, metaConnections, ozapConnections, ...tenant }) => ({
-          ...tenant,
-          admin: users[0] ?? null,
-          hasMetaConnection: metaConnections.length > 0,
-          hasOzapConnection: ozapConnections.length > 0,
-        })),
+        rows.map(
+          ({
+            users,
+            metaConnections,
+            ozapConnections,
+            oruloConnections,
+            ...tenant
+          }) => ({
+            ...tenant,
+            admin: users[0] ?? null,
+            hasMetaConnection: metaConnections.length > 0,
+            hasOzapConnection: ozapConnections.length > 0,
+            hasOruloConnection: oruloConnections.length > 0,
+          }),
+        ),
       );
   }
 
@@ -302,6 +316,21 @@ export class TenantsService {
           select: ozapConnectionSelect,
           orderBy: { createdAt: 'desc' },
         },
+        oruloConnections: {
+          select: {
+            id: true,
+            tenantId: true,
+            clientId: true,
+            ativo: true,
+            lastFullSyncAt: true,
+            lastReconcileAt: true,
+            lastError: true,
+            syncing: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
         _count: { select: { users: true } },
       },
     });
@@ -310,14 +339,27 @@ export class TenantsService {
       throw new NotFoundException('Tenant não encontrado.');
     }
 
-    const { _count, metaConnections, ozapConnections, users, ...rest } =
-      tenant;
+    const {
+      _count,
+      metaConnections,
+      ozapConnections,
+      oruloConnections,
+      users,
+      ...rest
+    } = tenant;
     return {
       ...rest,
       admin: users[0] ?? null,
       userCount: _count.users,
       metaConnections: metaConnections.map(maskMetaConnection),
       ozapConnections,
+      oruloConnections: oruloConnections.map((row) => ({
+        ...row,
+        clientId:
+          row.clientId.length <= 6
+            ? '••••'
+            : `${row.clientId.slice(0, 4)}…${row.clientId.slice(-4)}`,
+      })),
     };
   }
 
@@ -947,7 +989,11 @@ export class TenantsService {
     });
     if (!tenant) throw new NotFoundException('Tenant não encontrado.');
     const modules = applyPlanoModules(tenant.plano, tenant.modules);
-    return { modules, operations: pickOperationModules(modules) };
+    return {
+      modules,
+      operations: pickOperationModules(modules),
+      hideClientesNav: modules.hideClientesNav === true,
+    };
   }
 
   async updateOperationModules(
@@ -977,6 +1023,9 @@ export class TenantsService {
       imoveisUsados: dto.imoveisUsados,
       locacao: dto.locacao,
     });
+    if (typeof dto.hideClientesNav === 'boolean') {
+      merged.hideClientesNav = dto.hideClientesNav;
+    }
     const modules = applyPlanoModules(tenant.plano, merged);
 
     await this.prisma.tenant.update({
@@ -984,7 +1033,11 @@ export class TenantsService {
       data: { modules: modules as Prisma.InputJsonValue },
     });
 
-    return { modules, operations: pickOperationModules(modules) };
+    return {
+      modules,
+      operations: pickOperationModules(modules),
+      hideClientesNav: modules.hideClientesNav === true,
+    };
   }
 
   /** Mantém só dígitos do CPF/CNPJ (até 14). */

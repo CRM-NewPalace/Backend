@@ -13,8 +13,11 @@ export const DEFAULT_TENANT_SLUG = 'new-palace';
 export const PLATFORM_TENANT_ID = '00000000-0000-4000-8000-000000000000';
 export const PLATFORM_TENANT_SLUG = 'zone-connection-platform';
 
-/** Exige tenantId no JWT (usuários de imobiliária). */
+/** Exige tenantId no JWT (usuários de imobiliária). Super admin usa o tenant da plataforma. */
 export function requireTenantId(user: AuthenticatedUser): string {
+  if (user.role === Role.super_admin) {
+    return PLATFORM_TENANT_ID;
+  }
   if (!user.tenantId) {
     throw new ForbiddenException(
       'Esta operação requer um usuário vinculado a um tenant.',

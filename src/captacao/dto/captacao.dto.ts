@@ -83,6 +83,11 @@ export class UpdateCaptacaoDto {
   @IsOptional()
   @IsUUID()
   funilEtapaId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  motivoPerda?: string;
 }
 
 export class QueryCaptacoesDto {

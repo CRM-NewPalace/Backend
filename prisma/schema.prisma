@@ -154,6 +154,7 @@ model Tenant {
   metas             Meta[]
   metaConnections   TenantMetaConnection[]
   ozapConnections   TenantOzapConnection[]
+  oruloConnections  TenantOruloConnection[]
   financeiroParceiros     FinanceiroParceiro[]
   financeiroMovimentos    FinanceiroMovimento[]
   financeiroTitulos       FinanceiroTitulo[]
@@ -169,6 +170,7 @@ model Tenant {
   treinamentoLinks        TreinamentoLink[]
   proprietarios           Proprietario[]
   imoveisCaptacao         Imovel[]
+  imovelFotos             ImovelFoto[]
   captacoes               Captacao[]
   captacaoHistoricos      CaptacaoHistorico[]
   vendasUsado             VendaUsado[]
@@ -230,6 +232,42 @@ model TenantOzapConnection {
 
   @@index([tenantId])
   @@map("tenant_ozap_connections")
+}
+
+/// Credenciais Órulo (oruloClientAuth) por imobiliária.
+model TenantOruloConnection {
+  id              String    @id @default(uuid())
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clientId        String    @unique
+  clientSecret    String
+  accessToken     String?
+  ativo           Boolean   @default(true)
+  lastFullSyncAt  DateTime?
+  lastReconcileAt DateTime?
+  lastError       String?
+  syncing         Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId])
+  @@index([tenantId])
+  @@map("tenant_orulo_connections")
+}
+
+/// Token oruloEndUserAuth do corretor (dados comerciais em tempo real).
+model UserOruloToken {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId    String
+  accessToken String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("user_orulo_tokens")
 }
 
 /// Usuário do sistema (login, RBAC e gestão de equipe).
@@ -353,6 +391,7 @@ model User {
 
   /// Conta Google Calendar do usuário (refresh token por pessoa).
   googleCalendar UserGoogleCalendar?
+  oruloToken     UserOruloToken?
 
   captacoesResponsavel Captacao[] @relation("CaptacaoResponsavel")
   captacaoHistoricos   CaptacaoHistorico[] @relation("CaptacaoHistoricoAutor")
@@ -758,6 +797,13 @@ model Empreendimento {
   /// Chave estável interna (ex.: manual-slug-timestamp).
   externalKey String
   ativo       Boolean @default(true)
+  /// ID imutável do empreendimento na Órulo (quando originado do catálogo).
+  oruloBuildingId   Int?
+  oruloImageIds     String[]  @default([])
+  oruloFloorPlanIds String[]  @default([])
+  /// active | removed | excluded
+  oruloStatus       String?
+  oruloSyncedAt     DateTime?
 
   documentacoes Documentacao[]
   propostas     Proposta[]
@@ -768,11 +814,13 @@ model Empreendimento {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, externalKey])
+  @@unique([tenantId, oruloBuildingId])
   @@index([tenantId])
   @@index([construtoraId])
   @@index([localidadeId])
   @@index([ativo])
   @@index([nome])
+  @@index([oruloBuildingId])
   @@map("empreendimentos")
 }
 
@@ -1349,6 +1397,8 @@ enum CaptacaoHistoricoTipo {
   valor
   exclusividade
   edicao
+  portal_acao
+  cancelamento
 }
 
 /// Pessoa ou empresa dona do imóvel. Base do futuro Portal do Proprietário.
@@ -1392,6 +1442,7 @@ model ProprietarioPortalAcesso {
   hashedRefreshToken   String?
   status               ProprietarioPortalStatus @default(inativo)
   lastLoginAt          DateTime?
+  novidadesLidasAt     DateTime?
   passwordResetToken   String?
   passwordResetExpires DateTime?
 
@@ -1438,6 +1489,7 @@ model Imovel {
   torres          Int?
   fotoUrl         String?
   fotoPublicId    String?
+  fotos           ImovelFoto[]
 
   captacoes Captacao[]
   vendaUsado VendaUsado?
@@ -1454,6 +1506,23 @@ model Imovel {
   @@map("imoveis")
 }
 
+/// Até 4 fotos por imóvel (capa = sortOrder 0). A imobiliária envia; o dono não.
+model ImovelFoto {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  imovelId  String
+  imovel    Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  url       String
+  publicId  String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([imovelId, sortOrder])
+  @@index([tenantId, imovelId])
+  @@map("imovel_fotos")
+}
+
 /// Processo de captação do imóvel para a imobiliária (funil tipo captacao).
 model Captacao {
   id               String    @id @default(uuid())
@@ -1467,6 +1536,11 @@ model Captacao {
   responsavel      User      @relation("CaptacaoResponsavel", fields: [responsavelId], references: [id], onDelete: Restrict)
   /// Label do catálogo de origens (mesmo padrão de Lead.origem).
   origem           String    @default("")
+  /// Imóvel sugerido pelo dono no portal (card com tag no funil).
+  sugestaoProprietario Boolean @default(false)
+  /// Dono desistiu de anunciar pelo portal; o corretor dá perda ou tenta negociar.
+  canceladoPeloProprietario Boolean @default(false)
+  motivoPerda String @default("")
   exclusividade    Boolean   @default(false)
   valorPretendido  Decimal?  @db.Decimal(14, 2)
   valorAvaliacao   Decimal?  @db.Decimal(14, 2)
@@ -1550,6 +1624,7 @@ enum VendaUsadoHistoricoTipo {
   contrato
   chave
   pos_venda
+  portal_acao
 }
 
 enum VendaUsadoVisitaStatus {

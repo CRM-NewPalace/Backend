@@ -76,6 +76,16 @@ export class CaptacaoImoveisController {
     return this.captacao.updateImovel(id, dto, user);
   }
 
+  @Delete(':id/foto/:fotoId')
+  @Roles(...CAPTACAO_ROLES)
+  removeFotoById(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('fotoId', ParseUUIDPipe) fotoId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.captacao.removeFoto(id, user, fotoId);
+  }
+
   @Delete(':id/foto')
   @Roles(...CAPTACAO_ROLES)
   removeFoto(

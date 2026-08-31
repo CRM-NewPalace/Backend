@@ -29,6 +29,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { MetasModule } from './metas/metas.module';
 import { OzapModule } from './ozap/ozap.module';
 import { MetaModule } from './meta/meta.module';
+import { OruloModule } from './orulo/orulo.module';
 import { PropostasModule } from './propostas/propostas.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { PlatformContratosModule } from './platform-contratos/platform-contratos.module';
@@ -61,6 +62,7 @@ import { THROTTLE } from './config/security.constants';
     MetasModule,
     OzapModule,
     MetaModule,
+    OruloModule,
     PropostasModule,
     FinanceiroModule,
     PlatformContratosModule,

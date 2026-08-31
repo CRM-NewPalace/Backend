@@ -23,6 +23,8 @@ import { CreateOzapConnectionDto } from './dto/create-ozap-connection.dto';
 import { UpdateOzapConnectionDto } from './dto/update-ozap-connection.dto';
 import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
 import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
+import { UpsertOruloConnectionDto } from '../orulo/dto/upsert-orulo-connection.dto';
+import { OruloService } from '../orulo/orulo.service';
 
 /**
  * Administração de tenants (imobiliárias) da plataforma.
@@ -32,7 +34,10 @@ import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
 @UseGuards(RolesGuard)
 @Roles(Role.super_admin)
 export class TenantsController {
-  constructor(private readonly tenantsService: TenantsService) {}
+  constructor(
+    private readonly tenantsService: TenantsService,
+    private readonly oruloService: OruloService,
+  ) {}
 
   @Get()
   findAll() {
@@ -168,5 +173,31 @@ export class TenantsController {
     @Param('connectionId', ParseUUIDPipe) connectionId: string,
   ) {
     return this.tenantsService.removeOzapConnection(tenantId, connectionId);
+  }
+
+  @Get(':id/orulo-connection')
+  getOruloConnection(@Param('id', ParseUUIDPipe) id: string) {
+    return this.oruloService.statusForTenant(id);
+  }
+
+  @Post(':id/orulo-connection')
+  upsertOruloConnection(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpsertOruloConnectionDto,
+  ) {
+    return this.oruloService.upsertForTenant(id, dto);
+  }
+
+  @Patch(':id/orulo-connection')
+  toggleOruloConnection(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: { ativo: boolean },
+  ) {
+    return this.oruloService.setAtivo(id, dto.ativo);
+  }
+
+  @Delete(':id/orulo-connection')
+  removeOruloConnection(@Param('id', ParseUUIDPipe) id: string) {
+    return this.oruloService.disconnectForTenant(id);
   }
 }

@@ -102,7 +102,7 @@ export class LeadsController {
   /** Leads perdidos — só admin. Antes de GET :id. */
   @Get('perdidos')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.super_admin)
   findLost(
     @Query() query: QueryLeadsDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -123,7 +123,7 @@ export class LeadsController {
 
   @Get('monitoramento/corretores')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.super_admin)
   monitoramentoCorretores(@CurrentUser() requester: AuthenticatedUser) {
     return this.leadsService.listCorretoresMonitoramento(requester);
   }

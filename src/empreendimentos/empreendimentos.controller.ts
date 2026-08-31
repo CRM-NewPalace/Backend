@@ -41,6 +41,7 @@ export class EmpreendimentosController {
     Role.analista,
     Role.treinee,
     Role.financeiro,
+    Role.super_admin,
   )
   list(
     @Query() query: QueryEmpreendimentosDto,

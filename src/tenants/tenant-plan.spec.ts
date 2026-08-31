@@ -39,4 +39,13 @@ describe('módulos de operação no plano', () => {
     assert.equal(next.captacao, true);
     assert.equal(next.comercial, true);
   });
+
+  it('preserva ocultar Clientes do menu ao normalizar', () => {
+    const next = normalizeModulesForPlano(TenantPlano.ouro, {
+      hideClientesNav: true,
+      captacao: true,
+    });
+    assert.equal(next.hideClientesNav, true);
+    assert.equal(next.captacao, true);
+  });
 });

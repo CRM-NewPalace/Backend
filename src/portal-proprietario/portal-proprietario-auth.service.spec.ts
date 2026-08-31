@@ -149,4 +149,34 @@ describe('portal proprietário — autenticação', () => {
       BadRequestException,
     );
   });
+
+  it('gera senha temporária sob demanda', async () => {
+    const prisma = {
+      proprietario: {
+        findFirst: async () => ({
+          id: 'p1',
+          email: 'joao@ex.com',
+          portalAcesso: {
+            id: 'a1',
+            password: 'hash',
+            lastLoginAt: null,
+          },
+        }),
+      },
+      proprietarioPortalAcesso: {
+        upsert: async () => ({ lastLoginAt: null }),
+      },
+    };
+    const service = new PortalProprietarioAuthService(
+      prisma as never,
+      jwtMock() as never,
+      configMock() as never,
+    );
+    const result = await service.setAcesso('p1', 't1', {
+      ativo: true,
+      gerarSenhaTemporaria: true,
+    });
+    assert.equal(result.ativo, true);
+    assert.match(result.senhaTemporaria ?? '', /^Portal1a[0-9a-f]{6}$/);
+  });
 });

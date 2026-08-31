@@ -62,6 +62,19 @@ const ALL = [
   ...OPERACOES,
 ] as const;
 
+/** Só some do menu; não bloqueia rota. Persistido em Tenant.modules. */
+export const HIDE_CLIENTES_NAV_KEY = 'hideClientesNav';
+
+function withNavPrefs(
+  normalized: Record<string, boolean>,
+  raw: Record<string, boolean>,
+): Record<string, boolean> {
+  if (typeof raw[HIDE_CLIENTES_NAV_KEY] === 'boolean') {
+    normalized[HIDE_CLIENTES_NAV_KEY] = raw[HIDE_CLIENTES_NAV_KEY];
+  }
+  return normalized;
+}
+
 const OPERACAO_DEFAULT: Record<(typeof OPERACOES)[number], boolean> = {
   comercial: true,
   captacao: false,
@@ -191,7 +204,7 @@ export function normalizeModulesForPlano(
         next[k] = modules[k] === true;
       }
     }
-    return next;
+    return withNavPrefs(next, modules);
   }
 
   const next: Record<string, boolean> = { ...modules };
@@ -220,7 +233,10 @@ export function normalizeModulesForPlano(
 
   applyOperationDefaults(next);
 
-  return Object.fromEntries(ALL.map((k) => [k, next[k] === true]));
+  return withNavPrefs(
+    Object.fromEntries(ALL.map((k) => [k, next[k] === true])),
+    modules,
+  );
 }
 
 /**
