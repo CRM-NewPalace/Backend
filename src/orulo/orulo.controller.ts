@@ -4,6 +4,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
+import { requireTenantId } from '../common/utils/tenant';
 import { CompleteOruloOAuthDto } from './dto/complete-orulo-oauth.dto';
 import { UpsertOruloConnectionDto } from './dto/upsert-orulo-connection.dto';
 import { OruloService } from './orulo.service';
@@ -14,13 +15,13 @@ export class OruloController {
   constructor(private readonly orulo: OruloService) {}
 
   @Get('status')
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee, Role.super_admin)
   status(@CurrentUser() user: AuthenticatedUser) {
     return this.orulo.status(user);
   }
 
   @Post('connect')
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.super_admin)
   connect(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpsertOruloConnectionDto,
@@ -29,25 +30,25 @@ export class OruloController {
   }
 
   @Post('disconnect')
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.super_admin)
   disconnect(@CurrentUser() user: AuthenticatedUser) {
-    return this.orulo.disconnectForTenant(user.tenantId!);
+    return this.orulo.disconnectForTenant(requireTenantId(user));
   }
 
   @Post('sync')
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   sync(@CurrentUser() user: AuthenticatedUser) {
     return this.orulo.syncNow(user);
   }
 
   @Get('oauth/url')
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee, Role.super_admin)
   oauthUrl(@CurrentUser() user: AuthenticatedUser) {
     return this.orulo.authorizeUrl(user);
   }
 
   @Post('oauth/complete')
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee, Role.super_admin)
   oauthComplete(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CompleteOruloOAuthDto,
@@ -56,7 +57,7 @@ export class OruloController {
   }
 
   @Get('empreendimentos/:id/comercial')
-  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.corretor, Role.analista, Role.treinee, Role.super_admin)
   comercial(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,

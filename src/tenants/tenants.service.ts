@@ -764,7 +764,7 @@ export class TenantsService {
     await this.ensureInstanceIdAvailable(dto.instanceId);
 
     try {
-      return await this.prisma.tenantOzapConnection.create({
+      const connection = await this.prisma.tenantOzapConnection.create({
         data: {
           tenantId,
           instanceId: dto.instanceId,
@@ -772,6 +772,13 @@ export class TenantsService {
         },
         select: ozapConnectionSelect,
       });
+      if (tenantId === PLATFORM_TENANT_ID) {
+        await this.prisma.tenant.update({
+          where: { id: tenantId },
+          data: { iaBotEnabled: true },
+        });
+      }
+      return connection;
     } catch (error) {
       throw this.translateUniqueConstraint(
         error,
