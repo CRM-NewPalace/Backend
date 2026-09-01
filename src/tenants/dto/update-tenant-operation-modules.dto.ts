@@ -18,4 +18,9 @@ export class UpdateTenantOperationModulesDto {
   @IsOptional()
   @IsBoolean()
   hideClientesNav?: boolean;
+
+  /** Admin vê clientes dos corretores na lista e no funil. */
+  @IsOptional()
+  @IsBoolean()
+  adminVerClientesCorretor?: boolean;
 }

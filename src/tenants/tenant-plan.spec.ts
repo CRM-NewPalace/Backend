@@ -48,4 +48,11 @@ describe('módulos de operação no plano', () => {
     assert.equal(next.hideClientesNav, true);
     assert.equal(next.captacao, true);
   });
+
+  it('preserva admin ver clientes do corretor ao normalizar', () => {
+    const next = normalizeModulesForPlano(TenantPlano.ouro, {
+      adminVerClientesCorretor: true,
+    });
+    assert.equal(next.adminVerClientesCorretor, true);
+  });
 });
