@@ -140,7 +140,10 @@ export class MetasService {
       fim: { gt: agora },
     };
 
-    if (requester.role === Role.admin) {
+    if (requester.role === Role.admin || requester.role === Role.super_admin) {
+      if (requester.role === Role.super_admin) {
+        return { ...base, escopo: MetaEscopo.imobiliaria };
+      }
       return base;
     }
 
@@ -249,6 +252,15 @@ export class MetasService {
       };
     }
 
+    if (requester.role === Role.super_admin) {
+      return {
+        escopo: MetaEscopo.imobiliaria,
+        origem: MetaOrigem.admin,
+        corretorId: null,
+        gerenteId: null,
+      };
+    }
+
     if (requester.role !== Role.admin) {
       throw new ForbiddenException(
         'Somente administradores, gerentes e corretores criam metas.',
@@ -332,7 +344,18 @@ export class MetasService {
     });
     if (!meta) throw new NotFoundException('Meta não encontrada.');
 
-    if (requester.role === Role.admin && meta.origem === MetaOrigem.admin) {
+    if (
+      (requester.role === Role.admin || requester.role === Role.super_admin) &&
+      meta.origem === MetaOrigem.admin
+    ) {
+      if (
+        requester.role === Role.super_admin &&
+        meta.escopo !== MetaEscopo.imobiliaria
+      ) {
+        throw new ForbiddenException(
+          'O super admin só edita metas da empresa.',
+        );
+      }
       return meta;
     }
 
