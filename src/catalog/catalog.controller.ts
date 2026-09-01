@@ -24,7 +24,7 @@ import { ReorderCatalogDto } from './dto/reorder-catalog.dto';
 /**
  * Catálogos configuráveis (funil, origens, motivos de perda, tags, documentação).
  * Leitura: qualquer usuário autenticado.
- * Mutação geral: admin e gerente.
+ * Mutação geral: admin, gerente e super_admin (tenant da plataforma).
  * Analista: documentação, origens, motivos de perda, tags e CCAs (criar/editar/excluir).
  * Treinee: origens, tags e CCAs.
  * Corretor: somente leitura (motivos de perda vêm da gerência).
@@ -47,7 +47,7 @@ export class CatalogController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee, Role.super_admin)
   create(
     @Body() dto: CreateCatalogItemDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -58,14 +58,14 @@ export class CatalogController {
   /** Instala/restaura o pacote padrão de etapas do funil no banco. */
   @Post('defaults/funil')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   installDefaultFunnel(@CurrentUser() requester: AuthenticatedUser) {
     return this.catalogService.installDefaultFunnelStages(requester);
   }
 
   @Patch('reorder')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   reorder(
     @Body() dto: ReorderCatalogDto,
     @CurrentUser() requester: AuthenticatedUser,
@@ -75,7 +75,7 @@ export class CatalogController {
 
   @Patch(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee, Role.super_admin)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCatalogItemDto,
@@ -86,7 +86,7 @@ export class CatalogController {
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee)
+  @Roles(Role.admin, Role.gerente, Role.analista, Role.treinee, Role.super_admin)
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,

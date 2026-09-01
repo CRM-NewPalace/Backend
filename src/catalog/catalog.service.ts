@@ -10,7 +10,7 @@ import {
 import { CatalogItem, CatalogType, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { requireTenantId } from '../common/utils/tenant';
+import { isPlatformAdmin, requireTenantId } from '../common/utils/tenant';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 import { QueryCatalogDto } from './dto/query-catalog.dto';
@@ -599,7 +599,11 @@ export class CatalogService {
     requester: AuthenticatedUser,
     type: CatalogType,
   ) {
-    if (requester.role === Role.admin || requester.role === Role.gerente) {
+    if (
+      isPlatformAdmin(requester) ||
+      requester.role === Role.admin ||
+      requester.role === Role.gerente
+    ) {
       return;
     }
     if (
