@@ -136,6 +136,8 @@ model Tenant {
   usuariosExtras Int @default(0)
   /// Tenant pode conectar bot de IA (WhatsApp/OZap IA).
   iaBotEnabled Boolean @default(false)
+  /// Cliente de teste/demonstração (separado dos clientes reais na gestão).
+  isTest Boolean @default(false)
 
   users             User[]
   equipes           Equipe[]
@@ -195,6 +197,7 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([isTest])
   @@map("tenants")
 }
 

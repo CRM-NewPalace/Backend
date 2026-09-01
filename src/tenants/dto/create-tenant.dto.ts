@@ -76,6 +76,10 @@ export class CreateTenantDto {
   iaBotEnabled?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  isTest?: boolean;
+
+  @IsOptional()
   @Transform(emptyToNull)
   @Allow()
   logoUrl?: string | null;

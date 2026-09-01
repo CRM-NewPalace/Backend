@@ -122,6 +122,10 @@ export class TenantsService {
    */
   async populateDemoData(id: string, dto: PopulateDemoDataDto = {}) {
     const result = await this.demoDataService.populate(id, dto);
+    await this.prisma.tenant.update({
+      where: { id },
+      data: { isTest: true },
+    });
     const tenant = await this.findOne(id);
     return { ...result, tenant };
   }
@@ -210,6 +214,7 @@ export class TenantsService {
             maxUsuarios: planFields.maxUsuarios,
             usuariosExtras: planFields.usuariosExtras,
             iaBotEnabled: planFields.iaBotEnabled,
+            isTest: dto.isTest ?? false,
             ...extras,
           },
           select: tenantSelect,
@@ -646,6 +651,7 @@ export class TenantsService {
               : current.maxUsuarios),
           usuariosExtras: planFields.usuariosExtras,
           iaBotEnabled: planFields.iaBotEnabled,
+          ...(dto.isTest !== undefined ? { isTest: dto.isTest } : {}),
           ...(logoChanged ? { primaryColor } : {}),
           sidebarStyle: 'default',
           density: 'comfortable',
