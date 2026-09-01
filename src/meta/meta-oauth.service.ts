@@ -25,6 +25,7 @@ import {
   pickMetaRedirectUri,
   resolveMetaAppId,
 } from './meta-oauth.util';
+import { requireTenantId } from '../common/utils/tenant';
 
 const SCOPES = [
   'pages_show_list',
@@ -78,7 +79,7 @@ export class MetaOAuthService {
         adAccountName: null as string | null,
       };
     }
-    const tenantId = this.requireTenantId(user);
+    const tenantId = requireTenantId(user);
     const row = await this.prisma.tenantMetaConnection.findFirst({
       where: { tenantId, ativo: true },
       orderBy: { updatedAt: 'desc' },
@@ -104,7 +105,7 @@ export class MetaOAuthService {
   ) {
     this.assertConfigured();
     this.assertCanManage(user);
-    const tenantId = this.requireTenantId(user);
+    const tenantId = requireTenantId(user);
     const allowed = parseMetaAllowedRedirectUris(this.config);
     const redirectUri = pickMetaRedirectUri(req, allowed, returnOrigin);
     const state = this.jwt.sign(
@@ -194,7 +195,7 @@ export class MetaOAuthService {
   async listAssets(user: AuthenticatedUser) {
     this.assertConfigured();
     this.assertCanManage(user);
-    const tenantId = this.requireTenantId(user);
+    const tenantId = requireTenantId(user);
     const session = this.requirePending(tenantId, user.id);
     const [pages, adAccounts] = await Promise.all([
       this.graphApi.listUserPages(session.userAccessToken),
@@ -217,7 +218,7 @@ export class MetaOAuthService {
   ) {
     this.assertConfigured();
     this.assertCanManage(user);
-    const tenantId = this.requireTenantId(user);
+    const tenantId = requireTenantId(user);
     const session = this.requirePending(tenantId, user.id);
     const pageId = dto.pageId.trim();
     const pages = await this.graphApi.listUserPages(session.userAccessToken);
@@ -299,7 +300,7 @@ export class MetaOAuthService {
 
   async disconnect(user: AuthenticatedUser) {
     this.assertCanManage(user);
-    const tenantId = this.requireTenantId(user);
+    const tenantId = requireTenantId(user);
     const rows = await this.prisma.tenantMetaConnection.findMany({
       where: { tenantId },
     });
@@ -329,27 +330,27 @@ export class MetaOAuthService {
     return `${tenantId}:${userId}`;
   }
 
-  private requireTenantId(user: AuthenticatedUser): string {
-    if (!user.tenantId) {
-      throw new ForbiddenException(
-        'Conecte o Facebook pela conta da imobiliária, não pela conta da plataforma.',
-      );
-    }
-    return user.tenantId;
-  }
-
   private assertCanManage(user: AuthenticatedUser) {
-    if (user.role !== Role.admin && user.role !== Role.gerente) {
+    if (
+      user.role !== Role.admin &&
+      user.role !== Role.gerente &&
+      user.role !== Role.super_admin
+    ) {
       throw new ForbiddenException(
-        'Apenas admin ou gerente pode conectar o Facebook.',
+        'Apenas admin, gerente ou super admin pode conectar o Facebook.',
       );
     }
   }
 
   private assertConfigured() {
     if (!this.isConfigured()) {
+      const hasSecret = Boolean(
+        this.config.get<string>('META_APP_SECRET')?.trim(),
+      );
       throw new ServiceUnavailableException(
-        'A integração Facebook não está disponível neste ambiente.',
+        hasSecret
+          ? 'A integração Facebook não está disponível neste ambiente.'
+          : 'A API deste ambiente não tem META_APP_SECRET. No Dokploy da API de produção, cole a chave do app Meta (Configurações do app → Segredo do aplicativo) e faça redeploy.',
       );
     }
   }

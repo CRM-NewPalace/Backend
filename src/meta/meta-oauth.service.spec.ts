@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { ForbiddenException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { MetaOAuthService } from './meta-oauth.service';
 
 describe('MetaOAuthService', () => {
-  it('status sem tenant (super_admin) é recusado', async () => {
+  it('status do super_admin usa o tenant da plataforma', async () => {
     const service = new MetaOAuthService(
       {
         tenantMetaConnection: {
@@ -26,16 +25,14 @@ describe('MetaOAuthService', () => {
       {} as never,
     );
 
-    await assert.rejects(
-      () =>
-        service.status({
-          id: 'u1',
-          email: 'a@a.com',
-          name: 'Admin',
-          role: Role.super_admin,
-          tenantId: null,
-        }),
-      ForbiddenException,
-    );
+    const status = await service.status({
+      id: 'u1',
+      email: 'a@a.com',
+      name: 'Admin',
+      role: Role.super_admin,
+      tenantId: null,
+    });
+    assert.equal(status.configured, true);
+    assert.equal(status.connected, false);
   });
 });

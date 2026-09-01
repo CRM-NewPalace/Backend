@@ -604,8 +604,12 @@ export class LeadsService {
         ? { tenantId: requireTenantId(requester) }
         : await this.teamScope.leadScope(requester);
     const tipoFiltro = query.tipo as ContatoTipo | undefined;
+    const adminVeClientesCorretor =
+      requester.role === Role.admin &&
+      requester.tenantModules?.adminVerClientesCorretor === true;
     const isGestorCarteira =
-      requester.role === Role.admin || requester.role === Role.gerente;
+      (requester.role === Role.admin && !adminVeClientesCorretor) ||
+      requester.role === Role.gerente;
 
     const where: Prisma.LeadWhereInput = {
       perdidoAt: null,

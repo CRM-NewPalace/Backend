@@ -16,14 +16,14 @@ export class MetaOAuthController {
 
   @Get('status')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   status(@CurrentUser() user: AuthenticatedUser) {
     return this.metaOAuth.status(user);
   }
 
   @Get('connect')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   connect(
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,
@@ -49,14 +49,14 @@ export class MetaOAuthController {
 
   @Get('assets')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   assets(@CurrentUser() user: AuthenticatedUser) {
     return this.metaOAuth.listAssets(user);
   }
 
   @Post('complete')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   complete(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CompleteMetaOAuthDto,
@@ -66,7 +66,7 @@ export class MetaOAuthController {
 
   @Post('disconnect')
   @UseGuards(RolesGuard)
-  @Roles(Role.admin, Role.gerente)
+  @Roles(Role.admin, Role.gerente, Role.super_admin)
   disconnect(@CurrentUser() user: AuthenticatedUser) {
     return this.metaOAuth.disconnect(user);
   }

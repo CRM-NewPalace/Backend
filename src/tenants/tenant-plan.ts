@@ -62,15 +62,20 @@ const ALL = [
   ...OPERACOES,
 ] as const;
 
-/** Só some do menu; não bloqueia rota. Persistido em Tenant.modules. */
+/** Preferência de menu no frontend; não persiste como módulo do tenant. */
 export const HIDE_CLIENTES_NAV_KEY = 'hideClientesNav';
+
+/** Admin do tenant vê clientes dos corretores (lista e funil). */
+export const ADMIN_VER_CLIENTES_CORRETOR_KEY = 'adminVerClientesCorretor';
 
 function withNavPrefs(
   normalized: Record<string, boolean>,
   raw: Record<string, boolean>,
 ): Record<string, boolean> {
-  if (typeof raw[HIDE_CLIENTES_NAV_KEY] === 'boolean') {
-    normalized[HIDE_CLIENTES_NAV_KEY] = raw[HIDE_CLIENTES_NAV_KEY];
+  // hideClientesNav era tenant-wide; o menu agora é preferência por usuário no frontend.
+  if (typeof raw[ADMIN_VER_CLIENTES_CORRETOR_KEY] === 'boolean') {
+    normalized[ADMIN_VER_CLIENTES_CORRETOR_KEY] =
+      raw[ADMIN_VER_CLIENTES_CORRETOR_KEY];
   }
   return normalized;
 }
