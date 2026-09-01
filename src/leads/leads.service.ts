@@ -15,7 +15,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { requireTenantId } from '../common/utils/tenant';
+import { requireTenantId, canViewLostLeads } from '../common/utils/tenant';
 import { prismaTableOrderBy } from '../common/utils/table-sort';
 import { isCorretorLike } from '../common/utils/roles';
 import { hasUserAction } from '../common/utils/user-permissions';
@@ -810,7 +810,7 @@ export class LeadsService {
     // Perdidos: admin vê leads; corretor vê os próprios clientes.
     if (lead.perdidoAt) {
       const adminLead =
-        requester.role === Role.admin || requester.role === Role.super_admin;
+        canViewLostLeads(requester) && lead.tipo === ContatoTipo.lead;
       const corretorCliente =
         isCorretorLike(requester.role) &&
         lead.tipo === ContatoTipo.cliente &&
@@ -833,7 +833,7 @@ export class LeadsService {
     requester: AuthenticatedUser,
   ): Promise<PaginatedLeads> {
     const tenantId = requireTenantId(requester);
-    if (requester.role !== Role.admin && requester.role !== Role.super_admin) {
+    if (!canViewLostLeads(requester)) {
       throw new ForbiddenException(
         'Apenas administradores podem ver leads perdidos.',
       );
@@ -1229,8 +1229,8 @@ export class LeadsService {
 
   async remove(id: string, requester: AuthenticatedUser): Promise<void> {
     const tenantId = requireTenantId(requester);
-    // Hard delete só para admin, e apenas de leads já perdidos.
-    if (requester.role !== Role.admin && requester.role !== Role.super_admin) {
+    // Hard delete só para admin/super_admin, e apenas de leads já perdidos.
+    if (!canViewLostLeads(requester)) {
       throw new ForbiddenException(
         'Para remover um lead da operação, informe o motivo — ele irá para Leads Perdidos.',
       );

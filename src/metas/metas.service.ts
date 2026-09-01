@@ -18,7 +18,7 @@ import {
   isStatusVendido,
   documentacaoVendaNoPeriodoWhere,
 } from '../common/utils/documentacao-status';
-import { requireTenantId } from '../common/utils/tenant';
+import { requireTenantId, isPlatformAdmin } from '../common/utils/tenant';
 import { isCorretorLike } from '../common/utils/roles';
 import { TeamScopeService } from '../equipes/team-scope.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -140,10 +140,11 @@ export class MetasService {
       fim: { gt: agora },
     };
 
-    if (requester.role === Role.admin || requester.role === Role.super_admin) {
-      if (requester.role === Role.super_admin) {
-        return { ...base, escopo: MetaEscopo.imobiliaria };
-      }
+    if (isPlatformAdmin(requester)) {
+      return { ...base, escopo: MetaEscopo.imobiliaria };
+    }
+
+    if (String(requester.role) === Role.admin) {
       return base;
     }
 
@@ -204,6 +205,15 @@ export class MetasService {
     const tenantId = requireTenantId(requester);
     const escopo = (dto.escopo as MetaEscopo | undefined) ?? MetaEscopo.corretor;
 
+    if (isPlatformAdmin(requester)) {
+      return {
+        escopo: MetaEscopo.imobiliaria,
+        origem: MetaOrigem.admin,
+        corretorId: null,
+        gerenteId: null,
+      };
+    }
+
     if (isCorretorLike(requester.role)) {
       if (escopo !== MetaEscopo.corretor) {
         throw new ForbiddenException(
@@ -252,16 +262,7 @@ export class MetasService {
       };
     }
 
-    if (requester.role === Role.super_admin) {
-      return {
-        escopo: MetaEscopo.imobiliaria,
-        origem: MetaOrigem.admin,
-        corretorId: null,
-        gerenteId: null,
-      };
-    }
-
-    if (requester.role !== Role.admin) {
+    if (String(requester.role) !== Role.admin) {
       throw new ForbiddenException(
         'Somente administradores, gerentes e corretores criam metas.',
       );
@@ -344,18 +345,19 @@ export class MetasService {
     });
     if (!meta) throw new NotFoundException('Meta não encontrada.');
 
-    if (
-      (requester.role === Role.admin || requester.role === Role.super_admin) &&
-      meta.origem === MetaOrigem.admin
-    ) {
-      if (
-        requester.role === Role.super_admin &&
-        meta.escopo !== MetaEscopo.imobiliaria
-      ) {
+    if (isPlatformAdmin(requester)) {
+      if (meta.escopo !== MetaEscopo.imobiliaria) {
         throw new ForbiddenException(
           'O super admin só edita metas da empresa.',
         );
       }
+      return meta;
+    }
+
+    if (
+      String(requester.role) === Role.admin &&
+      meta.origem === MetaOrigem.admin
+    ) {
       return meta;
     }
 
