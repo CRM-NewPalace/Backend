@@ -367,7 +367,7 @@ export function defaultsFromRole(role: Role): UserPermissions {
     'leads.view': Boolean(modules.leads),
     'leads.create': Boolean(modules.leads),
     'leads.edit': Boolean(modules.leads),
-    'leads.delete': role === Role.admin,
+    'leads.delete': role === Role.admin || role === Role.super_admin,
     'leads.viewLost': Boolean(modules.leadsPerdidos),
     'leads.viewOthers':
       role === Role.admin || role === Role.gerente || role === Role.analista,

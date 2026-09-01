@@ -193,7 +193,7 @@ export class LeadsController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(RolesGuard)
-  @Roles(Role.admin)
+  @Roles(Role.admin, Role.super_admin)
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() requester: AuthenticatedUser,
