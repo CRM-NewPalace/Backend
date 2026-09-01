@@ -64,6 +64,10 @@ export class UpdateTenantDto {
   iaBotEnabled?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  isTest?: boolean;
+
+  @IsOptional()
   @Transform(emptyToNull)
   @Allow()
   logoUrl?: string | null;

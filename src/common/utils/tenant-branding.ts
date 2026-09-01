@@ -30,6 +30,7 @@ export type TenantBranding = Prisma.TenantGetPayload<{
 export const tenantAdminSelect = {
   ...tenantBrandingSelect,
   status: true,
+  isTest: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.TenantSelect;
