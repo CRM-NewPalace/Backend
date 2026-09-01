@@ -370,7 +370,10 @@ export function defaultsFromRole(role: Role): UserPermissions {
     'leads.delete': role === Role.admin || role === Role.super_admin,
     'leads.viewLost': Boolean(modules.leadsPerdidos),
     'leads.viewOthers':
-      role === Role.admin || role === Role.gerente || role === Role.analista,
+      role === Role.admin ||
+      role === Role.super_admin ||
+      role === Role.gerente ||
+      role === Role.analista,
     'leads.changeOwner': gestor,
     'leads.export': gestor,
     'financeiro.access': Boolean(modules.financeiro),
