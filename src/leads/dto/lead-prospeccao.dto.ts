@@ -12,7 +12,7 @@ import {
 export class LeadProspeccaoDto {
   @IsOptional()
   @IsString()
-  @MaxLength(255)
+  @MaxLength(2000)
   endereco?: string | null;
 
   @IsOptional()
