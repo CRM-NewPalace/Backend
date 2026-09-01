@@ -19,6 +19,7 @@ export const leadSelect = {
   orcamentoMax: true,
   quartosMin: true,
   vagasMin: true,
+  prospeccao: true,
   tags: true,
   corretorId: true,
   corretor: { select: { id: true, name: true } },

@@ -14,8 +14,10 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { LEAD_INTERESSES, LEAD_PRIORIDADES, CONTATO_TIPOS } from '../lead.constants';
+import { LeadProspeccaoDto } from './lead-prospeccao.dto';
 
 export class CreateLeadDto {
   /** lead (padrão) ou cliente da carteira pessoal. */
@@ -155,4 +157,10 @@ export class CreateLeadDto {
   @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsDateString({}, { message: 'Data de cadastro inválida.' })
   createdAt?: string | null;
+
+  /** Prospecção B2B (tenant da plataforma). */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeadProspeccaoDto)
+  prospeccao?: LeadProspeccaoDto | null;
 }
