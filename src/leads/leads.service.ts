@@ -810,7 +810,7 @@ export class LeadsService {
     // Perdidos: admin vê leads; corretor vê os próprios clientes.
     if (lead.perdidoAt) {
       const adminLead =
-        requester.role === Role.admin && lead.tipo === ContatoTipo.lead;
+        requester.role === Role.admin || requester.role === Role.super_admin;
       const corretorCliente =
         isCorretorLike(requester.role) &&
         lead.tipo === ContatoTipo.cliente &&
@@ -833,7 +833,7 @@ export class LeadsService {
     requester: AuthenticatedUser,
   ): Promise<PaginatedLeads> {
     const tenantId = requireTenantId(requester);
-    if (requester.role !== Role.admin) {
+    if (requester.role !== Role.admin && requester.role !== Role.super_admin) {
       throw new ForbiddenException(
         'Apenas administradores podem ver leads perdidos.',
       );
@@ -1230,7 +1230,7 @@ export class LeadsService {
   async remove(id: string, requester: AuthenticatedUser): Promise<void> {
     const tenantId = requireTenantId(requester);
     // Hard delete só para admin, e apenas de leads já perdidos.
-    if (requester.role !== Role.admin) {
+    if (requester.role !== Role.admin && requester.role !== Role.super_admin) {
       throw new ForbiddenException(
         'Para remover um lead da operação, informe o motivo — ele irá para Leads Perdidos.',
       );
