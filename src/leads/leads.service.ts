@@ -31,6 +31,10 @@ import { QueryLeadsDto } from './dto/query-leads.dto';
 import { ImportLeadsDto } from './dto/import-leads.dto';
 import { AdiarPrazoDto } from './dto/adiar-prazo.dto';
 import type { LeadMonitoramento } from './monitoramento/lead-monitoramento.types';
+import {
+  DistribuirCorretoresDto,
+  DistribuirEquipesDto,
+} from './dto/distribuir-leads.dto';
 import { sanitizeProspeccao } from './lead-prospeccao';
 
 export type LeadWithDocStatus = LeadEntity & {
