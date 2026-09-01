@@ -1356,7 +1356,9 @@ export class LeadsService {
     // Admin e analista veem todos os corretores do tenant.
     // Gerente usa o escopo da equipe (TeamScopeService).
     const seeAllCorretores =
-      requester.role === Role.admin || requester.role === Role.analista;
+      requester.role === Role.admin ||
+      requester.role === Role.super_admin ||
+      requester.role === Role.analista;
     const ids = seeAllCorretores
       ? null
       : await this.teamScope.getVisibleCorretorIds(requester);
@@ -1364,6 +1366,7 @@ export class LeadsService {
     // Analista/admin/gerente: inclui carteiras de gestores no funil/análise.
     const includeCarteiraGestores =
       requester.role === Role.admin ||
+      requester.role === Role.super_admin ||
       requester.role === Role.gerente ||
       requester.role === Role.analista;
 

@@ -21,7 +21,11 @@ export class TeamScopeService {
   ): Promise<string[] | null> {
     const tenantId = requireTenantId(requester);
 
-    if (requester.role === Role.admin || requester.role === Role.analista) {
+    if (
+      requester.role === Role.admin ||
+      requester.role === Role.super_admin ||
+      requester.role === Role.analista
+    ) {
       return null;
     }
 
@@ -91,7 +95,11 @@ export class TeamScopeService {
   ): Promise<boolean> {
     requireTenantId(requester);
     if (!corretorId) {
-      if (requester.role === Role.admin || requester.role === Role.analista) {
+      if (
+        requester.role === Role.admin ||
+        requester.role === Role.super_admin ||
+        requester.role === Role.analista
+      ) {
         return true;
       }
       // Gerente: pool do admin (sem equipe) ou pool da própria equipe.
@@ -111,7 +119,9 @@ export class TeamScopeService {
     }
     // Admin/gerente acessam a própria carteira.
     if (
-      (requester.role === Role.admin || requester.role === Role.gerente) &&
+      (requester.role === Role.admin ||
+        requester.role === Role.super_admin ||
+        requester.role === Role.gerente) &&
       corretorId === requester.id
     ) {
       return true;
