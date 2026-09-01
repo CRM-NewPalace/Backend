@@ -31,10 +31,7 @@ import { QueryLeadsDto } from './dto/query-leads.dto';
 import { ImportLeadsDto } from './dto/import-leads.dto';
 import { AdiarPrazoDto } from './dto/adiar-prazo.dto';
 import type { LeadMonitoramento } from './monitoramento/lead-monitoramento.types';
-import {
-  DistribuirCorretoresDto,
-  DistribuirEquipesDto,
-} from './dto/distribuir-leads.dto';
+import { sanitizeProspeccao } from './lead-prospeccao';
 
 export type LeadWithDocStatus = LeadEntity & {
   documentacaoStatus1: string | null;
@@ -125,6 +122,7 @@ export class LeadsService {
       stage,
       createdAt ?? new Date(),
     );
+    const prospeccao = sanitizeProspeccao(dto.prospeccao);
 
     const created = await this.prisma.lead.create({
       data: {
@@ -145,6 +143,7 @@ export class LeadsService {
         orcamentoMax: dto.orcamentoMax ?? null,
         quartosMin: dto.quartosMin ?? null,
         vagasMin: dto.vagasMin ?? null,
+        ...(prospeccao !== undefined ? { prospeccao } : {}),
         tags: dto.tags ?? [],
         corretorId: assignment.corretorId,
         equipeId: assignment.equipeId,
@@ -208,6 +207,7 @@ export class LeadsService {
           item.email?.trim().toLowerCase() ||
           `import.${digits || index}@sem-email.local`;
         const origemRaw = (item.origem?.trim() || 'Importação').slice(0, 60);
+        const prospeccao = sanitizeProspeccao(item.prospeccao);
 
         const lead = await this.prisma.lead.create({
           data: {
@@ -225,6 +225,7 @@ export class LeadsService {
             renda: item.renda ?? null,
             tipoRenda: item.tipoRenda?.trim() || null,
             estadoCivil: item.estadoCivil?.trim() || null,
+            ...(prospeccao !== undefined ? { prospeccao } : {}),
             tags: ['Importação'],
             corretorId,
             ...importTiming,
@@ -1019,6 +1020,9 @@ export class LeadsService {
           : {}),
         ...(dto.quartosMin !== undefined ? { quartosMin: dto.quartosMin } : {}),
         ...(dto.vagasMin !== undefined ? { vagasMin: dto.vagasMin } : {}),
+        ...(dto.prospeccao !== undefined
+          ? { prospeccao: sanitizeProspeccao(dto.prospeccao) }
+          : {}),
         ...(dto.tags !== undefined ? { tags: dto.tags } : {}),
         ...(assignment
           ? {

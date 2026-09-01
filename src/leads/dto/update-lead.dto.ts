@@ -14,8 +14,10 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { LEAD_INTERESSES, LEAD_PRIORIDADES } from '../lead.constants';
+import { LeadProspeccaoDto } from './lead-prospeccao.dto';
 
 /** Atualização de lead: todos os campos opcionais. */
 export class UpdateLeadDto {
@@ -149,4 +151,9 @@ export class UpdateLeadDto {
   @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
   @IsDateString({}, { message: 'Data de cadastro inválida.' })
   createdAt?: string | null;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeadProspeccaoDto)
+  prospeccao?: LeadProspeccaoDto | null;
 }

@@ -510,6 +510,8 @@ model Lead {
   quartosMin   Int?
   /// Mínimo de vagas desejado (opcional).
   vagasMin     Int?
+  /// Prospecção B2B (imobiliária) — usada no tenant da plataforma.
+  prospeccao Json?
   tags       String[]    @default([])
 
   // Corretor dono do lead. Fica nulo se o corretor for removido (SetNull),

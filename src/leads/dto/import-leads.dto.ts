@@ -21,6 +21,7 @@ import {
   LEAD_INTERESSES,
   LEAD_PRIORIDADES,
 } from '../lead.constants';
+import { LeadProspeccaoDto } from './lead-prospeccao.dto';
 
 export class ImportLeadItemDto {
   @IsString()
@@ -88,6 +89,11 @@ export class ImportLeadItemDto {
   @IsOptional()
   @IsUUID('4', { message: 'Corretor inválido.' })
   corretorId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LeadProspeccaoDto)
+  prospeccao?: LeadProspeccaoDto | null;
 }
 
 export class ImportLeadsDto {
@@ -98,7 +104,7 @@ export class ImportLeadsDto {
 
   @IsArray()
   @ArrayMinSize(1, { message: 'Envie ao menos 1 registro.' })
-  @ArrayMaxSize(300, { message: 'Máximo de 300 registros por importação.' })
+  @ArrayMaxSize(500, { message: 'Máximo de 500 registros por importação.' })
   @ValidateNested({ each: true })
   @Type(() => ImportLeadItemDto)
   leads!: ImportLeadItemDto[];
