@@ -16,6 +16,7 @@ import {
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import {
   isStatusVendido,
+  documentacaoOperacionalWhere,
   documentacaoVendaNoPeriodoWhere,
 } from '../common/utils/documentacao-status';
 import { requireTenantId, isPlatformAdmin } from '../common/utils/tenant';
@@ -492,6 +493,7 @@ export class MetasService {
         where: {
           tenantId,
           createdAt: { gte: meta.inicio, lt: meta.fim },
+          AND: [documentacaoOperacionalWhere()],
           ...(corretorIds === null
             ? {}
             : { corretorId: { in: corretorIds } }),
@@ -502,6 +504,7 @@ export class MetasService {
         where: {
           tenantId,
           AND: [
+            documentacaoOperacionalWhere(),
             ...(corretorIds === null ? [] : [creditedTo]),
             documentacaoVendaNoPeriodoWhere({
               inicio: meta.inicio,
@@ -523,6 +526,7 @@ export class MetasService {
         where: {
           tenantId,
           AND: [
+            documentacaoOperacionalWhere(),
             ...(corretorIds === null ? [] : [creditedTo]),
             documentacaoVendaNoPeriodoWhere({
               inicio: meta.inicio,
