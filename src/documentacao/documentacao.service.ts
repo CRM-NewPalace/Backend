@@ -325,7 +325,11 @@ export class DocumentacaoService {
       corretorId,
       gerenteId,
       dataAnalise,
-      dataVenda: parseOptionalDate(dto.dataVenda) ?? null,
+      dataVenda:
+        parseOptionalDate(dto.dataVenda) ??
+        (isStatusVendido(status2)
+          ? parseOptionalDate(new Date().toISOString().slice(0, 10)) ?? null
+          : null),
       vgv: dto.vgv ?? null,
       obs: dto.obs?.trim() || null,
       temEntrada: dto.temEntrada ?? false,
@@ -426,9 +430,11 @@ export class DocumentacaoService {
         id: true,
         leadId: true,
         dataAnalise: true,
+        dataVenda: true,
         corretorId: true,
         gerenteId: true,
         status1: true,
+        status2: true,
       },
     });
     if (!existing) {
@@ -505,6 +511,14 @@ export class DocumentacaoService {
     }
     if (dto.dataVenda !== undefined) {
       data.dataVenda = parseOptionalDate(dto.dataVenda) ?? null;
+    } else if (
+      dto.status2 !== undefined &&
+      isStatusVendido(dto.status2) &&
+      !existing.dataVenda &&
+      !isStatusVendido(existing.status2)
+    ) {
+      data.dataVenda =
+        parseOptionalDate(new Date().toISOString().slice(0, 10)) ?? null;
     }
     if (dto.vgv !== undefined) data.vgv = dto.vgv;
     if (dto.obs !== undefined) data.obs = dto.obs?.trim() || null;
