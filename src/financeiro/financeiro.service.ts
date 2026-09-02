@@ -138,14 +138,15 @@ function noPeriodoVisao(d: Date, ano: number, mes?: number): boolean {
 }
 
 function slackBoundsVisao(ano: number, mes?: number) {
+  // Folga de 3h para datas gravadas em UTC-3 (início/fim do mês no Brasil).
   if (mes == null) {
     return {
-      gte: new Date(Date.UTC(ano, 0, 1)),
+      gte: new Date(Date.UTC(ano, 0, 1) - BRASIL_UTC_OFFSET_MS),
       lt: new Date(Date.UTC(ano + 1, 0, 1) + BRASIL_UTC_OFFSET_MS),
     };
   }
   return {
-    gte: new Date(Date.UTC(ano, mes - 1, 1)),
+    gte: new Date(Date.UTC(ano, mes - 1, 1) - BRASIL_UTC_OFFSET_MS),
     lt: new Date(Date.UTC(ano, mes, 1) + BRASIL_UTC_OFFSET_MS),
   };
 }
@@ -2876,7 +2877,7 @@ export class FinanceiroService {
 
   private async buildMesesResumo(tenantId: string, ano: number) {
     const resolvedNatureza = await this.despesaNaturezaResolver(tenantId);
-    const inicioJanela = new Date(Date.UTC(ano, 0, 1));
+    const inicioJanela = new Date(Date.UTC(ano, 0, 1) - BRASIL_UTC_OFFSET_MS);
     const fimJanela = new Date(Date.UTC(ano + 1, 0, 1) + BRASIL_UTC_OFFSET_MS);
     const [comissoesAberto, titulosAbertos, movimentos] = await Promise.all([
       this.prisma.financeiroTitulo.findMany({
