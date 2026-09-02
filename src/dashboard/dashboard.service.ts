@@ -27,6 +27,7 @@ import {
   isStatusAnalise,
   isStatusAprovado,
   isStatusReprovado,
+  documentacaoOperacionalWhere,
   documentacaoVendaNoPeriodoWhere,
   isStatusVendido,
   status2VendidoWhere,
@@ -924,6 +925,7 @@ export class DashboardService {
       where: {
         tenantId,
         AND: [
+          documentacaoOperacionalWhere(),
           {
             OR: [
               { corretorId: { in: corretorIds } },
@@ -974,6 +976,7 @@ export class DashboardService {
     const rows = await this.prisma.documentacao.findMany({
       where: {
         tenantId,
+        AND: [documentacaoOperacionalWhere()],
         OR: [
           { corretorId: { in: ids } },
           { lead: { corretorId: { in: ids } } },
@@ -1193,6 +1196,7 @@ export class DashboardService {
                 tenantId,
                 corretorId,
                 createdAt: { gte: meta.inicio, lt: meta.fim },
+                AND: [documentacaoOperacionalWhere()],
               },
             });
           } else {
@@ -1230,6 +1234,7 @@ export class DashboardService {
               where: {
                 tenantId,
                 createdAt: { gte: meta.inicio, lt: meta.fim },
+                AND: [documentacaoOperacionalWhere()],
               },
             });
           } else {
@@ -1237,6 +1242,7 @@ export class DashboardService {
               where: {
                 tenantId,
                 AND: [
+                  documentacaoOperacionalWhere(),
                   documentacaoVendaNoPeriodoWhere({
                     inicio: meta.inicio,
                     fim: meta.fim,
