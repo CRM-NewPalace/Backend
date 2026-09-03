@@ -6,6 +6,7 @@ import { EquipesModule } from '../equipes/equipes.module';
 import { AnaliseModule } from '../analise/analise.module';
 import { FunisModule } from '../funis/funis.module';
 import { LeadMonitoramentoModule } from './lead-monitoramento.module';
+import { DocumentacaoModule } from '../documentacao/documentacao.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { LeadMonitoramentoModule } from './lead-monitoramento.module';
     AnaliseModule,
     FunisModule,
     LeadMonitoramentoModule,
+    DocumentacaoModule,
   ],
   controllers: [LeadsController],
   providers: [LeadsService],

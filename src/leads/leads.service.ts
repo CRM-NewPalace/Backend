@@ -15,7 +15,11 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user';
-import { requireTenantId, canViewLostLeads } from '../common/utils/tenant';
+import {
+  PLATFORM_TENANT_ID,
+  requireTenantId,
+  canViewLostLeads,
+} from '../common/utils/tenant';
 import { prismaTableOrderBy } from '../common/utils/table-sort';
 import { isCorretorLike } from '../common/utils/roles';
 import { hasUserAction } from '../common/utils/user-permissions';
@@ -24,6 +28,7 @@ import { TeamScopeService } from '../equipes/team-scope.service';
 import { AnaliseService } from '../analise/analise.service';
 import { FunisService } from '../funis/funis.service';
 import { LeadMonitoramentoService } from './monitoramento/lead-monitoramento.service';
+import { DocumentacaoService } from '../documentacao/documentacao.service';
 import { leadSelect, LeadEntity } from './lead-select';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
@@ -85,6 +90,7 @@ export class LeadsService {
     private readonly analiseService: AnaliseService,
     private readonly funis: FunisService,
     private readonly monitoramento: LeadMonitoramentoService,
+    private readonly documentacao: DocumentacaoService,
   ) {}
 
   async create(
@@ -1151,6 +1157,19 @@ export class LeadsService {
         valorFgts: dto.valorFgts,
         temDependente: dto.temDependente,
       });
+    }
+
+    if (
+      tenantId === PLATFORM_TENANT_ID &&
+      stageChanged &&
+      stagePapel === FunilEtapaPapel.venda
+    ) {
+      await this.documentacao.ensureVendaFromFunilStage(
+        tenantId,
+        id,
+        requester.id,
+        stage,
+      );
     }
 
     return this.decorateOne(lead, requester);

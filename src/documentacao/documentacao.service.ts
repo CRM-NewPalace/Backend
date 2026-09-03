@@ -25,7 +25,7 @@ import {
   isStatusParecerFinal,
   isStatusVendido,
 } from '../common/utils/documentacao-status';
-import { requireTenantId } from '../common/utils/tenant';
+import { PLATFORM_TENANT_ID, requireTenantId } from '../common/utils/tenant';
 import { hasUserModule } from '../common/utils/user-permissions';
 import { prismaTableOrderBy } from '../common/utils/table-sort';
 import { CreateDocumentacaoDto } from './dto/create-documentacao.dto';
@@ -118,6 +118,9 @@ export class DocumentacaoService {
 
   async list(query: QueryDocumentacaoDto, requester: AuthenticatedUser) {
     const tenantId = requireTenantId(requester);
+    if (tenantId === PLATFORM_TENANT_ID) {
+      await this.syncPlatformVendasFromFunil(tenantId, requester.id);
+    }
     const visibility = await this.buildVisibilityWhere(requester);
 
     // Evita AND: [{}] — em alguns casos o Prisma devolve lista vazia.
@@ -632,6 +635,7 @@ export class DocumentacaoService {
     switch (requester.role) {
       case Role.admin:
       case Role.analista:
+      case Role.super_admin:
         return {};
       case Role.corretor:
       case Role.treinee:
@@ -855,6 +859,88 @@ export class DocumentacaoService {
   /** Exclusão permanece restrita a admin e analista. */
   private canDeleteDocumentacao(requester: AuthenticatedUser): boolean {
     return requester.role === Role.admin || requester.role === Role.analista;
+  }
+
+  /**
+   * Super admin: lead em Ganho/Venda vira venda (ficha vendida), sem VGV.
+   */
+  async ensureVendaFromFunilStage(
+    tenantId: string,
+    leadId: string,
+    autorId: string,
+    stage: string,
+  ) {
+    if (tenantId !== PLATFORM_TENANT_ID) return;
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, tenantId, perdidoAt: null },
+      select: {
+        nome: true,
+        tipo: true,
+        origem: true,
+        corretorId: true,
+        construtoraId: true,
+        empreendimentoId: true,
+      },
+    });
+    if (!lead) return;
+
+    const existing = await this.prisma.documentacao.findFirst({
+      where: { tenantId, leadId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status2: true, dataVenda: true },
+    });
+    const now = new Date();
+    if (existing) {
+      await this.prisma.documentacao.update({
+        where: { id: existing.id },
+        data: {
+          stageSituacao: stage,
+          ...(!isStatusVendido(existing.status2)
+            ? { status2: 'Vendido', dataVenda: existing.dataVenda ?? now }
+            : {}),
+        },
+      });
+      return;
+    }
+
+    await this.prisma.documentacao.create({
+      data: {
+        tenantId,
+        leadId,
+        autorId,
+        tipoContato: lead.tipo,
+        stageSituacao: stage,
+        nome: lead.nome,
+        fonte: lead.origem?.trim() || 'Outro',
+        status1: 'Aprovado',
+        status2: 'Vendido',
+        corretorId: lead.corretorId,
+        construtoraId: lead.construtoraId,
+        empreendimentoId: lead.empreendimentoId,
+        dataVenda: now,
+      },
+    });
+  }
+
+  async syncPlatformVendasFromFunil(tenantId: string, autorId: string) {
+    if (tenantId !== PLATFORM_TENANT_ID) return;
+    const vendaSlug = await this.funis.getSlugByPapel(
+      tenantId,
+      FunilEtapaPapel.venda,
+    );
+    if (!vendaSlug) return;
+    const leads = await this.prisma.lead.findMany({
+      where: { tenantId, stage: vendaSlug, perdidoAt: null },
+      select: { id: true, stage: true },
+    });
+    for (const lead of leads) {
+      await this.ensureVendaFromFunilStage(
+        tenantId,
+        lead.id,
+        autorId,
+        lead.stage,
+      );
+    }
   }
 
   /**
