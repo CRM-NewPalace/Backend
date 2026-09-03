@@ -260,6 +260,27 @@ export class LeadMonitoramentoService {
     });
   }
 
+  /**
+   * Registrar atividade/tarefa encerra follow-ups vencidos para o lead
+   * sair do atraso por tarefa atrasada.
+   */
+  async concludeOverdueTarefas(
+    tenantId: string,
+    leadId: string,
+    now = new Date(),
+    exceptId?: string,
+  ) {
+    await this.prisma.agendamento.updateMany({
+      where: {
+        tenantId,
+        leadId,
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+        ...overdueTarefaWhere(now),
+      },
+      data: { status: AgendamentoStatus.concluido },
+    });
+  }
+
   async applyStageToLeads(
     tenantId: string,
     leadIds: string[],

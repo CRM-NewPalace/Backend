@@ -780,10 +780,22 @@ export class AgendaService {
         requester.id,
         tenantId,
       );
+      await this.monitoramento.concludeOverdueTarefas(
+        tenantId,
+        lead.id,
+        new Date(),
+        created.id,
+      );
     } else if (lead && created.tipo !== AgendamentoTipo.bloqueio) {
       await this.monitoramento.recordMovement(
         lead.id,
         created.tipo === AgendamentoTipo.tarefa ? 'tarefa' : 'atividade',
+      );
+      await this.monitoramento.concludeOverdueTarefas(
+        tenantId,
+        lead.id,
+        new Date(),
+        created.id,
       );
     }
 
