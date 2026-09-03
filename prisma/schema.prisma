@@ -115,6 +115,8 @@ model Tenant {
 
   /// Branding visual (nível 1).
   logoUrl      String?
+  /// Public ID no Cloudinary (upload da logo da imobiliária).
+  logoPublicId String?
   /// Cor primária em hex (#RRGGBB). Null = tema padrão da plataforma.
   primaryColor String?
 

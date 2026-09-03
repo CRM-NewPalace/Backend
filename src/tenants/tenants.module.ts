@@ -7,9 +7,10 @@ import { BootstrapTenantConnectionsService } from './bootstrap-tenant-connection
 import { TenantLogoColorService } from './tenant-logo-color.service';
 import { TenantDemoDataService } from './tenant-demo-data.service';
 import { OruloModule } from '../orulo/orulo.module';
+import { MediaModule } from '../media/media.module';
 
 @Module({
-  imports: [OruloModule],
+  imports: [OruloModule, MediaModule],
   controllers: [
     TenantCompanyController,
     TenantModulesController,

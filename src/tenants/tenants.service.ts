@@ -47,6 +47,7 @@ import {
 import { AuthenticatedUser } from '../common/types/authenticated-user';
 import { TenantLogoColorService } from './tenant-logo-color.service';
 import { TenantDemoDataService } from './tenant-demo-data.service';
+import { MediaService } from '../media/media.service';
 import { encryptSecret, metaTokenKey } from '../meta/meta-token.crypto';
 import { PopulateDemoDataDto } from './dto/populate-demo-data.dto';
 import { UpdateTenantAdminDto } from './dto/update-tenant-admin.dto';
@@ -114,6 +115,7 @@ export class TenantsService {
     private readonly tenantLogoColor: TenantLogoColorService,
     private readonly demoDataService: TenantDemoDataService,
     private readonly config: ConfigService,
+    private readonly media: MediaService,
   ) {}
 
   /**
@@ -595,6 +597,7 @@ export class TenantsService {
         iaBotEnabled: true,
         modules: true,
         logoUrl: true,
+        logoPublicId: true,
       },
     });
     if (!current) throw new NotFoundException('Tenant não encontrado.');
@@ -633,6 +636,9 @@ export class TenantsService {
     const primaryColor = logoChanged
       ? await this.tenantLogoColor.extractPrimaryColor(extras.logoUrl ?? null)
       : undefined;
+    if (logoChanged) {
+      await this.media.destroy(current.logoPublicId);
+    }
 
     try {
       return await this.prisma.tenant.update({
@@ -652,7 +658,9 @@ export class TenantsService {
           usuariosExtras: planFields.usuariosExtras,
           iaBotEnabled: planFields.iaBotEnabled,
           ...(dto.isTest !== undefined ? { isTest: dto.isTest } : {}),
-          ...(logoChanged ? { primaryColor } : {}),
+          ...(logoChanged
+            ? { primaryColor, logoPublicId: null }
+            : {}),
           sidebarStyle: 'default',
           density: 'comfortable',
           homePath: '/dashboard',
@@ -958,17 +966,7 @@ export class TenantsService {
     requester: AuthenticatedUser,
     dto: UpdateTenantCompanyDto,
   ) {
-    if (requester.role !== Role.admin) {
-      throw new ForbiddenException(
-        'Somente o administrador pode editar os dados da imobiliária.',
-      );
-    }
-    const tenantId = requireTenantId(requester);
-    if (tenantId === PLATFORM_TENANT_ID) {
-      throw new BadRequestException(
-        'O tenant interno da plataforma não pode ser alterado por aqui.',
-      );
-    }
+    const tenantId = this.assertCanEditCompany(requester);
     await this.ensureExists(tenantId);
 
     return this.prisma.tenant.update({
@@ -992,6 +990,72 @@ export class TenantsService {
       },
       select: tenantBrandingSelect,
     });
+  }
+
+  async uploadCompanyLogo(
+    requester: AuthenticatedUser,
+    rawFile: Express.Multer.File | undefined,
+  ) {
+    const tenantId = this.assertCanEditCompany(requester);
+    const current = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { logoPublicId: true },
+    });
+    if (!current) throw new NotFoundException('Tenant não encontrado.');
+
+    const file = this.media.requireFile(rawFile);
+    const uploaded = await this.media.uploadImage({
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+      folder: this.media.folder(tenantId, 'tenants', tenantId),
+      maxWidth: 1600,
+      maxHeight: 1600,
+    });
+    const primaryColor = await this.tenantLogoColor.extractPrimaryColor(
+      uploaded.url,
+    );
+    await this.media.destroy(current.logoPublicId);
+
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        logoUrl: uploaded.url,
+        logoPublicId: uploaded.publicId,
+        primaryColor,
+      },
+      select: tenantBrandingSelect,
+    });
+  }
+
+  async removeCompanyLogo(requester: AuthenticatedUser) {
+    const tenantId = this.assertCanEditCompany(requester);
+    const current = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { logoPublicId: true },
+    });
+    if (!current) throw new NotFoundException('Tenant não encontrado.');
+
+    await this.media.destroy(current.logoPublicId);
+    return this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { logoUrl: null, logoPublicId: null, primaryColor: null },
+      select: tenantBrandingSelect,
+    });
+  }
+
+  private assertCanEditCompany(requester: AuthenticatedUser): string {
+    if (requester.role !== Role.admin) {
+      throw new ForbiddenException(
+        'Somente o administrador pode editar os dados da imobiliária.',
+      );
+    }
+    const tenantId = requireTenantId(requester);
+    if (tenantId === PLATFORM_TENANT_ID) {
+      throw new BadRequestException(
+        'O tenant interno da plataforma não pode ser alterado por aqui.',
+      );
+    }
+    return tenantId;
   }
 
   async getOperationModules(requester: AuthenticatedUser) {
