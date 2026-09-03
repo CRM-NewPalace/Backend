@@ -347,6 +347,8 @@ export class DashboardService {
     };
     const leadCriadoWhere = (periodo: Periodo) => ({
       tenantId,
+      tipo: ContatoTipo.lead,
+      perdidoAt: null as null,
       createdAt: { gte: periodo.inicio, lt: periodo.fim },
       ...origemWhere,
       ...(corretorIds ? { corretorId: { in: corretorIds } } : {}),
