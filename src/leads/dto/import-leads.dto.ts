@@ -104,7 +104,7 @@ export class ImportLeadsDto {
 
   @IsArray()
   @ArrayMinSize(1, { message: 'Envie ao menos 1 registro.' })
-  @ArrayMaxSize(500, { message: 'Máximo de 500 registros por importação.' })
+  @ArrayMaxSize(600, { message: 'Máximo de 600 registros por importação.' })
   @ValidateNested({ each: true })
   @Type(() => ImportLeadItemDto)
   leads!: ImportLeadItemDto[];
