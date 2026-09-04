@@ -33,7 +33,7 @@ import { leadSelect, LeadEntity } from './lead-select';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
-import { ImportLeadsDto } from './dto/import-leads.dto';
+import { CheckImportLeadsDto, ImportLeadsDto } from './dto/import-leads.dto';
 import { AdiarPrazoDto } from './dto/adiar-prazo.dto';
 import type { LeadMonitoramento } from './monitoramento/lead-monitoramento.types';
 import {
@@ -41,6 +41,25 @@ import {
   DistribuirEquipesDto,
 } from './dto/distribuir-leads.dto';
 import { sanitizeProspeccao } from './lead-prospeccao';
+
+/** Dígitos nacionais (DDD + número), ignora DDI 55. */
+function nationalPhoneKey(value: string): string {
+  let digits = value.replace(/\D/g, '');
+  if (digits.startsWith('55') && digits.length >= 12) {
+    digits = digits.slice(2);
+  }
+  return digits.slice(0, 11);
+}
+
+function isSyntheticEmail(email: string | null | undefined): boolean {
+  const n = (email ?? '').trim().toLowerCase();
+  return (
+    !n ||
+    n.endsWith('@sem-email.local') ||
+    n.endsWith('@pendente.local') ||
+    n.endsWith('@sememail.local')
+  );
+}
 
 export type LeadWithDocStatus = LeadEntity & {
   documentacaoStatus1: string | null;
@@ -189,11 +208,59 @@ export class LeadsService {
       ),
     );
 
+    const kindLabel = tipo === ContatoTipo.cliente ? 'cliente' : 'lead';
+    const existing = await this.loadImportExistingIndex(tenantId, tipo);
+
     const created: LeadEntity[] = [];
     const errors: Array<{ index: number; nome: string; message: string }> = [];
+    const seenPhones = new Set<string>(existing.phone.keys());
+    const seenEmails = new Set<string>(existing.email.keys());
 
     for (let index = 0; index < dto.leads.length; index++) {
       const item = dto.leads[index];
+      const phoneKey = nationalPhoneKey(item.telefone);
+      const emailKey = item.email?.trim().toLowerCase() || '';
+      if (phoneKey && existing.phone.has(phoneKey)) {
+        const nomeExistente = existing.phone.get(phoneKey) ?? '';
+        errors.push({
+          index,
+          nome: item.nome,
+          message: `Já existe um ${kindLabel} na base com este telefone${
+            nomeExistente ? ` (${nomeExistente})` : ''
+          }.`,
+        });
+        continue;
+      }
+      if (phoneKey && seenPhones.has(phoneKey)) {
+        errors.push({
+          index,
+          nome: item.nome,
+          message: 'Telefone repetido nesta importação.',
+        });
+        continue;
+      }
+      if (emailKey && !isSyntheticEmail(emailKey) && existing.email.has(emailKey)) {
+        const nomeExistente = existing.email.get(emailKey) ?? '';
+        errors.push({
+          index,
+          nome: item.nome,
+          message: `Já existe um ${kindLabel} na base com este e-mail${
+            nomeExistente ? ` (${nomeExistente})` : ''
+          }.`,
+        });
+        continue;
+      }
+      if (emailKey && !isSyntheticEmail(emailKey) && seenEmails.has(emailKey)) {
+        errors.push({
+          index,
+          nome: item.nome,
+          message: 'E-mail repetido nesta importação.',
+        });
+        continue;
+      }
+      if (phoneKey) seenPhones.add(phoneKey);
+      if (emailKey && !isSyntheticEmail(emailKey)) seenEmails.add(emailKey);
+
       try {
         /**
          * Importação de leads começa sem dono (pool).
@@ -1615,6 +1682,52 @@ export class LeadsService {
 
   syncMonitoramentoNotificacoes(requester: AuthenticatedUser) {
     return this.monitoramento.syncNotificacoes(requester);
+  }
+
+  async checkImportDuplicates(
+    dto: CheckImportLeadsDto,
+    requester: AuthenticatedUser,
+  ) {
+    const tenantId = requireTenantId(requester);
+    const tipo =
+      dto.tipo === 'cliente' ? ContatoTipo.cliente : ContatoTipo.lead;
+    const existing = await this.loadImportExistingIndex(tenantId, tipo);
+    const kindLabel = tipo === ContatoTipo.cliente ? 'cliente' : 'lead';
+    const phones: Record<string, string> = {};
+    const emails: Record<string, string> = {};
+    for (const raw of dto.telefones ?? []) {
+      const key = nationalPhoneKey(raw);
+      const nome = key ? existing.phone.get(key) : undefined;
+      if (key && nome) phones[key] = nome;
+    }
+    for (const raw of dto.emails ?? []) {
+      const key = raw.trim().toLowerCase();
+      if (isSyntheticEmail(key)) continue;
+      const nome = existing.email.get(key);
+      if (nome) emails[key] = nome;
+    }
+    return { tipo: kindLabel, phones, emails };
+  }
+
+  private async loadImportExistingIndex(
+    tenantId: string,
+    tipo: ContatoTipo,
+  ) {
+    const rows = await this.prisma.lead.findMany({
+      where: { tenantId, tipo },
+      select: { nome: true, telefone: true, email: true },
+    });
+    const phone = new Map<string, string>();
+    const email = new Map<string, string>();
+    for (const row of rows) {
+      const phoneKey = nationalPhoneKey(row.telefone);
+      if (phoneKey && !phone.has(phoneKey)) phone.set(phoneKey, row.nome);
+      const emailKey = row.email.trim().toLowerCase();
+      if (!isSyntheticEmail(emailKey) && !email.has(emailKey)) {
+        email.set(emailKey, row.nome);
+      }
+    }
+    return { phone, email };
   }
 
   private async decorateOne(

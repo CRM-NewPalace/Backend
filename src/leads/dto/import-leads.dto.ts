@@ -109,3 +109,21 @@ export class ImportLeadsDto {
   @Type(() => ImportLeadItemDto)
   leads!: ImportLeadItemDto[];
 }
+
+/** Prévia da importação: telefones/e-mails já cadastrados no tenant. */
+export class CheckImportLeadsDto {
+  @IsOptional()
+  @IsIn(CONTATO_TIPOS, { message: 'Tipo inválido.' })
+  tipo?: (typeof CONTATO_TIPOS)[number];
+
+  @IsArray()
+  @ArrayMaxSize(600)
+  @IsString({ each: true })
+  telefones!: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(600)
+  @IsString({ each: true })
+  emails?: string[];
+}

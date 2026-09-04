@@ -23,7 +23,7 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { UpdateLeadStageDto } from './dto/update-lead-stage.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { MarkLeadLostDto } from './dto/mark-lead-lost.dto';
-import { ImportLeadsDto } from './dto/import-leads.dto';
+import { CheckImportLeadsDto, ImportLeadsDto } from './dto/import-leads.dto';
 import { AdiarPrazoDto } from './dto/adiar-prazo.dto';
 import {
   DistribuirCorretoresDto,
@@ -52,6 +52,14 @@ export class LeadsController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.leadsService.importMany(dto, requester);
+  }
+
+  @Post('import/check')
+  checkImport(
+    @Body() dto: CheckImportLeadsDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.checkImportDuplicates(dto, requester);
   }
 
   @Get('distribuir/resumo')
