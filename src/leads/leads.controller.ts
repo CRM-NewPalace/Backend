@@ -23,6 +23,10 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { UpdateLeadStageDto } from './dto/update-lead-stage.dto';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { MarkLeadLostDto } from './dto/mark-lead-lost.dto';
+import {
+  MarkLeadsLostBulkDto,
+  RemoveLeadsBulkDto,
+} from './dto/mark-leads-lost-bulk.dto';
 import { CheckImportLeadsDto, ImportLeadsDto } from './dto/import-leads.dto';
 import { AdiarPrazoDto } from './dto/adiar-prazo.dto';
 import {
@@ -87,6 +91,26 @@ export class LeadsController {
     @CurrentUser() requester: AuthenticatedUser,
   ) {
     return this.leadsService.distribuirCorretores(dto, requester);
+  }
+
+  /** Soft-delete em lote — precisa ficar antes de POST :id/perder. */
+  @Post('perder')
+  markLostMany(
+    @Body() dto: MarkLeadsLostBulkDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.markLostMany(dto.ids, dto.motivo, requester);
+  }
+
+  /** Exclusão definitiva em lote — só admin, leads já perdidos. */
+  @Post('perdidos/excluir')
+  @UseGuards(RolesGuard)
+  @Roles(Role.admin, Role.super_admin)
+  removeMany(
+    @Body() dto: RemoveLeadsBulkDto,
+    @CurrentUser() requester: AuthenticatedUser,
+  ) {
+    return this.leadsService.removeMany(dto.ids, requester);
   }
 
   @Get()

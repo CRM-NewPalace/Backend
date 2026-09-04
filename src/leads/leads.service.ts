@@ -1321,6 +1321,81 @@ export class LeadsService {
     return this.decorateOne(updated, requester);
   }
 
+  /**
+   * Soft-delete em lote: um único update, sem decorate por item
+   * (o decorate individual estoura timeout/CPU em dezenas de leads).
+   */
+  async markLostMany(
+    ids: string[],
+    motivo: string,
+    requester: AuthenticatedUser,
+  ): Promise<{ ok: true; updated: number; skipped: number; ids: string[] }> {
+    const tenantId = requireTenantId(requester);
+    const unique = [...new Set(ids)];
+    const motivoTrim = motivo.trim();
+    if (!motivoTrim) {
+      throw new BadRequestException('Informe o motivo da exclusão.');
+    }
+
+    if (isCorretorLike(requester.role)) {
+      const catalogMotivo = await this.prisma.catalogItem.findFirst({
+        where: {
+          tenantId,
+          type: CatalogType.motivo_perda,
+          label: motivoTrim,
+          active: true,
+        },
+        select: { id: true },
+      });
+      if (!catalogMotivo) {
+        throw new BadRequestException(
+          'Use um motivo de perda cadastrado pela gerência.',
+        );
+      }
+    }
+
+    const rows = await this.prisma.lead.findMany({
+      where: {
+        tenantId,
+        id: { in: unique },
+        perdidoAt: null,
+      },
+      select: { id: true, corretorId: true, equipeId: true },
+    });
+
+    const allowed = await this.filterAccessibleLeadIds(rows, requester);
+
+    if (allowed.length === 0) {
+      return { ok: true, updated: 0, skipped: unique.length, ids: [] };
+    }
+
+    const perdidoStage =
+      (await this.funis.getSlugByPapel(tenantId, FunilEtapaPapel.perdido)) ??
+      undefined;
+    const timing = perdidoStage
+      ? await this.monitoramento.stageChangeData(tenantId, perdidoStage)
+      : null;
+    const now = new Date();
+
+    await this.prisma.lead.updateMany({
+      where: { tenantId, id: { in: allowed }, perdidoAt: null },
+      data: {
+        perdidoAt: now,
+        motivoPerda: motivoTrim,
+        perdidoPorId: requester.id,
+        ...(perdidoStage ? { stage: perdidoStage } : {}),
+        ...(timing ?? {}),
+      },
+    });
+
+    return {
+      ok: true,
+      updated: allowed.length,
+      skipped: unique.length - allowed.length,
+      ids: allowed,
+    };
+  }
+
   async remove(id: string, requester: AuthenticatedUser): Promise<void> {
     const tenantId = requireTenantId(requester);
     // Hard delete só para admin/super_admin, e apenas de leads já perdidos.
@@ -1368,6 +1443,78 @@ export class LeadsService {
       }
       throw err;
     }
+  }
+
+  async removeMany(
+    ids: string[],
+    requester: AuthenticatedUser,
+  ): Promise<{ ok: true; deleted: number; failed: number; failedIds: string[] }> {
+    const tenantId = requireTenantId(requester);
+    if (!canViewLostLeads(requester)) {
+      throw new ForbiddenException(
+        'Para remover um lead da operação, informe o motivo — ele irá para Leads Perdidos.',
+      );
+    }
+
+    const unique = [...new Set(ids)];
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        tenantId,
+        id: { in: unique },
+        perdidoAt: { not: null },
+      },
+      select: { id: true },
+    });
+    const allowed = leads.map((l) => l.id);
+    const failedIds: string[] = unique.filter((id) => !allowed.includes(id));
+
+    if (allowed.length === 0) {
+      return { ok: true, deleted: 0, failed: failedIds.length, failedIds };
+    }
+
+    const CHUNK = 40;
+    let deleted = 0;
+    const pending = [...allowed];
+    while (pending.length > 0) {
+      const chunk = pending.splice(0, CHUNK);
+      const docs = await this.prisma.documentacao.findMany({
+        where: { tenantId, leadId: { in: chunk } },
+        select: { id: true },
+      });
+      const docIds = docs.map((d) => d.id);
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          if (docIds.length > 0) {
+            await tx.financeiroComissao.deleteMany({
+              where: { tenantId, documentacaoId: { in: docIds } },
+            });
+          }
+          await tx.lead.deleteMany({
+            where: { tenantId, id: { in: chunk } },
+          });
+        });
+        deleted += chunk.length;
+      } catch (err) {
+        if (
+          !(
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2003'
+          )
+        ) {
+          throw err;
+        }
+        for (const id of chunk) {
+          try {
+            await this.remove(id, requester);
+            deleted += 1;
+          } catch {
+            failedIds.push(id);
+          }
+        }
+      }
+    }
+
+    return { ok: true, deleted, failed: failedIds.length, failedIds };
   }
 
   /**
@@ -1502,6 +1649,54 @@ export class LeadsService {
     if (!allowed) {
       throw new NotFoundException('Lead não encontrado.');
     }
+  }
+
+  private async filterAccessibleLeadIds(
+    rows: Array<{
+      id: string;
+      corretorId: string | null;
+      equipeId: string | null;
+    }>,
+    requester: AuthenticatedUser,
+  ): Promise<string[]> {
+    const visible = await this.teamScope.getVisibleCorretorIds(requester);
+    let gerenteEquipeIds: Set<string> | null = null;
+    if (requester.role === Role.gerente) {
+      const equipes = await this.prisma.equipe.findMany({
+        where: { gerenteId: requester.id, tenantId: requireTenantId(requester) },
+        select: { id: true },
+      });
+      gerenteEquipeIds = new Set(equipes.map((e) => e.id));
+    }
+
+    return rows
+      .filter((lead) => {
+        if (!lead.corretorId) {
+          if (
+            requester.role === Role.admin ||
+            requester.role === Role.super_admin ||
+            requester.role === Role.analista
+          ) {
+            return true;
+          }
+          if (requester.role === Role.gerente) {
+            if (!lead.equipeId) return true;
+            return gerenteEquipeIds?.has(lead.equipeId) ?? false;
+          }
+          return false;
+        }
+        if (
+          (requester.role === Role.admin ||
+            requester.role === Role.super_admin ||
+            requester.role === Role.gerente) &&
+          lead.corretorId === requester.id
+        ) {
+          return true;
+        }
+        if (visible === null) return true;
+        return visible.includes(lead.corretorId);
+      })
+      .map((l) => l.id);
   }
 
   private async ensureExistsAndAccessible(
@@ -1714,7 +1909,7 @@ export class LeadsService {
     tipo: ContatoTipo,
   ) {
     const rows = await this.prisma.lead.findMany({
-      where: { tenantId, tipo },
+      where: { tenantId, tipo, perdidoAt: null },
       select: { nome: true, telefone: true, email: true },
     });
     const phone = new Map<string, string>();
