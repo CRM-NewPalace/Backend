@@ -116,10 +116,11 @@ export class CheckImportLeadsDto {
   @IsIn(CONTATO_TIPOS, { message: 'Tipo inválido.' })
   tipo?: (typeof CONTATO_TIPOS)[number];
 
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(600)
   @IsString({ each: true })
-  telefones!: string[];
+  telefones?: string[];
 
   @IsOptional()
   @IsArray()
