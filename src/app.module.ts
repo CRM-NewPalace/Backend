@@ -32,6 +32,7 @@ import { MetaModule } from './meta/meta.module';
 import { OruloModule } from './orulo/orulo.module';
 import { PropostasModule } from './propostas/propostas.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
+import { FuncionariosModule } from './funcionarios/funcionarios.module';
 import { PlatformContratosModule } from './platform-contratos/platform-contratos.module';
 import { PlatformFornecedorContratosModule } from './platform-fornecedor-contratos/platform-fornecedor-contratos.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -65,6 +66,7 @@ import { THROTTLE } from './config/security.constants';
     OruloModule,
     PropostasModule,
     FinanceiroModule,
+    FuncionariosModule,
     PlatformContratosModule,
     PlatformFornecedorContratosModule,
     EquipesModule,
