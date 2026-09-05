@@ -80,26 +80,28 @@ function calcBases(
 
 function parseLancamentos(raw: Prisma.JsonValue): Lancamento[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
-      const row = item as {
-        codigo?: unknown;
-        descricao?: unknown;
-        referencia?: unknown;
-        valor?: unknown;
-      };
-      const descricao = String(row.descricao ?? '').trim();
-      const valor = money2(Number(row.valor));
-      if (!descricao) return null;
-      return {
-        codigo: String(row.codigo ?? '').trim() || undefined,
-        descricao,
-        referencia: String(row.referencia ?? '').trim() || undefined,
-        valor,
-      };
-    })
-    .filter((item): item is Lancamento => item !== null);
+  const items: Lancamento[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const row = item as {
+      codigo?: unknown;
+      descricao?: unknown;
+      referencia?: unknown;
+      valor?: unknown;
+    };
+    const descricao = String(row.descricao ?? '').trim();
+    if (!descricao) continue;
+    const parsed: Lancamento = {
+      descricao,
+      valor: money2(Number(row.valor)),
+    };
+    const codigo = String(row.codigo ?? '').trim();
+    const referencia = String(row.referencia ?? '').trim();
+    if (codigo) parsed.codigo = codigo;
+    if (referencia) parsed.referencia = referencia;
+    items.push(parsed);
+  }
+  return items;
 }
 
 function competenciaAtual() {
