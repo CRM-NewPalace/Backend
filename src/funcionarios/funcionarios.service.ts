@@ -14,7 +14,12 @@ import {
   UpdateFuncionarioDto,
 } from './dto/funcionario.dto';
 
-export type Lancamento = { descricao: string; valor: number };
+export type Lancamento = {
+  codigo?: string;
+  descricao: string;
+  referencia?: string;
+  valor: number;
+};
 
 const STAFF_ROLES: Role[] = [Role.admin, Role.financeiro, Role.super_admin];
 
@@ -33,7 +38,9 @@ function money2(n: number) {
 function normalizeLancamentos(items?: LancamentoDto[]): Lancamento[] {
   return (items ?? [])
     .map((item) => ({
+      codigo: item.codigo?.trim() || undefined,
       descricao: item.descricao.trim(),
+      referencia: item.referencia?.trim() || undefined,
       valor: money2(item.valor),
     }))
     .filter((item) => item.descricao.length > 0);
@@ -47,16 +54,50 @@ function liquido(bruto: number, beneficios: Lancamento[], descontos: Lancamento[
   return money2(bruto + sumLancamentos(beneficios) - sumLancamentos(descontos));
 }
 
+function parseOptionalDate(value?: string) {
+  if (!value?.trim()) return null;
+  const date = new Date(`${value.trim().slice(0, 10)}T12:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function calcBases(
+  bruto: number,
+  beneficios: Lancamento[],
+  descontos: Lancamento[],
+) {
+  const vencimentos = money2(bruto + sumLancamentos(beneficios));
+  const inss = descontos.find((item) => /inss|i\.n\.s\.s/i.test(item.descricao));
+  const salarioContrInss = vencimentos;
+  const baseFgts = vencimentos;
+  return {
+    salarioBase: bruto,
+    salarioContrInss,
+    baseFgts,
+    fgtsMes: money2(baseFgts * 0.08),
+    baseIrpf: money2(Math.max(0, salarioContrInss - (inss?.valor ?? 0))),
+  };
+}
+
 function parseLancamentos(raw: Prisma.JsonValue): Lancamento[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
-      const row = item as { descricao?: unknown; valor?: unknown };
+      const row = item as {
+        codigo?: unknown;
+        descricao?: unknown;
+        referencia?: unknown;
+        valor?: unknown;
+      };
       const descricao = String(row.descricao ?? '').trim();
       const valor = money2(Number(row.valor));
       if (!descricao) return null;
-      return { descricao, valor };
+      return {
+        codigo: String(row.codigo ?? '').trim() || undefined,
+        descricao,
+        referencia: String(row.referencia ?? '').trim() || undefined,
+        valor,
+      };
     })
     .filter((item): item is Lancamento => item !== null);
 }
@@ -120,6 +161,9 @@ export class FuncionariosService {
         nome: dto.nome.trim(),
         cargo: dto.cargo.trim(),
         empresa,
+        codigo: dto.codigo?.trim() ?? '',
+        dataAdmissao: parseOptionalDate(dto.dataAdmissao),
+        cbo: dto.cbo?.trim() ?? '',
         status: dto.status ?? UserStatus.ativo,
         salarioBruto: money2(dto.salarioBruto),
         beneficios,
@@ -144,6 +188,9 @@ export class FuncionariosService {
         nome: dto.nome.trim(),
         cargo: dto.cargo.trim(),
         empresa,
+        codigo: dto.codigo?.trim() ?? '',
+        dataAdmissao: parseOptionalDate(dto.dataAdmissao),
+        cbo: dto.cbo?.trim() ?? '',
         status: dto.status ?? current.status,
         salarioBruto: money2(dto.salarioBruto),
         beneficios: normalizeLancamentos(dto.beneficios),
@@ -198,7 +245,14 @@ export class FuncionariosService {
     const beneficios = parseLancamentos(funcionario.beneficios);
     const descontos = parseLancamentos(funcionario.descontos);
     const salarioBruto = money2(funcionario.salarioBruto);
+    const totalVencimentos = money2(salarioBruto + sumLancamentos(beneficios));
+    const totalDescontos = sumLancamentos(descontos);
     const salarioLiquido = liquido(salarioBruto, beneficios, descontos);
+    const bases = calcBases(salarioBruto, beneficios, descontos);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: funcionario.tenantId },
+      select: { documento: true, endereco: true, cidade: true },
+    });
 
     const snapshot = await this.prisma.contracheque.upsert({
       where: {
@@ -216,6 +270,9 @@ export class FuncionariosService {
         nomeSnapshot: funcionario.nome,
         cargoSnapshot: funcionario.cargo,
         empresaSnapshot: funcionario.empresa,
+        codigoSnapshot: funcionario.codigo,
+        cboSnapshot: funcionario.cbo,
+        admissaoSnapshot: funcionario.dataAdmissao,
         salarioBruto,
         beneficios,
         descontos,
@@ -227,6 +284,9 @@ export class FuncionariosService {
         nomeSnapshot: funcionario.nome,
         cargoSnapshot: funcionario.cargo,
         empresaSnapshot: funcionario.empresa,
+        codigoSnapshot: funcionario.codigo,
+        cboSnapshot: funcionario.cbo,
+        admissaoSnapshot: funcionario.dataAdmissao,
         salarioBruto,
         beneficios,
         descontos,
@@ -236,10 +296,23 @@ export class FuncionariosService {
       },
     });
 
+    const endereco = [tenant?.endereco, tenant?.cidade]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(' — ');
     const buffer = await buildContrachequePdf({
       empresa: snapshot.empresaSnapshot,
+      endereco,
+      cnpj: tenant?.documento?.trim() || undefined,
       nome: snapshot.nomeSnapshot,
       cargo: snapshot.cargoSnapshot,
+      codigo: snapshot.codigoSnapshot,
+      cbo: snapshot.cboSnapshot,
+      admissaoLabel: snapshot.admissaoSnapshot
+        ? snapshot.admissaoSnapshot.toLocaleDateString('pt-BR', {
+            timeZone: 'UTC',
+          })
+        : '',
       competenciaLabel: competenciaLabel(month, year),
       dataPagamentoLabel: date.toLocaleDateString('pt-BR', {
         timeZone: 'UTC',
@@ -248,6 +321,9 @@ export class FuncionariosService {
       beneficios,
       descontos,
       salarioLiquido,
+      totalVencimentos,
+      totalDescontos,
+      ...bases,
       observacoes: snapshot.observacoes,
     });
 
@@ -288,6 +364,9 @@ export class FuncionariosService {
     nome: string;
     cargo: string;
     empresa: string;
+    codigo: string;
+    dataAdmissao: Date | null;
+    cbo: string;
     status: UserStatus;
     salarioBruto: number;
     beneficios: Prisma.JsonValue;
@@ -310,6 +389,11 @@ export class FuncionariosService {
       nome: row.nome,
       cargo: row.cargo,
       empresa: row.empresa,
+      codigo: row.codigo,
+      dataAdmissao: row.dataAdmissao
+        ? row.dataAdmissao.toISOString().slice(0, 10)
+        : null,
+      cbo: row.cbo,
       status: row.status,
       salarioBruto,
       beneficios,
@@ -330,6 +414,9 @@ export class FuncionariosService {
     nome: string;
     cargo: string;
     empresa: string;
+    codigo: string;
+    dataAdmissao: Date | null;
+    cbo: string;
     status: UserStatus;
     salarioBruto: number;
     beneficios: Prisma.JsonValue;

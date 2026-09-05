@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsDateString,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -14,10 +15,20 @@ import {
 import { UserStatus } from '@prisma/client';
 
 export class LancamentoDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  codigo?: string;
+
   @IsString()
   @MinLength(1, { message: 'Informe a descrição.' })
   @MaxLength(120)
   descricao!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  referencia?: string;
 
   @Type(() => Number)
   @IsNumber({}, { message: 'Valor inválido.' })
@@ -40,6 +51,20 @@ export class CreateFuncionarioDto {
   @IsString()
   @MaxLength(160)
   empresa?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  codigo?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dataAdmissao?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  cbo?: string;
 
   @IsOptional()
   @IsEnum(UserStatus)

@@ -2754,6 +2754,11 @@ model Funcionario {
   nome     String
   cargo    String
   empresa  String
+  /// Código interno do colaborador no recibo.
+  codigo   String     @default("")
+  dataAdmissao DateTime?
+  /// Código Brasileiro de Ocupações.
+  cbo      String     @default("")
   status   UserStatus @default(ativo)
   salarioBruto Float
   /// [{ descricao, valor }]
@@ -2784,6 +2789,9 @@ model Contracheque {
   nomeSnapshot     String
   cargoSnapshot    String
   empresaSnapshot  String
+  codigoSnapshot   String @default("")
+  cboSnapshot      String @default("")
+  admissaoSnapshot DateTime?
   salarioBruto     Float
   beneficios       Json
   descontos        Json
